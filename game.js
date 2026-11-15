@@ -20,6 +20,8 @@
     });
   } catch (e) { /* 잘못된 cfg 는 무시 */ }
   const P = C.PHYSICS, IF = C.ICE_FIELD;
+  const SIM = C.WATER_SIM;
+  let sim = null;                                            // 물 엔진 (water.js)
   const WC = () => C.water;   // 프리셋 교체를 즉시 반영
 
   const COL = {
@@ -319,6 +321,7 @@
 
   function reset() {
     S.time = 0; S.finished = false; S.stepN = 0;
+    sim = SIM.enabled && window.WaterSim ? window.WaterSim.create(SIM) : null;
     S.cands = genField();
     S.floePool = Array.from({ length: IF.maxActive }, newFloeObj);
     S.islands = [makeIsland(-1, 57)];                        // 왼쪽 섬만. 오른쪽은 안개에 녹는 열린 바다
@@ -451,6 +454,7 @@
   // ── 물결 ────────────────────────────────────────────────
   function ripple(x, y, maxR, life, alpha) {
     const R = WC().ripple;
+    if (sim) { sim.drop(x, y, Math.max(0.2, maxR * SIM.drop.radius), SIM.drop.amp * (alpha == null ? 1 : alpha / R.alpha)); return; }   // 물 엔진: 충격만 주면 파문은 계산으로
     S.ripples.push({ x, y, t: 0, maxR, life: life || R.life, alpha: alpha == null ? R.alpha : alpha, ph: Math.random() * 6.28, ph2: Math.random() * 6.28 });
   }
   // V자 항적 입자 (풀 재사용, 가득 차면 가장 오래된 것 교체)
@@ -461,6 +465,10 @@
     if (hull.lastEmit && Math.hypot(x - hull.lastEmit[0], y - hull.lastEmit[1]) < spacing) return;
     if (hull.lastEmit) hull.vtxDist = (hull.vtxDist || 0) + Math.hypot(x - hull.lastEmit[0], y - hull.lastEmit[1]);
     hull.lastEmit = [x, y];
+    if (sim) {                                                  // 물 엔진: 항적은 계산으로 생김. 푸른 점만 남김
+      for (let k = 0; k < C.FIREFLY.sparkle.wakeCount; k++) { const sd = k % 2 ? 1 : -1, o = halfW * (1 + Math.random() * 0.6); spawnSpark(x - Math.sin(ang) * o * sd, y + Math.cos(ang) * o * sd, 0.05 + Math.random() * 0.1, C.FIREFLY.sparkle.waveLife); }
+      return;
+    }
     // 지나간 자리 양옆에 작게 말려 도는 와류
     const V = WC().curve.vortex;
     if (hull.vtxDist > V.every && s > 0.25) {
@@ -680,7 +688,7 @@
       }
       // 부력 출렁임: 수면 높이(사인파 목표)로 돌아가는 스프링. 작을수록 가볍게 더 흔들림
       const light = clamp(Math.pow(startMass / f.mass, 0.25), 1, B.lightBoost);
-      spring(f.heave, bobTarget(f.ph, light), dt);
+      spring(f.heave, bobTarget(f.ph, light) + (sim ? SIM.feedback.floePx * sim.around(f.x, f.y, f.rx * 1.12, f.ry * 1.12) : 0), dt);
       f.hist[S.stepN % 64] = f.heave.h;
       // 기울기 = 파도 + 펭귄 무게중심 + 관성
       const sp = Math.hypot(f.vx, f.vy);
@@ -848,6 +856,7 @@
       springW(p.dive, 0, dt, 2 * Math.PI / WE.period, WE.dampingRatio);
       if (prevH < 0 && p.dive.h >= 0 && p.dive.v > 0.15) { ripple(p.x, p.y, 0.9, 1.1, WC().ripple.alpha * 0.6); log('bob'); }
       p.z = p.dive.h;
+      if (sim && deep) p.z += SIM.feedback.penguin * sim.around(p.x, p.y, 0.55, 0.55);   // 주변 물결을 타고 오르내림
     } else if (!p.air) {
       p.dive.h = p.dive.v = 0;
       const tz = p.mode === 'island' ? C.world.shoreHeight : p.mode === 'floe' && p.floe ? floeTopAt(p.floe, p.lx, p.ly) : 0;
@@ -966,6 +975,7 @@
       ripple(p.x, p.y, W2.splash.ringRadius, W2.splash.ringLife, W2.ripple.alpha * 1.4);
       const WE = P.waterEntry, depth = Math.min(WE.maxSinkBody * penH(), WE.minSink + WE.sinkPerSpeed * Math.abs(vz));
       p.dive.h = 0; p.dive.v = -impulseW(depth, 2 * Math.PI / WE.period, WE.dampingRatio);
+      if (sim) sim.drop(p.x, p.y, SIM.body.penguinRadius * C.penguin.scale * 1.6, -SIM.body.entryImpulse * Math.abs(vz));
       log('splash');
     }
     if (mode !== 'water' && prev === 'water') ripple(p.x, p.y, 1.2, 1.2, W2.ripple.alpha * 0.5);
@@ -1180,6 +1190,21 @@
     return best.reach - inland;
   }
 
+  // 물 엔진 한 단계: 격자를 펭귄 앞쪽에 맞추고, 빙하·펭귄이 밀어낸 물을 넣은 뒤 파동 계산
+  function stepSim(dt) {
+    if (!sim) return;
+    const p = S.p, B = SIM.body, ld = SIM.size * SIM.lead;
+    sim.recenter(p.x - Math.sin(cam.yaw) * ld, p.y - Math.cos(cam.yaw) * ld, depthAt);
+    sim.begin();
+    for (const f of S.floePool) {
+      if (!f.active) { if (f._w) sim.body(f, null); continue; }
+      sim.body(f, { x: f.x, y: f.y, rx: f.rx, ry: f.ry, draft: Math.max(0.02, B.floeDraft - f.heave.h / B.floeHeavePx), solid: true });
+    }
+    { const r = B.penguinRadius * C.penguin.scale, hh = penH();          // 물 밖에 있어도 계속 추적 (잠긴 부피 0) → 들어가는 순간부터 물을 밀어냄
+      sim.body(p, { x: p.x, y: p.y, rx: r, ry: r, zc: p.z + hh * (0.5 - (p.sink || 0)), rz: hh * 0.45 }); }
+    sim.step(dt);
+  }
+
   function step(dt) {
     S.time += dt; S.stepN++;
     const now = performance.now();
@@ -1188,6 +1213,7 @@
     stepFloes(dt);
     stepPenguin(dt);
     stepCamera(dt);
+    stepSim(dt);
     stepFirefly(dt);
     if (S.stepN % 12 === 0) manageField();
     { const RP = WC().ripple, SPK = C.FIREFLY.sparkle;
@@ -1463,7 +1489,49 @@
   }
 
 
+  // 물 엔진 그리기: 화면 아래쪽을 낮은 해상도로 훑어, 각 점의 수면 기울기를 밝은 면/그늘로 칠함
+  const simCv = document.createElement('canvas'), simG = simCv.getContext('2d');
+  let simImg = null;
+  function drawSimWater() {
+    const R = SIM.render, L = FIXED_LIGHT, ll = Math.hypot(L[0], L[1]) || 1;
+    sim.computeShade(L[0] / ll, L[1] / ll);
+    if (sim.maxShade < R.slope[0]) return;
+    const y0 = Math.max(0, Math.floor(rig.horizon) + 2);
+    if (y0 >= H) return;
+    const w = Math.max(8, Math.ceil(W * R.resolution)), h = Math.max(4, Math.ceil((H - y0) * R.resolution));
+    if (!simImg || simImg.width !== w || simImg.height !== h) { fitCv(simCv, w, h); simImg = simG.createImageData(w, h); }
+    const D = simImg.data, N = sim.N, sh = sim.shade, inv = 1 / sim.dx, lo = R.slope[0], span = 1 / R.slope[1];
+    const far = SIM.size * 1.5, FGd = C.FOG.dist;
+    let any = false, o = 0;
+    for (let j = 0; j < h; j++) {
+      const sy = y0 + (j + 0.5) * (H - y0) / h, u = (rig.cy0 - sy) / rig.f;
+      const hr = -rig.sp + u * rig.cp, t = hr < -1e-4 ? rig.cz / -hr : Infinity;        // 화면 줄 → 수면까지의 깊이
+      if (t > far) { for (let i = 0; i < w; i++, o += 4) D[o + 3] = 0; continue; }
+      const zf = (rig.cp + u * rig.sp) * t, fogK = 1 - fogAt(t, FGd);
+      // 줄 양 끝의 월드 좌표 → 격자 좌표. 줄 안에서는 직선으로 변함
+      const xl = -W / 2 / rig.f * t, xs = W / rig.f * t / w;
+      let gx = ((rig.cx + rig.F[0] * zf + rig.R[0] * (xl + xs * 0.5)) * inv) - sim.ox - 0.5, gy = ((rig.cy + rig.F[1] * zf + rig.R[1] * (xl + xs * 0.5)) * inv) - sim.oy - 0.5;
+      const dgx = rig.R[0] * xs * inv, dgy = rig.R[1] * xs * inv;
+      for (let i = 0; i < w; i++, o += 4, gx += dgx, gy += dgy) {
+        if (gx < 0 || gy < 0 || gx >= N - 1 || gy >= N - 1) { D[o + 3] = 0; continue; }
+        const ci = gx | 0, cj = gy | 0, fx = gx - ci, fy = gy - cj, q = cj * N + ci;
+        const s = (sh[q] * (1 - fx) + sh[q + 1] * fx) * (1 - fy) + (sh[q + N] * (1 - fx) + sh[q + N + 1] * fx) * fy;
+        let k = (s < 0 ? -s : s) - lo;
+        if (k <= 0) { D[o + 3] = 0; continue; }
+        k = (1 - Math.exp(-k * span)) * fogK;                                // 잔물결도 보이고 큰 물결은 과하지 않게
+        const c = s > 0 ? R.light : R.dark;
+        D[o] = c[0]; D[o + 1] = c[1]; D[o + 2] = c[2]; D[o + 3] = 255 * k * (s > 0 ? R.lightAlpha : R.darkAlpha);
+        any = true;
+      }
+    }
+    if (!any) return;
+    simG.putImageData(simImg, 0, 0);
+    ctx.imageSmoothingEnabled = true; ctx.globalAlpha = 1;
+    ctx.drawImage(simCv, 0, y0, W, H - y0);
+  }
+
   function drawWater() {
+    if (sim) drawSimWater();
     const K = WC().curve;
     ctx.lineCap = 'round';
     // 얕은 물 걸음 파문: 선이 아닌 부드러운 명암 고리
@@ -2322,5 +2390,5 @@
   reset();
   requestAnimationFrame(frame);
 
-  window.__game = { depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
+  window.__game = { get sim() { return sim; }, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
 })();

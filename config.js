@@ -339,6 +339,47 @@ const SHADOW_BLUR = {
   wetResolution: 0.1,         // 젖은 땅·물막 오프스크린 해상도 (낮을수록 경계가 부드럽게 번짐)
 };
 
+// ── 물 엔진 (water.js): 펭귄 주변 수면을 격자로 계산 ─────────────
+// 펭귄·빙하가 물을 밀어낸 만큼 수면이 꺼지고 둘레가 솟아, 파문·항적·되튕김이 저절로 생김
+// 끄고 비교: URL ?cfg=WATER_SIM.enabled=false  (끄면 예전 링 파문·항적으로 돌아감)
+const WATER_SIM = {
+  enabled: true,
+  grid: 128,                // 격자 칸 수 (한 변). 줄이면 가볍고 뭉툭, 늘리면 섬세하고 무거움
+  size: 14,                 // 격자가 덮는 넓이 (월드 단위, 한 변)
+  lead: 0.22,               // 격자 중심을 펭귄보다 시선 앞쪽으로 당기는 비율 (size 의)
+  waveSpeed: 2.4,           // 물결이 퍼지는 속도 (월드/초). 영상은 4~6, 고요한 분위기라 낮춤
+  damping: 0.35,            // 물결이 잦아드는 빠르기 (1/초). 클수록 금방 잔잔
+  dispersion: 0.8,          // 0~1. 클수록 잔 물결이 뒤처져 링 간격이 바깥으로 벌어짐
+  viscosity: 0.006,         // 잔 떨림 제거 (초). 클수록 매끈
+  restore: 0.1,             // 수면이 평균 높이로 돌아오는 빠르기 (1/초)
+  shallowRef: 0.5,          // 이 수심(DEPTH 0~1)보다 얕으면 물결이 느려짐
+  shoreAbsorb: 3,           // 해안에서 물결이 스러지는 세기
+  edgeCells: 10,            // 격자 가장자리 흡수대 폭 (칸)
+  edgeDamping: 6,           // 흡수대 감쇠
+  body: {
+    gain: 0.25,             // 밀어낸 부피 → 수면 높이 배율 (물결 전체 세기)
+    ring: [0.9, 2.4],       // 펭귄이 밀어낸 물이 솟는 고리 (몸 반지름의 배수: 안쪽, 바깥)
+    penguinRadius: 0.3,     // 펭귄 몸 반지름 (× penguin.scale)
+    floeDraft: 0.25,        // 빙하가 물에 잠긴 깊이 (월드)
+    floeHeavePx: 80,        // 빙하 출렁임 px → 월드 환산 (px / 이 값)
+    floeRing: 0.6,          // 빙하가 밀어낸 물이 솟는 띠 폭 (월드)
+    solidInset: 0.85,       // 빙하 반지름의 이 비율 안쪽은 물결을 되튕김
+    maxStep: 0.05,          // 한 단계에 한 칸이 움직일 수 있는 최대 높이 (튀는 값 방지)
+    entryImpulse: 0.012,    // 입수 속도 1 당 추가로 꺼지는 깊이 (찰싹)
+  },
+  drop: { radius: 0.3, amp: 0.05 },   // 기존 파문 호출(점프·둥둥 등) → 물방울 충격으로 바꿀 때 (반지름 배율, 높이)
+  feedback: {
+    penguin: 1.0,           // 헤엄치는 펭귄이 주변 물결을 타고 오르내리는 정도 (0 = 끔)
+    floePx: 60,             // 빙하가 주변 물결을 타는 정도 (물결 높이 1 당 px)
+  },
+  render: {
+    resolution: 0.22,       // 화면 대비 해상도 (낮을수록 가볍고 부드러움)
+    slope: [0.003, 0.045],  // [이 기울기부터 보임, 이 기울기에서 진하기 63%] — 그 위로는 완만하게 포화
+    light: [255, 255, 255], lightAlpha: 0.75,   // 빛 받는 면
+    dark: [70, 72, 80], darkAlpha: 0.34,        // 그늘진 면
+  },
+};
+
 window.CONFIG = {
   WATER_PRESETS: { calm: WATER_CALM, normal: WATER_NORMAL },
   water: WATER_CALM,          // ← WATER_NORMAL 로 바꿔 끼우면 보통 물결 (URL ?water=normal 도 가능)
@@ -350,6 +391,7 @@ window.CONFIG = {
   DEPTH,
   FOOTPRINTS,
   SHADOW_BLUR,
+  WATER_SIM,
 
   ui: {
     // 왼쪽 아래 이동 링. inset = 화면 가장자리 ~ 링 바깥선 간격(엄지 하나 정도)

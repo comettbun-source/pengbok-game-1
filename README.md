@@ -15,3 +15,8 @@ python3 -m http.server 8000
 ## 조작감 수치
 
 모두 `config.js` 한 곳에 있음 (버튼 위치·크기, 이동 속도, 카메라 감도·추적, 더블탭 시간, 점프 높이, 슬라이딩 거리, 섬 거리).
+
+## 물 엔진
+
+`water.js` — 펭귄 주변 수면을 격자(높이장)로 계산. 펭귄·빙하가 밀어낸 물이 파문·항적·되튕김을 만든다.
+수치는 `config.js` 의 `WATER_SIM`. 끄고 비교: `?cfg=WATER_SIM.enabled=false`
