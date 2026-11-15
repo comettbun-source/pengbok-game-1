@@ -122,12 +122,14 @@ const PHYSICS = {
   gravity: 22,
   penguin: {
     mass: 1,
-    moveForce: { ice: 10, shore: 16, water: 9 },   // 링 입력이 주는 힘
-    maxSpeed: { ice: 2.2, shore: 2.0, water: 2.8 },
+    moveForce: { ice: 3.5, shore: 5.5, water: 9 },  // 링 입력이 주는 힘 (빙하·흙은 작게 → 천천히 가속)
+    maxSpeed: { ice: 2.2, shore: 1.2, water: 2.8 },  // 흙(해안)은 물·빙하의 약 50%
     airForce: 3,
   },
-  friction: { ice: 1.4, shore: 7, water: 3.2 },    // 걷기·수영 감쇠 (1/초). 빙하는 미끄럽고 해안은 뻑뻑
-  slideFriction: { ice: 0.35, shore: 3.5, water: 1.4 },
+  friction: { ice: 0.56, shore: 4.5, water: 3.2 },  // 걷기·수영 감쇠 (1/초). 빙하는 미끌미끌(이전의 40%), 흙은 뻑뻑
+  slideFriction: { ice: 0.15, shore: 6, water: 1.4 }, // 슬라이딩 감쇠: 빙하 위는 길게, 흙에선 금방 멈춤
+  shoreJump: { velocityMul: 0.72, forwardMul: 0.6 },  // 흙에서 점프: 낮고 짧게
+  shoreSlideMul: 0.55,        // 흙에서 슬라이딩 시작 속도 배율
   jumpVelocity: 6.6,          // 점프 초기 속도 → 체공 = 2v/g ≈ 0.6초
   superJump: { heightMul: 1.8, distanceMul: 1.6, airtime: 1.0 },  // 두 번 탭: 높이·거리 배율, 체공(초)
   jumpForwardSpeed: 3.4,      // 링을 민 채 점프할 때 수평 속도 (점프 최대 거리 = 이 값 × 체공)
@@ -169,6 +171,22 @@ const ICE_FIELD = {
   keepClear: 3,               // 고정 빙하·물고기 구역 주변 여백
 };
 
+// ── 해안 물결 (섬 위로 물이 쏴아 들어왔다 나감) ─────────────────────
+const SHORE_WASH = {
+  period: 8,                  // 한 번 들어왔다 나가는 주기 (초)
+  riseFrac: 0.28,             // 주기 중 올라오는 구간 비율 (빠르게 올라오고 천천히 빠짐)
+  shoreWidth: 5,              // 해안(물가 ~ 산 밑) 폭 (월드)
+  reach: 0.25,                // 올라오는 폭 = 해안 폭 × 이 값
+  edgeNoise: 0.35,            // 물 끝선 구불구불함 (올라오는 폭 대비)
+  edgeNoiseScale: 0.45,
+  edgeLineAlpha: 0.35,        // 물 끝선의 얇고 옅은 흰 선
+  waterAlpha: 0.32,           // 땅 위로 올라온 얇은 물막의 진하기
+  wetAlpha: 0.3,              // 젖은 땅이 어두워지는 정도
+  dryTime: 5,                 // 물이 빠진 뒤 다 마르는 시간 (초)
+  slowMul: 0.7,               // 물이 올라온 곳에 서 있으면 속도 배율
+  rippleEvery: 0.45,          // 그때 생기는 작은 파문 간격 (초)
+};
+
 window.CONFIG = {
   WATER_PRESETS: { calm: WATER_CALM, normal: WATER_NORMAL },
   water: WATER_CALM,          // ← WATER_NORMAL 로 바꿔 끼우면 보통 물결 (URL ?water=normal 도 가능)
@@ -176,6 +194,7 @@ window.CONFIG = {
   ICE_FIELD,
   FOG,
   FIREFLY,
+  SHORE_WASH,
 
   ui: {
     // 왼쪽 아래 이동 링. inset = 화면 가장자리 ~ 링 바깥선 간격(엄지 하나 정도)
@@ -231,7 +250,13 @@ window.CONFIG = {
     swimSink: 0.5,            // 수영 시 몸이 잠기는 비율 (그림)
     underwaterAlpha: 0.28,    // 수면 아래 잠긴 몸의 진하기
     swimRingAlpha: 0.5,       // 수영 중 몸 둘레 물결 고리 진하기
-    walkWobbleDeg: 7, walkWobbleFreq: 9,
+    // 걸음 흔들림: 빙하 위는 작게, 흙 위는 느리고 크게 (뒤뚱뒤뚱)
+    walk: {
+      ice: { wobbleDeg: 3, wobbleFreq: 7, stepSinkPx: 0 },
+      shore: { wobbleDeg: 12, wobbleFreq: 5, stepSinkPx: 2.5 },   // 한 걸음마다 2~3px 가라앉았다 올라옴
+    },
+    iceLeanDeg: 6,            // 빙하 위에서 진행 방향으로 기우는 각도 (최대 속도일 때)
+    footprints: { life: 3, max: 24, alpha: 0.28, size: 0.11 },  // 흙 위 발자국
   },
 
   floe: {

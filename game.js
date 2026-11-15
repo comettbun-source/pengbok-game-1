@@ -234,7 +234,7 @@
     };
     manageField();
     S.p.floe = S.cands[0].floe;
-    S.ripples = []; S.vortex = [];
+    S.ripples = []; S.vortex = []; S.prints = []; S.washRipples = []; S.wash = null;
     S.wake = Array.from({ length: WC().wake.maxParticles }, () => ({ on: false }));
     S.lines = null;
     S.lastTapUp = 0; S.tapPulse = 0; S.jumpAt = 0; S.jumpReq = false;
@@ -622,8 +622,9 @@
         log('superJump');
       } else if (!p.air) {
         startAir(p, mag, wx, wy);
-        p.g = P.gravity; p.vz = P.jumpVelocity;
-        if (mag > 0.1) { const s = Math.max(Math.hypot(p.vx, p.vy), P.jumpForwardSpeed * mag); p.vx = wx / mag * s; p.vy = wy / mag * s; }
+        const soil = p.mode === 'island', SJm = soil ? P.shoreJump : { velocityMul: 1, forwardMul: 1 };   // 흙: 짧고 무겁게
+        p.g = P.gravity; p.vz = P.jumpVelocity * SJm.velocityMul;
+        if (mag > 0.1) { const s = Math.max(Math.hypot(p.vx, p.vy), P.jumpForwardSpeed * SJm.forwardMul * mag); p.vx = wx / mag * s; p.vy = wy / mag * s; }
         p.jumpHS = Math.hypot(p.vx, p.vy); p.airCap = p.jumpHS;
         log('jump');
       }
@@ -631,7 +632,7 @@
     const held = slideHeld();
     if (held && !p.sliding && !p.air) {
       p.sliding = true; p.sit = false;
-      const dir = mag > 0.01 ? Math.atan2(wy, wx) : p.face, s = Math.max(Math.hypot(p.vx, p.vy), P.slideInitialSpeed);
+      const dir = mag > 0.01 ? Math.atan2(wy, wx) : p.face, s = Math.max(Math.hypot(p.vx, p.vy), P.slideInitialSpeed * (p.mode === 'island' ? P.shoreSlideMul : 1));
       p.vx = Math.cos(dir) * s; p.vy = Math.sin(dir) * s;
       log('slideStart');
     }
@@ -656,7 +657,7 @@
       p.vx += wx * pm.moveForce[surf] / pm.mass * dt; p.vy += wy * pm.moveForce[surf] / pm.mass * dt;
       const k = Math.exp(-P.friction[surf] * dt); p.vx *= k; p.vy *= k;
       // 최고 속도: 입력으로는 넘지 않음. 슬라이딩 등으로 이미 빠르면 부드럽게 줄어듦
-      const s = Math.hypot(p.vx, p.vy), mxs = pm.maxSpeed[surf];
+      const s = Math.hypot(p.vx, p.vy), mxs = pm.maxSpeed[surf] * (p.inWash ? C.SHORE_WASH.slowMul : 1);
       if (s > mxs) { const ns = sp0 > mxs ? Math.max(mxs, Math.min(s, sp0) * Math.exp(-3 * dt)) : mxs; p.vx *= ns / s; p.vy *= ns / s; }
       if (mag > 0.01) { p.sit = false; p.face += angDiff(p.face, Math.atan2(wy, wx)) * ease(P.turnRate, dt); }
       else if (p.sit && S.fish.visible) {
@@ -711,15 +712,30 @@
     // 관성 기울기 (화면에서 보이는 진행 방향 기준)
     const c = Math.cos(cam.yaw), s2 = Math.sin(cam.yaw), vxs = c * p.vx - s2 * p.vy;
     const dirSign = Math.abs(vxs) > 0.05 ? Math.sign(vxs) : (p.leanSign || 1); p.leanSign = dirSign;
-    spring(p.lean, p.air ? 0 : (p.inertia || 0) * dirSign, dt);
+    const iceLean = p.mode === 'floe' && !p.sliding ? deg(C.penguin.iceLeanDeg) * clamp(vxs / pm.maxSpeed.ice, -1, 1) : 0;   // 빙하: 진행 방향으로 살짝
+    spring(p.lean, p.air ? 0 : (p.inertia || 0) * dirSign + iceLean, dt);
 
     // 그림용 값
     p.sink += ((inWater ? (p.sliding ? 0.06 : C.penguin.swimSink) : 0) - p.sink) * ease(8, dt);
     S.tapPulse = Math.max(0, S.tapPulse - dt * 5);
-    if (!p.air && p.mode !== 'water' && !p.sliding && sp > 0.15) {
-      p.phase += sp * dt * C.penguin.walkWobbleFreq;
-      p.wobble = Math.sin(p.phase) * deg(C.penguin.walkWobbleDeg) * Math.min(1, sp / pm.maxSpeed.ice);
-    } else p.wobble *= Math.exp(-10 * dt);
+    const WK = C.penguin.walk[p.mode === 'island' ? 'shore' : 'ice'];
+    if (!p.air && p.mode !== 'water' && !p.sliding && sp > 0.12) {
+      p.phase += sp * dt * WK.wobbleFreq;
+      const amt = Math.min(1, sp / pm.maxSpeed[surf]);
+      p.wobble = Math.sin(p.phase) * deg(WK.wobbleDeg) * amt;
+      p.stepSink = WK.stepSinkPx * Math.abs(Math.sin(p.phase)) * amt;       // 한 걸음마다 푹
+      const stepN = Math.floor(p.phase / Math.PI);
+      if (p.mode === 'island' && stepN !== p.stepN) {                      // 흙 위 발자국
+        p.stepN = stepN;
+        const side = stepN % 2 ? 1 : -1, fx = Math.cos(p.face), fy = Math.sin(p.face), o = 0.09 * C.penguin.scale;
+        const FP = C.penguin.footprints;
+        if (S.prints.length >= FP.max) S.prints.shift();
+        S.prints.push({ x: p.x - fy * o * side, y: p.y + fx * o * side, ang: p.face, t: 0 });
+      }
+    } else { p.wobble *= Math.exp(-10 * dt); p.stepSink = (p.stepSink || 0) * Math.exp(-10 * dt); }
+    // 해안 물결: 물이 올라온 곳에 서 있으면 작은 파문 + 느려짐
+    p.inWash = p.mode === 'island' && !p.air && washDepthAt(p.x, p.y) > 0;
+    if (p.inWash) { p.washRip = (p.washRip || 0) - dt; if (p.washRip <= 0) { p.washRip = C.SHORE_WASH.rippleEvery; S.washRipples.push({ x: p.x, y: p.y, t: 0 }); } }
     if (inWater) {
       if (sp > 0.3) emitWake(p, p.x - Math.cos(p.face) * 0.2, p.y - Math.sin(p.face) * 0.2, Math.atan2(p.vy, p.vx), sp, pm.maxSpeed.water, 0.22 * C.penguin.scale);
       else {
@@ -809,6 +825,40 @@
     ff.trail = ff.trail.filter((tq) => (tq.t += dt) < F.trail.life);
   }
 
+  // ── 해안 물결 ─────────────────────────────────────────
+  // 섬의 바다 쪽 둘레 꼭짓점마다 '얼마나 안쪽까지 물이 올라왔나'와 '젖은 정도'를 기록
+  function washShape() {
+    if (S.wash) return S.wash;
+    const is = S.islands[0], pts = [];
+    is.shape.forEach(([x, y], i) => {
+      let nx = (x - is.cx) / (is.rx * is.rx), ny = (y - is.cy) / (is.ry * is.ry); const l = Math.hypot(nx, ny) || 1; nx /= l; ny /= l;
+      if (nx * -is.side > 0.05) pts.push({ x, y, nx, ny, i, reach: 0, wet: 0 });   // 바다를 향한 쪽만
+    });
+    pts.sort((a, b) => a.y - b.y);
+    return (S.wash = { is, pts, level: 0 });
+  }
+  function washLevel(t) {
+    const Wsh = C.SHORE_WASH, u = (t % Wsh.period) / Wsh.period, r = Wsh.riseFrac;
+    if (u < r) { const k = u / r; return 1 - Math.pow(1 - k, 2.5); }      // 빠르게 올라옴
+    const k = (u - r) / (1 - r); return 1 - k * k * (3 - 2 * k);           // 천천히 빠짐
+  }
+  function stepWash(dt) {
+    const ws = washShape(), Wsh = C.SHORE_WASH, max = Wsh.shoreWidth * Wsh.reach, lv = washLevel(S.time);
+    ws.level = lv;
+    for (const q of ws.pts) {
+      q.reach = Math.max(0, max * lv * (1 + Wsh.edgeNoise * noise1(q.y * Wsh.edgeNoiseScale + S.time * 0.25 + Math.floor(S.time / Wsh.period) * 3.7)));
+      q.wet = Math.max(q.reach, q.wet - max * dt / Wsh.dryTime);           // 물이 빠지면 서서히 마름
+    }
+  }
+  // 물가에서 안쪽으로 몇 만큼 물이 덮였는지 (>0 이면 물 속)
+  function washDepthAt(x, y) {
+    const ws = washShape(); if (!ws.pts.length) return -1;
+    let best = null, bd = Infinity;
+    for (const q of ws.pts) { const d = Math.hypot(q.x - x, q.y - y); if (d < bd) { bd = d; best = q; } }
+    const inland = (best.x - x) * best.nx + (best.y - y) * best.ny;        // 물가에서 안쪽으로 들어온 거리
+    return best.reach - inland;
+  }
+
   function step(dt) {
     S.time += dt; S.stepN++;
     const now = performance.now();
@@ -823,6 +873,9 @@
     const life = WC().wake.life;
     for (const w of S.wake) if (w.on && (w.t += dt) >= life) w.on = false;
     S.vortex = S.vortex.filter((v) => (v.t += dt) < WC().curve.vortex.life);
+    S.prints = S.prints.filter((q) => (q.t += dt) < C.penguin.footprints.life);
+    S.washRipples = S.washRipples.filter((q) => (q.t += dt) < 1.2);
+    stepWash(dt);
   }
 
   // ── 그리기 ──────────────────────────────────────────────
@@ -830,7 +883,7 @@
   function floeOffset(f) { return -f.heave.h; }
   function penOffset() {
     const p = S.p;
-    let h = p.heave.h;
+    let h = p.heave.h - (p.stepSink || 0);
     if (p.mode === 'floe' && p.floe && !p.air) {
       const lag = Math.round(WC().bob.penguinLag * P.hz), hist = p.floe.hist;
       h += hist[((S.stepN - lag) % 64 + 64) % 64];           // 빙하보다 0.25초 늦게 따라감
@@ -1087,6 +1140,49 @@
     }
   }
 
+  // 해안: 젖은 땅(어둡게) → 얇은 물막 → 물 끝선의 옅은 흰 선 → 물막 위 작은 파문 → 발자국
+  function drawShoreWash() {
+    const ws = washShape(), Wsh = C.SHORE_WASH, z = C.world.shoreHeight + 0.004;
+    if (ws.pts.length < 2) return;
+    const d0 = camSpace(ws.is.shoreX, clamp(cam.y, -ws.is.ry, ws.is.ry), 0)[1];
+    if (d0 < -ws.is.rx) return;
+    const fog = fogAt(Math.max(d0, 0), C.FOG.mountain);
+    if (fog > 0.97) return;
+    const band = (key, out = 0.15) => {
+      const outer = ws.pts.map((q) => [q.x + q.nx * out, q.y + q.ny * out, z]);
+      const inner = ws.pts.map((q) => [q.x - q.nx * q[key], q.y - q.ny * q[key], z]).reverse();
+      return projPoly(outer.concat(inner));
+    };
+    ctx.globalAlpha = Wsh.wetAlpha * (1 - fog); ctx.fillStyle = '#4a4744'; fillPoly(band('wet'));
+    if (ws.level > 0.01) {
+      ctx.globalAlpha = Wsh.waterAlpha * (1 - fog) * Math.min(1, ws.level * 3); ctx.fillStyle = '#e9e6de'; fillPoly(band('reach'));
+      // 물 끝선
+      const edge = [];
+      for (const q of ws.pts) { const c = camSpace(q.x - q.nx * q.reach, q.y - q.ny * q.reach, z); if (c[1] > rig.near) edge.push(toScreen(c)); else edge.push(null); }
+      ctx.globalAlpha = Wsh.edgeLineAlpha * (1 - fog) * Math.min(1, ws.level * 4);
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = clamp(pxPerUnit(Math.max(d0, 1)) * 0.012, 0.6, 1.6); ctx.lineJoin = 'round';
+      ctx.beginPath(); let pen = false;
+      for (const e of edge) { if (!e) { pen = false; continue; } if (pen) ctx.lineTo(e[0], e[1]); else { ctx.moveTo(e[0], e[1]); pen = true; } }
+      ctx.stroke();
+    }
+    // 물막 위 작은 파문 (펭귄 발밑)
+    for (const r of S.washRipples) {
+      const k = r.t / 1.2, e = groundEllipse(r.x, r.y, 0.15 + 0.5 * k, z);
+      if (!e) continue;
+      ctx.globalAlpha = 0.35 * (1 - k); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.ellipse(e.x, e.y, e.rx, e.ry, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    // 발자국: 어두운 작은 타원, 3초에 걸쳐 사라짐
+    const FP = C.penguin.footprints;
+    for (const q of S.prints) {
+      const e = groundEllipse(q.x, q.y, FP.size * C.penguin.scale, z);
+      if (!e) continue;
+      ctx.globalAlpha = FP.alpha * (1 - q.t / FP.life) * (1 - fog); ctx.fillStyle = '#2e2b28';
+      ctx.beginPath(); ctx.ellipse(e.x, e.y, e.rx * 0.7, e.ry * 1.1, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // 산 하나: 바닥 원 + 꼭짓점의 볼록 껍질. 멀수록 안개에 녹아 연회색
   function hull(pts) {
     pts.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -1135,7 +1231,7 @@
       g.translate(0, p.sink * u);
     } else if (part === 'below') return;
     const { fvx, fvy } = v;
-    const lm = deg(WC().inertiaTilt.accelDeg); g.rotate(clamp(p.lean.h, -lm, lm));
+    const lm = deg(Math.max(WC().inertiaTilt.accelDeg, C.penguin.iceLeanDeg)); g.rotate(clamp(p.lean.h, -lm, lm));
     if (p.sliding) {
       const ax = Math.abs(fvx), len = 0.45 + 0.55 * ax;
       g.scale(fvx < 0 ? -1 : 1, 1);
@@ -1196,6 +1292,7 @@
   const off = document.createElement('canvas'), og = off.getContext('2d');
   function drawReflection() {
     if (!(C.reflect.alpha > 0)) return;
+    if (S.p.mode === 'island' && !S.p.air) return;            // 땅 위에선 수면 반영 없음
     const p = S.p, v = penguinView(), dy = penOffset();
     const [sx, sy0, d] = project(p.x, p.y, p.z), [, wy] = project(p.x, p.y, 0), sy = sy0 + dy, u = penScale(d);
     const size = Math.ceil(u * 3), oy = Math.ceil(u * 2.2), ox = size / 2;
@@ -1410,6 +1507,7 @@
     drawFireflyReflection();
     drawReflection();
     drawIslandGround();
+    drawShoreWash();
     // 서 있는 것: 깊이 순서대로 먼 것부터
     const items = [];
     const pd = camSpace(p.x, p.y, p.z)[1];
