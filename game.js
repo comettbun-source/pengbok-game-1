@@ -220,7 +220,8 @@
     } else {                                                  // 둔덕·능선: 안쪽 한 점이 높고 가장자리는 낮게
       apex = c.start ? [dir[0] * f.rx * 0.35, dir[1] * f.ry * 0.35] : [(r() - 0.5) * f.rx * 0.8, (r() - 0.5) * f.ry * 0.8];
       const ridgeI = (r() * n) | 0;                           // 능선 하나가 가장자리 쪽으로 뻗음
-      vh = shp.map((_, i) => { const di = Math.min(Math.abs(i - ridgeI), n - Math.abs(i - ridgeI)); return R.lip * (0.5 + r()) + (di === 0 ? H * 0.45 : di === 1 ? H * 0.15 : 0); });
+      // 판형: 가장자리까지 높아 옆면이 절벽, 윗면은 넓고 거의 평평 (능선 한 곳만 살짝 높게)
+      vh = shp.map((_, i) => { const di = Math.min(Math.abs(i - ridgeI), n - Math.abs(i - ridgeI)); return H * R.slab * (0.9 + 0.15 * r()) + (di === 0 ? H * 0.12 : 0); });
     }
     const tris = [];
     for (let i = 0; i < n; i++) {
@@ -816,7 +817,17 @@
     p.inWash = p.mode === 'island' && !p.air && washDepthAt(p.x, p.y) > 0;
     if (p.inWash) { p.washRip = (p.washRip || 0) - dt; if (p.washRip <= 0) { p.washRip = C.SHORE_WASH.rippleEvery; S.washRipples.push({ x: p.x, y: p.y, t: 0 }); } }
     if (inWater) {
-      if (sp > 0.3) emitWake(p, p.x - Math.cos(p.face) * 0.2, p.y - Math.sin(p.face) * 0.2, Math.atan2(p.vy, p.vx), sp, pm.maxSpeed.water, 0.22 * C.penguin.scale);
+      if (sp > 0.3) {
+        emitWake(p, p.x - Math.cos(p.face) * 0.2, p.y - Math.sin(p.face) * 0.2, Math.atan2(p.vy, p.vx), sp, pm.maxSpeed.water, 0.22 * C.penguin.scale);
+        // 몸 뒤로 촘촘하게 길게 이어지는 푸른 점 꼬리
+        const SPK = C.FIREFLY.sparkle, dx = p.vx / sp, dy = p.vy / sp;
+        p.swimAcc = (p.swimAcc || 0) + SPK.swimRate * clamp(sp / pm.maxSpeed.water, 0, 1) * dt;
+        while (p.swimAcc >= 1) {
+          p.swimAcc--;
+          const back = 0.15 + Math.random() * 0.35, side = (Math.random() * 2 - 1) * SPK.swimSpread * (0.4 + back);
+          spawnSpark(p.x - dx * back - dy * side, p.y - dy * back + dx * side, 0.03 + Math.random() * 0.15, lerp(SPK.swimLife[0], SPK.swimLife[1], Math.random()));
+        }
+      }
       else {
         p.lastEmit = null; p.idleRing -= dt;
         if (p.idleRing <= 0) { ripple(p.x, p.y, 0.9 * C.penguin.scale, 1.8, WC().ripple.alpha * 0.4); p.idleRing = 2.2; }
@@ -907,9 +918,9 @@
     for (const s of S.spark) if (s.on && (s.t += dt) >= s.life) s.on = false;
   }
   // 푸른 점 풀 (최대 150, 가장 오래된 것부터 재사용)
-  function spawnSpark(x, y, depth, life) {
+  function spawnSpark(x, y, depth, life, z0 = 0) {
     const SP = C.FIREFLY.sparkle, s = S.spark[S.sparkI++ % S.spark.length];
-    Object.assign(s, { on: true, x, y, depth, life, t: 0, size: lerp(SP.size[0], SP.size[1], Math.random()), hue: (Math.random() * 3) | 0 });
+    Object.assign(s, { on: true, x, y, depth, z0, life, t: 0, size: lerp(SP.size[0], SP.size[1], Math.random()), hue: (Math.random() * 3) | 0 });
   }
 
   // ── 해안 물결 ─────────────────────────────────────────
@@ -974,6 +985,16 @@
       if (q.reach > 0.02) { q.wetExt = Math.max(q.wetExt * (q.wetT > Wsh.dryTime ? 0 : 1), q.reach); q.wetT = 0; } else q.wetT += dt;
     }
     ws.level = lv;
+    // 물 끝선을 따라 반짝이는 푸른 점 (펭귄 근처 해안)
+    const SPK = C.FIREFLY.sparkle;
+    S.shoreAcc = (S.shoreAcc || 0) + SPK.shoreRate * dt;
+    while (S.shoreAcc >= 1) {
+      S.shoreAcc--;
+      const near = ws.segs.filter((q) => q.reach > 0.05 && Math.abs(q.y - S.p.y) < 14);
+      if (!near.length) break;
+      const q = near[(Math.random() * near.length) | 0], dep = q.reach * (0.6 + 0.45 * Math.random());
+      spawnSpark(q.x - q.nx * dep, q.y - q.ny * dep, 0.01, lerp(SPK.shoreLife[0], SPK.shoreLife[1], Math.random()), C.world.shoreHeight + 0.01);
+    }
     // 물 빠질 때 물줄기 자국 2~3가닥
     for (const w of ws.waves) {
       if (!w.rivDone && S.time - w.t0 > Wsh.rise + 0.3) {
@@ -1177,10 +1198,11 @@
       for (let j = 0; j < RP.rings; j++) {
         const tj = r.t - j * RP.ringGap;
         if (tj <= 0 || tj >= r.life) continue;
-        const k = tj / r.life, rad = r.maxR * (1 - Math.pow(1 - k, 3)) * (1 - 0.14 * j);
-        const a = r.alpha * Math.min(1, tj / RP.fadeIn) * Math.pow(1 - k, 1.6) * (1 - 0.25 * j) * (1 - fog);
+        const k = tj / r.life, rad = r.maxR * (1 - Math.pow(1 - k, 3)) * (1 - 0.6 * j / RP.rings);
+        const a = r.alpha * Math.min(1, tj / RP.fadeIn) * Math.pow(1 - k, 1.6) * (1 - 0.35 * j / RP.rings) * (1 - fog);
         if (a < 0.004 || rad < 0.02) continue;
-        ctx.lineWidth = lerp(RP.widthFrom, RP.widthTo, k) * scl;
+        const inner = RP.rings > 1 ? j / (RP.rings - 1) : 0;    // 안쪽 겹일수록 밝고 조금 굵게
+        ctx.lineWidth = lerp(RP.widthFrom, RP.widthTo, k) * scl * (1 + 0.3 * inner);
         const N = 32, pts = [];
         for (let i = 0; i <= N; i++) {
           const th = i / N * Math.PI * 2;
@@ -1193,7 +1215,7 @@
           if (noise1(th * 2.1 + r.ph2 + j * 7) < -1 + 2 * RP.breaks) continue;    // 일부가 끊긴 링
           const p0 = pts[i], p1 = pts[i + 1]; if (!p0 || !p1) continue;
           const lit = 0.5 + 0.5 * (Math.cos(th) * lx + Math.sin(th) * ly);       // 빛 쪽(왼쪽 위)이 밝게
-          const m = lit * RP.lightSide, col = [96 + (255 - 96) * m, 106 + (255 - 106) * m, 118 + (255 - 118) * m].map(Math.round);
+          const m = Math.min(1, lit * RP.lightSide + inner * (RP.centerLight || 0)), col = [96 + (255 - 96) * m, 106 + (255 - 106) * m, 118 + (255 - 118) * m].map(Math.round);
           ctx.strokeStyle = `rgba(${col.join(',')},${(a * (0.75 + 0.5 * lit)).toFixed(3)})`;
           ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
         }
@@ -1421,6 +1443,12 @@
       ctx.globalAlpha = 0.28 * (1 - k) * (1 - fog); ctx.strokeStyle = '#3f3c39'; ctx.lineWidth = lw * 0.7;
       ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
     }
+    // 물 끝선을 따라 반짝이는 푸른 점
+    for (const s of S.spark) {
+      if (!s.on || !s.z0) continue;
+      const k = s.t / s.life, env = Math.min(1, s.t / 0.08) * Math.pow(1 - k, 1.3) * (1 - fog);
+      drawUnderwaterLight(s.x, s.y, s.depth, s.size, s.size * 3, s.hue, env, 3, s.z0);
+    }
     // 물막 위 작은 파문 (펭귄 발밑)
     for (const r of S.washRipples) {
       const k = r.t / 1.2, e = groundEllipse(r.x, r.y, 0.15 + 0.5 * k, z);
@@ -1549,6 +1577,16 @@
       ctx.restore();
     };
     ringHalf(false);
+    // 수영할 때 몸 둘레의 옅은 푸른 테 (물속 빛)
+    if (p.mode === 'water' && !p.air) {
+      const HL = C.FIREFLY.swimHalo, eh = groundEllipse(p.x, p.y, penH() * HL.radius);
+      if (eh) {
+        ctx.globalAlpha = HL.alpha * clamp(0.4 + Math.hypot(p.vx, p.vy) / P.penguin.maxSpeed.water, 0, 1);
+        ctx.drawImage(ffSprites.glow, eh.x - eh.rx, eh.y - eh.ry, eh.rx * 2, eh.ry * 2);
+        ctx.globalAlpha = HL.alpha * 0.5; ctx.drawImage(ffSprites.core[1], eh.x - eh.rx * 0.6, eh.y - eh.ry * 0.6, eh.rx * 1.2, eh.ry * 1.2);
+        ctx.globalAlpha = 1;
+      }
+    }
     if (p.sink > 0.01) {                                      // 잠긴 몸: 수면선 아래를 옅게
       ctx.save(); ctx.globalAlpha = C.penguin.underwaterAlpha; ctx.translate(sx, sy); drawPenguinFigure(ctx, u, v, 'below', cut); ctx.restore();
     }
@@ -1639,8 +1677,8 @@
   }
   const farFade = (d) => { const FF = C.FIREFLY.farFade; return 1 - (1 - FF[2]) * smooth(FF[0], FF[1], d); };
   // 물속 빛 하나: 그림자 → 번짐 → 코어. 깊을수록 더 번지고 옅게, 물 위에 퍼진 것처럼 납작하게
-  function drawUnderwaterLight(x, y, depth, size, glow, hue, b, parts = 3) {
-    const c = camSpace(x, y, -depth);
+  function drawUnderwaterLight(x, y, depth, size, glow, hue, b, parts = 3, z0 = 0) {
+    const c = camSpace(x, y, z0 - depth);
     if (c[1] < rig.near + 0.3) return;
     const F = C.FIREFLY, [sx, sy] = toScreen(c), ppu = pxPerUnit(c[1]), flat = clamp(0.35 + rig.sp * 0.9, 0.4, 0.9);
     const deep = depth / F.depth[1], k = b * farFade(c[1]);
@@ -1656,7 +1694,7 @@
   function drawPlankton() {
     const SP = C.FIREFLY.sparkle;
     for (const s of S.spark) {
-      if (!s.on) continue;
+      if (!s.on || s.z0) continue;                          // 해안 위 점은 땅 위에서 따로 그림
       const k = s.t / s.life, env = Math.min(1, s.t / 0.08) * Math.pow(1 - k, 1.3);
       drawUnderwaterLight(s.x, s.y, s.depth, s.size, s.size * 3.2, s.hue, env, s.life <= SP.waveLife + 0.01 ? 2 : 3);
     }

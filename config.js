@@ -65,7 +65,8 @@ const WATER_CALM = {
   },
   ripple: {                   // 원형 파문: 채운 원판 없이 가는 선 링만 (빛의 아이들 느낌)
     life: 2.4,                // 퍼지는 시간 (ease-out)
-    rings: 3, ringGap: 0.15,  // 한 번에 3겹, 0.15초 간격
+    rings: 6, ringGap: 0.12,  // 한 번에 6겹(촘촘하게), 0.12초 간격
+    centerLight: 0.35,        // 안쪽 겹일수록 밝게 (가운데가 환한 느낌)
     widthFrom: 2, widthTo: 0.5,   // 선 굵기 (px, 가까운 거리 기준)
     fadeIn: 0.1,              // 나타나는 시간, 이후 길게 사라짐
     alpha: 0.32,
@@ -90,7 +91,7 @@ const WATER_NORMAL = {
   inertiaTilt: { accelDeg: 3, stopDeg: 2.2, accelRef: 3 },
   settle: { dampingRatio: 0.4, maxPx: 6 },
   splash: { ringRadius: 3.2, ringLife: 2.2 },
-  ripple: { life: 2.6, rings: 3, ringGap: 0.15, widthFrom: 2.4, widthTo: 0.6, fadeIn: 0.1, alpha: 0.4, wobble: 0.09, breaks: 0.25, lightSide: 0.6, softness: 0.5 },
+  ripple: { life: 2.6, rings: 6, ringGap: 0.12, centerLight: 0.4, widthFrom: 2.4, widthTo: 0.6, fadeIn: 0.1, alpha: 0.4, wobble: 0.09, breaks: 0.25, lightSide: 0.6, softness: 0.5 },
   curve: { wakeBend: 0.5, vortex: { every: 1.1, life: 2.0, radius: 0.4, alpha: 0.26, max: 8 } },
 };
 
@@ -135,6 +136,7 @@ const FIREFLY = {
   coreHue: [190, 212], coreSat: 100, coreLight: 50, coreAlpha: 0.95,
   glowHue: 182, glowSat: 75, glowLight: 55, glowAlpha: 0.4,
   shadowColor: [24, 52, 96], shadowAlpha: 0.22,
+  swimHalo: { alpha: 0.35, radius: 0.6 },   // 수영할 때 몸 둘레 옅은 푸른 테
   overFogAlpha: 0.55,         // 안개 위로 한 번 더 비치는 코어 (안개에 묻히지 않게)
   farFade: [10, 45, 0.5],     // 이 거리부터 옅어져서 최대 50% 까지
   // 푸른 점: 이동 꼬리 + 물결·파문 위 반짝임
@@ -144,6 +146,11 @@ const FIREFLY = {
     trailLife: [1.2, 2.4],    // 꼬리 점이 천천히 꺼지는 시간
     waveLife: 0.8,            // 물결·파문 위에서 반짝 켜졌다 꺼지는 시간
     ringRate: 6,              // 파문 링 하나당 초당 반짝임 수
+    swimRate: 45,             // 수영할 때 몸 뒤로 흩뿌리는 점 (최고 속도 기준, 초당)
+    swimLife: [1.4, 2.6],     // 수영 꼬리 점이 꺼지는 시간 (길게 이어지는 꼬리)
+    swimSpread: 0.35,         // 꼬리 점이 옆으로 퍼지는 폭 (월드)
+    shoreRate: 22,            // 해안 물 끝선을 따라 반짝이는 점 (초당)
+    shoreLife: [0.8, 1.6],
     wakeCount: 2,             // 항적 호 하나당 반짝임 수
     size: [0.025, 0.06],
   },
@@ -328,7 +335,8 @@ window.CONFIG = {
     facetAlpha: 0.09,         // (사용 안 함, relief 로 대체)
     // 윗면 굴곡: 빙하마다 시드로 둔덕·경사·쐐기 모양. 면 정보는 생성 때 한 번만 계산
     relief: {
-      heightFrac: [0.06, 0.15], // 높이차 = 빙하 지름 × 이 범위
+      heightFrac: [0.07, 0.13], // 높이 = 빙하 지름 × 이 범위
+      slab: 0.75,               // 판형: 가장자리도 이만큼 높아 옆면이 깎아지른 절벽, 윗면은 넓고 평평하게
       startScale: 0.55,         // 시작 빙하는 완만하게
       wedgeShare: 0.35,         // 한쪽이 높고 비스듬히 내려오는 쐐기 모양 비율
       lip: 0.04,                // 가장자리 기본 높이
