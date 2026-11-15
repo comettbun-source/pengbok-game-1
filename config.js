@@ -136,7 +136,6 @@ const FIREFLY = {
   coreHue: [190, 212], coreSat: 100, coreLight: 50, coreAlpha: 0.95,
   glowHue: 182, glowSat: 75, glowLight: 55, glowAlpha: 0.4,
   shadowColor: [24, 52, 96], shadowAlpha: 0.22,
-  swimHalo: { alpha: 0.35, radius: 0.6 },   // 수영할 때 몸 둘레 옅은 푸른 테
   overFogAlpha: 0.55,         // 안개 위로 한 번 더 비치는 코어 (안개에 묻히지 않게)
   farFade: [10, 45, 0.5],     // 이 거리부터 옅어져서 최대 50% 까지
   // 푸른 점: 이동 꼬리 + 물결·파문 위 반짝임
@@ -145,13 +144,13 @@ const FIREFLY = {
     trailRate: 30,            // 무리가 움직일 때 초당 흩뿌리는 수
     trailLife: [1.2, 2.4],    // 꼬리 점이 천천히 꺼지는 시간
     waveLife: 0.8,            // 물결·파문 위에서 반짝 켜졌다 꺼지는 시간
-    ringRate: 6,              // 파문 링 하나당 초당 반짝임 수
-    swimRate: 45,             // 수영할 때 몸 뒤로 흩뿌리는 점 (최고 속도 기준, 초당)
+    ringRate: 0,              // 파문 링 하나당 초당 반짝임 수
+    swimRate: 0,             // 수영할 때 몸 뒤로 흩뿌리는 점 (최고 속도 기준, 초당)
     swimLife: [1.4, 2.6],     // 수영 꼬리 점이 꺼지는 시간 (길게 이어지는 꼬리)
     swimSpread: 0.35,         // 꼬리 점이 옆으로 퍼지는 폭 (월드)
-    shoreRate: 22,            // 해안 물 끝선을 따라 반짝이는 점 (초당)
+    shoreRate: 0,            // 해안 물 끝선을 따라 반짝이는 점 (초당)
     shoreLife: [0.8, 1.6],
-    wakeCount: 2,             // 항적 호 하나당 반짝임 수
+    wakeCount: 0,             // 항적 호 하나당 반짝임 수
     size: [0.025, 0.06],
   },
 };
@@ -205,7 +204,7 @@ const ICE_FIELD = {
     { x: -3, y: -4.6, size: 0.28 },           // 오른쪽 조각
   ],
   spacing: [7, 12],           // 시드 배치 열 간격: 출발 근처 ~ 섬 근처 (점점 넓어짐)
-  perColumn: 2.2,             // 열마다 평균 빙하 수 (출발 근처 기준, 섬 쪽으로 갈수록 줄어듦)
+  perColumn: 1.8,             // 열마다 평균 빙하 수 (출발 근처 기준, 섬 쪽으로 갈수록 줄어듦)
   density: { left: 1.0, right: 0 },     // 오른쪽은 고정 조각 하나 뒤로 열린 바다만
   spreadY: 22,                // 바다 위아래로 흩어지는 폭
   bigShare: 0.3,              // 큰 빙하 비율 (섬 쪽으로 갈수록 줄어듦)
@@ -239,14 +238,25 @@ const SHORE_WASH = {
 
 // ── 모래 발자국 (발바닥 버튼과 같은 모양) ─────────────────────────────
 const FOOTPRINTS = {
-  size: 0.17,                 // 발자국 크기 (월드)
+  size: 0.11,                 // 발자국 크기 (월드)
   stride: 0.5,                // 왼발·오른발 좌우 간격 = 펭귄 키 × 이 값 (몸 폭 정도)
   pressTime: 0.1,             // 찍힐 때 80% → 100% 로 커지는 시간 (초)
   pressFrom: 0.8,
-  life: 6,                    // 서서히 사라지는 시간 (초)
-  max: 30,                    // 풀 크기
-  alpha: 0.3,                 // 발자국 진하기
+  life: 6,                    // 모래: 서서히 사라지는 시간 (초)
+  max: 30,                    // 모래 발자국 풀
+  alpha: 0.3,                 // 모래 발자국 진하기
   innerAlpha: 0.16,           // 눌린 안쪽이 더 어두운 정도
+  ice: { alpha: 0.14, life: 2.5, max: 30, color: [140, 146, 152] },   // 빙하: 옅은 회색 긁힘 자국 (빙하 좌표계에 저장)
+  slideTrail: { alpha: 0.2, life: 3, width: 0.03, spacing: 0.08, max: 90 },  // 빙하 위 슬라이딩 활주 자국 한 줄
+};
+
+// ── 명암·그림자 블러 (ctx.filter 없이 스프라이트·겹 그리기·축소 캐시로) ─────────
+const SHADOW_BLUR = {
+  ratio: 0.25,                // 경계 번짐 폭 = 그림자 크기 × 이 값 (20~30%)
+  layers: 5,                  // 다각형 그림자를 크기를 바꿔 겹쳐 그리는 횟수 (클수록 부드럽게)
+  facetTexture: 96,           // 빙하 윗면 음영 캐시 크기 (px)
+  facetDownscale: 6,          // 음영을 이만큼 줄였다 키워 경계를 흐림 (생성 때 한 번)
+  wetResolution: 0.15,        // 젖은 땅 오프스크린 해상도
 };
 
 window.CONFIG = {
@@ -258,6 +268,7 @@ window.CONFIG = {
   FIREFLY,
   SHORE_WASH,
   FOOTPRINTS,
+  SHADOW_BLUR,
 
   ui: {
     // 왼쪽 아래 이동 링. inset = 화면 가장자리 ~ 링 바깥선 간격(엄지 하나 정도)
@@ -351,12 +362,13 @@ window.CONFIG = {
 
   reflect: { alpha: 0.3, fadeLength: 0.95, wobblePx: 2.2, slices: 10 },
 
-  fish: {
-    delay: 1.8,
-    startRight: 3.5, ahead: 8,  // 펭귄 기준 오른쪽·앞 (화면 기준)
-    landLeft: 4,                // 왼쪽 착수
-    jump1: { height: 2.0, duration: 0.95 }, pause: 0.35,
-    jump2: { distance: 3.2, ahead: 2, height: 0.9, duration: 0.6 }, size: 0.75,
+  fish: null,                 // 시작 물고기 연출 (비활성, 코드 삭제됨)
+  // 시작 연출: 펭귄 왼쪽 앞 수면에 파문 링 하나 → 그 자리에서 반딧불이 군집이 서서히 밝아지며 첫 빙하 쪽으로 흘러감
+  intro: {
+    delay: 1.5,               // 시작 후 파문까지 (초)
+    left: 4.5, ahead: 3.5,    // 펭귄 기준 왼쪽·앞 거리 (화면 기준)
+    rippleRadius: 2.4,
+    fadeIn: 2,                // 군집이 밝아지는 시간 (초)
   },
 
   world: {
