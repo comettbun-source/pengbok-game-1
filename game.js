@@ -89,6 +89,11 @@
     const tp = Math.atan2(wd, z * w) / wd;
     return px / (Math.exp(-z * w * tp) * Math.sin(wd * tp) / wd);
   }
+  function springW(s, target, dt, w, z) { s.v += (-w * w * (s.h - target) - 2 * z * w * s.v) * dt; s.h += s.v * dt; }
+  function impulseW(depth, w, z) {
+    const wd = w * Math.sqrt(1 - z * z), tp = Math.atan2(wd, z * w) / wd;
+    return depth / (Math.exp(-z * w * tp) * Math.sin(wd * tp) / wd);
+  }
   const jumpAir = () => 2 * P.jumpVelocity / P.gravity;
   const jumpMaxDist = () => P.jumpForwardSpeed * jumpAir();
 
@@ -195,14 +200,59 @@
       ph: [r() * WC().bob.phaseSpread, r() * WC().bob.phaseSpread, r() * 6.28, r() * 6.28],
     });
     f.R = Math.max(...f.shape.map(([x, y]) => Math.hypot(x, y)));
-    { const fr = rng(c.seed + 5), n = f.shape.length;                // 윗면 면 분할선: 안쪽 한 점에서 가장자리 2~3곳으로
-      const i0 = (fr() * n) | 0;
-      f.facet = { c: [(fr() - 0.5) * rx * 0.5, (fr() - 0.5) * ry * 0.5], idx: [i0, (i0 + Math.round(n / 3) + ((fr() * 2) | 0)) % n, (i0 + Math.round(2 * n / 3)) % n].slice(0, fr() < 0.5 ? 2 : 3) }; }
+    makeRelief(f, c);
     f.cr = (rx + ry) / 2 * 0.92;                              // 충돌 원 반지름
     f.mass = Math.PI * rx * ry * P.floeDensity;
     f.heave.h = 0; f.heave.v = 0; f.tilt.x = f.tilt.y = f.tilt.vx = f.tilt.vy = 0; f.hist.fill(0);
     c.floe = f;
     return f;
+  }
+  // 윗면 굴곡: 꼭짓점(산마루) 하나 + 가장자리 높이로 삼각형 부채를 만들고, 이웃 삼각형을 묶어 3~6개 면으로
+  function makeRelief(f, c) {
+    if (c.relief) { f.relief = c.relief; return; }
+    const R = C.floe.relief, r = rng(c.seed + 11), shp = f.shape, n = shp.length;
+    const H = 2 * Math.max(f.rx, f.ry) * lerp(R.heightFrac[0], R.heightFrac[1], r()) * (c.start ? R.startScale : 1);
+    const wedge = !c.start && r() < R.wedgeShare, a = r() * Math.PI * 2, dir = [Math.cos(a), Math.sin(a)];
+    let apex, vh;
+    if (wedge) {                                              // 쐐기: 한쪽 끝이 높은 절벽, 반대쪽으로 비스듬히 내려옴
+      apex = [dir[0] * f.rx * 0.5, dir[1] * f.ry * 0.5];
+      vh = shp.map(([x, y]) => { const t = (x * dir[0] + y * dir[1]) / f.R; return t > 0.45 ? H * (0.6 + 0.35 * r()) : R.lip * (0.5 + r()) + Math.max(0, t) * H * 0.35; });
+    } else {                                                  // 둔덕·능선: 안쪽 한 점이 높고 가장자리는 낮게
+      apex = c.start ? [dir[0] * f.rx * 0.35, dir[1] * f.ry * 0.35] : [(r() - 0.5) * f.rx * 0.8, (r() - 0.5) * f.ry * 0.8];
+      const ridgeI = (r() * n) | 0;                           // 능선 하나가 가장자리 쪽으로 뻗음
+      vh = shp.map((_, i) => { const di = Math.min(Math.abs(i - ridgeI), n - Math.abs(i - ridgeI)); return R.lip * (0.5 + r()) + (di === 0 ? H * 0.45 : di === 1 ? H * 0.15 : 0); });
+    }
+    const tris = [];
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n, A = [apex[0], apex[1], H], B = [shp[i][0], shp[i][1], vh[i]], Cc = [shp[j][0], shp[j][1], vh[j]];
+      const u = [B[0] - A[0], B[1] - A[1], B[2] - A[2]], v = [Cc[0] - A[0], Cc[1] - A[1], Cc[2] - A[2]];
+      let nx = u[1] * v[2] - u[2] * v[1], ny = u[2] * v[0] - u[0] * v[2], nz = u[0] * v[1] - u[1] * v[0];
+      if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+      const l = Math.hypot(nx, ny, nz) || 1;
+      tris.push({ i, j, A, B, C: Cc, n: [nx / l, ny / l, nz / l], gx: -nx / nz, gy: -ny / nz });   // 높이 기울기 = (gx, gy)
+    }
+    const k = R.facets[0] + ((r() * (R.facets[1] - R.facets[0] + 1)) | 0), start = (r() * n) | 0, facets = [];
+    for (let q = 0; q < k; q++) {
+      const s0 = Math.round(q * n / k), s1 = Math.round((q + 1) * n / k);
+      const ids = []; for (let t = s0; t < s1; t++) ids.push((start + t) % n);
+      let nx = 0, ny = 0, nz = 0; for (const t of ids) { nx += tris[t].n[0]; ny += tris[t].n[1]; nz += tris[t].n[2]; }
+      const l = Math.hypot(nx, ny, nz) || 1;
+      facets.push({ ids, verts: ids.map((t) => tris[t].i).concat([tris[ids[ids.length - 1]].j]), n: [nx / l, ny / l, nz / l] });
+    }
+    c.relief = f.relief = { apex, H, vh, tris, facets, wedge };
+  }
+  // 빙하 윗면 높이와 기울기 (지역 좌표)
+  function reliefAt(f, lx, ly) {
+    const rf = f.relief;
+    for (const t of rf.tris) {
+      const { A, B, C: Cc } = t;
+      const d = (B[1] - Cc[1]) * (A[0] - Cc[0]) + (Cc[0] - B[0]) * (A[1] - Cc[1]);
+      if (Math.abs(d) < 1e-9) continue;
+      const w1 = ((B[1] - Cc[1]) * (lx - Cc[0]) + (Cc[0] - B[0]) * (ly - Cc[1])) / d;
+      const w2 = ((Cc[1] - A[1]) * (lx - Cc[0]) + (A[0] - Cc[0]) * (ly - Cc[1])) / d, w3 = 1 - w1 - w2;
+      if (w1 >= -1e-6 && w2 >= -1e-6 && w3 >= -1e-6) return { h: w1 * A[2] + w2 * B[2] + w3 * Cc[2], gx: t.gx, gy: t.gy };
+    }
+    return { h: C.floe.relief.lip * 0.5, gx: 0, gy: 0 };
   }
   function deactivateFloe(f) {
     const c = f.cand; c.x = f.x; c.y = f.y; c.vx = 0; c.vy = 0; c.floe = null; f.active = false; f.cand = null;
@@ -230,11 +280,11 @@
       x: 0, y: 0, z: C.floe.topHeight, vx: 0, vy: 0, vz: 0, cvx: 0, cvy: 0,
       face: Math.atan2(sfy, sfx), mode: 'floe', floe: null, lx: 0, ly: 0, air: false,
       sliding: false, sit: true, sink: 0, wobble: 0, phase: 0, idleRing: 0, ripple: 0,
-      heave: { h: 0, v: 0 }, lean: { h: 0, v: 0 }, peakSpeed: 0, prevSpeed: 0, aLong: 0, lastEmit: null,
+      heave: { h: 0, v: 0 }, dive: { h: 0, v: 0 }, driftAng: Math.random() * 6.28, lean: { h: 0, v: 0 }, peakSpeed: 0, prevSpeed: 0, aLong: 0, lastEmit: null,
     };
     manageField();
     S.p.floe = S.cands[0].floe;
-    S.ripples = []; S.vortex = []; S.prints = []; S.washRipples = []; S.wash = null;
+    S.ripples = []; S.vortex = []; S.prints = []; S.printI = 0; S.washRipples = []; S.wash = null; S.camGroundZ = 0;
     S.wake = Array.from({ length: WC().wake.maxParticles }, () => ({ on: false }));
     S.lines = null;
     S.lastTapUp = 0; S.tapPulse = 0; S.jumpAt = 0; S.jumpReq = false;
@@ -309,7 +359,7 @@
   }
 
   // ── 지형 판정 (빙하 = 그림과 같은 다각형, 충돌 = 원·타원) ──────
-  const floeTopAt = (f, lx, ly) => C.floe.topHeight + f.tilt.x * lx + f.tilt.y * ly;
+  const floeTopAt = (f, lx, ly) => C.floe.topHeight + (f.relief ? reliefAt(f, lx, ly).h : 0) + f.tilt.x * lx + f.tilt.y * ly;
   const onFloe = (f, x, y, scale = 1) => f && f.active && inPoly(f.shape, (x - f.x) / scale, (y - f.y) / scale);
   const floeAt = (x, y, scale = 1) => S.floePool.find((f) => f.active && onFloe(f, x, y, scale)) || null;
   const islandAt = (x, y) => S.islands.find((is) => inPoly(is.shape, x, y));
@@ -655,7 +705,8 @@
     } else {
       // 이동: 입력은 힘. 가속도 = 힘/질량, 지면 마찰로 감쇠, 최고 속도 부드럽게 제한
       p.vx += wx * pm.moveForce[surf] / pm.mass * dt; p.vy += wy * pm.moveForce[surf] / pm.mass * dt;
-      const k = Math.exp(-P.friction[surf] * dt); p.vx *= k; p.vy *= k;
+      const idleFloat = p.mode === 'water' && mag < 0.01 && Math.hypot(p.vx, p.vy) < 0.5;   // 떠다니기는 물 저항에 묻히지 않게
+      const k = idleFloat ? 1 : Math.exp(-P.friction[surf] * dt); p.vx *= k; p.vy *= k;
       // 최고 속도: 입력으로는 넘지 않음. 슬라이딩 등으로 이미 빠르면 부드럽게 줄어듦
       const s = Math.hypot(p.vx, p.vy), mxs = pm.maxSpeed[surf] * (p.inWash ? C.SHORE_WASH.slowMul : 1);
       if (s > mxs) { const ns = sp0 > mxs ? Math.max(mxs, Math.min(s, sp0) * Math.exp(-3 * dt)) : mxs; p.vx *= ns / s; p.vy *= ns / s; }
@@ -663,7 +714,19 @@
       else if (p.sit && S.fish.visible) {
         p.face += angDiff(p.face, Math.atan2(S.fish.y - p.y, S.fish.x - p.x)) * ease(4, dt);
       }
-      if (Math.abs(p.vx) + Math.abs(p.vy) < 1e-4) { p.vx = 0; p.vy = 0; }
+      // 물에서 가만히 있으면 느리게 떠다님 (방향은 천천히 바뀜). 입력을 주면 자연히 사라짐
+      if (p.mode === 'water' && mag < 0.01) {
+        const DR = P.drift;
+        p.driftAng += noise1(S.time * 0.15 + 7.3) * DR.turnRate * dt;
+        const k = ease(DR.blend, dt);
+        p.vx += (Math.cos(p.driftAng) * DR.speed - p.vx) * k; p.vy += (Math.sin(p.driftAng) * DR.speed - p.vy) * k;
+      }
+      // 빙하 경사가 가파르면 살짝 미끄러져 내려옴
+      if (p.mode === 'floe' && p.floe && p.floe.relief) {
+        const RL = C.floe.relief, gr = reliefAt(p.floe, p.lx, p.ly), sl = Math.hypot(gr.gx, gr.gy);
+        if (sl > RL.slideSlope) { const a = (sl - RL.slideSlope) * RL.slideAccel * dt; p.vx -= gr.gx / sl * a; p.vy -= gr.gy / sl * a; }
+      }
+      if (Math.abs(p.vx) + Math.abs(p.vy) < 1e-5) { p.vx = 0; p.vy = 0; }
     }
 
     const f = p.floe;
@@ -699,7 +762,14 @@
     } else if (p.mode === 'island') {
       if (!islandAt(p.x, p.y)) { const o = floeAt(p.x, p.y); setMode(o ? 'floe' : 'water', o, -1); }
     }
-    if (!p.air) {
+    if (!p.air && p.mode === 'water') {
+      // 부력 스프링: 잠겼다가 동동동 떠오름. 위로 지나갈 때마다 작은 파문
+      const WE = P.waterEntry, prevH = p.dive.h;
+      springW(p.dive, 0, dt, 2 * Math.PI / WE.period, WE.dampingRatio);
+      if (prevH < 0 && p.dive.h >= 0 && p.dive.v > 0.15) { ripple(p.x, p.y, 0.9, 1.1, WC().ripple.alpha * 0.6); log('bob'); }
+      p.z = p.dive.h;
+    } else if (!p.air) {
+      p.dive.h = p.dive.v = 0;
       const tz = p.mode === 'island' ? C.world.shoreHeight : p.mode === 'floe' && p.floe ? floeTopAt(p.floe, p.lx, p.ly) : 0;
       p.z += (tz - p.z) * ease(14, dt);
     }
@@ -727,11 +797,14 @@
       const stepN = Math.floor(p.phase / Math.PI);
       if (p.mode === 'island' && stepN !== p.stepN) {                      // 흙 위 발자국
         p.stepN = stepN;
-        const side = stepN % 2 ? 1 : -1, fx = Math.cos(p.face), fy = Math.sin(p.face), o = 0.09 * C.penguin.scale;
-        const FP = C.penguin.footprints;
-        if (S.prints.length >= FP.max) S.prints.shift();
-        S.prints.push({ x: p.x - fy * o * side, y: p.y + fx * o * side, ang: p.face, t: 0 });
+        const FP = C.FOOTPRINTS, side = stepN % 2 ? 1 : -1, fx = Math.cos(p.face), fy = Math.sin(p.face), o = penH() * FP.stride / 2;
+        const slot = S.prints[S.printI % FP.max] || (S.prints[S.printI % FP.max] = {});
+        S.printI++;
+        Object.assign(slot, { on: true, x: p.x - fy * o * side, y: p.y + fx * o * side, ang: p.face, side, t: 0 });
       }
+    } else if (inWater && !p.sliding) {                     // 물에 떠 있을 때 살짝 기우뚱
+      p.wobble += (Math.sin(S.time * 2 * Math.PI / P.drift.rockPeriod) * deg(P.drift.rockDeg) - p.wobble) * ease(3, dt);
+      p.stepSink = 0;
     } else { p.wobble *= Math.exp(-10 * dt); p.stepSink = (p.stepSink || 0) * Math.exp(-10 * dt); }
     // 해안 물결: 물이 올라온 곳에 서 있으면 작은 파문 + 느려짐
     p.inWash = p.mode === 'island' && !p.air && washDepthAt(p.x, p.y) > 0;
@@ -776,8 +849,8 @@
     if (mode === 'water' && prev !== 'water' || (mode === 'water' && vz < -1)) {
       // 입수: 원형 물결 1회 + 낙하 속도에 비례해 가라앉았다 부력으로 떠오름 (물보라 없음)
       ripple(p.x, p.y, W2.splash.ringRadius, W2.splash.ringLife, W2.ripple.alpha * 1.4);
-      const px = Math.min(W2.splash.sinkMaxPx, W2.splash.sinkPx * Math.max(1, Math.abs(vz) / 3));
-      p.heave.v = -impulseFor(px);
+      const WE = P.waterEntry, depth = Math.min(WE.maxSinkBody * penH(), WE.minSink + WE.sinkPerSpeed * Math.abs(vz));
+      p.dive.h = 0; p.dive.v = -impulseW(depth, 2 * Math.PI / WE.period, WE.dampingRatio);
       log('splash');
     }
     if (mode !== 'water' && prev === 'water') ripple(p.x, p.y, 1.2, 1.2, W2.ripple.alpha * 0.5);
@@ -790,7 +863,8 @@
     const kc = ease(C.camera.followRate, dt);
     cam.x += (p.x + tvx * C.camera.lead - cam.x) * kc;
     cam.y += (p.y + tvy * C.camera.lead - cam.y) * kc;
-    cam.z += ((p.mode === 'island' ? C.world.shoreHeight : 0) - cam.z) * ease(3, dt);
+    if (!p.air) S.camGroundZ = p.mode === 'water' ? 0 : p.z;
+    cam.z += ((S.camGroundZ || 0) - cam.z) * ease(3, dt);
     // 손을 뗀 뒤 잠시 지나면 다음 목표 방향으로 천천히 돌아옴
     const K = C.camera;
     let camHeld = false; for (const q of pointers.values()) if (q.role === 'camera') camHeld = true;
@@ -873,7 +947,7 @@
     const life = WC().wake.life;
     for (const w of S.wake) if (w.on && (w.t += dt) >= life) w.on = false;
     S.vortex = S.vortex.filter((v) => (v.t += dt) < WC().curve.vortex.life);
-    S.prints = S.prints.filter((q) => (q.t += dt) < C.penguin.footprints.life);
+    for (const q of S.prints) if (q.on && (q.t += dt) >= C.FOOTPRINTS.life) q.on = false;
     S.washRipples = S.washRipples.filter((q) => (q.t += dt) < 1.2);
     stepWash(dt);
   }
@@ -1078,7 +1152,12 @@
     }
   }
 
-  const FLOE_SIDE_RGB = [214, 214, 210], FLOE_SUNK_RGB = [150, 162, 172], FLOE_SHADOW_RGB = [70, 76, 84];
+  const FLOE_SIDE_RGB = [214, 214, 210], FLOE_SUNK_RGB = [162, 165, 168], FLOE_SHADOW_RGB = [70, 72, 76];
+  // 빛 방향: 화면 왼쪽 위에서 (월드 기준 단위 벡터)
+  function lightDir() {
+    const x = -0.6 * rig.R[0] + 0.3 * rig.F[0], y = -0.6 * rig.R[1] + 0.3 * rig.F[1], z = 0.75, l = Math.hypot(x, y, z);
+    return [x / l, y / l, z / l];
+  }
   function floeAlpha(f) { return f === S.p.floe ? 1 : clamp((S.time - f.born) / IF.fadeInTime, 0, 1); }
   // 빙하: 물에 반쯤 잠긴 덩어리. 접촉 그림자 → 잠긴 몸(아래로 옅어짐) → 수면 위 옆면 → 수면 흰 링 → 윗면(그라데이션·면 분할선)
   function drawFloe(f, d) {
@@ -1096,9 +1175,20 @@
       ctx.fillStyle = `rgb(${FLOE_SUNK_RGB.join(',')})`;
       fillPoly(poly(1 + 0.035 * k, (x, y) => -FL.sunkDepth * k / 3 + tilt(x, y)));
     }
-    // 수면 위 옆면 (연회색)
+    // 옆면: 가장자리마다 수면 → 윗면 높이까지. 높은 쪽(쐐기)은 깎아지른 절벽 면으로 어둡게
+    const RL = FL.relief, rf = f.relief, n = shp.length;
+    const L = lightDir(), shadeOf = (nv, lo, hi) => { const b = smooth(-0.1, 0.85, nv[0] * L[0] + nv[1] * L[1] + nv[2] * L[2]); return mixFog(lo.map((v, i) => v + (hi[i] - v) * b), fog); };
+    const P3 = (x, y, z) => { const cs = camSpace(f.x + x, f.y + y, z); return cs; };
+    const topZ = (i) => C.floe.topHeight + rf.vh[i] + tilt(shp[i][0], shp[i][1]);
     ctx.globalAlpha = a;
-    ctx.fillStyle = mixFog(FLOE_SIDE_RGB, fog); fillPoly(poly(1, (x, y) => tilt(x, y) - 0.01));
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n, [x0, y0] = shp[i], [x1, y1] = shp[j];
+      const pts = projPoly([[f.x + x0, f.y + y0, topZ(i)], [f.x + x1, f.y + y1, topZ(j)], [f.x + x1, f.y + y1, tilt(x1, y1) - 0.01], [f.x + x0, f.y + y0, tilt(x0, y0) - 0.01]]).map(([sx, sy]) => [sx, sy + dy]);
+      let ex = y1 - y0, ey = -(x1 - x0); const el = Math.hypot(ex, ey) || 1; ex /= el; ey /= el;   // 바깥 방향 수평 법선
+      const tall = (rf.vh[i] + rf.vh[j]) / 2 > rf.H * 0.4;
+      ctx.fillStyle = shadeOf([ex, ey, 0.15], tall ? RL.cliffDark : FLOE_SIDE_RGB, tall ? FLOE_SIDE_RGB : [236, 237, 238]);
+      fillPoly(pts);
+    }
     // 수면과 만나는 흰 물결 링
     const ring = poly(1.03, (x, y) => tilt(x, y) - 0.005);
     if (ring.length > 2) {
@@ -1106,24 +1196,26 @@
       ctx.strokeStyle = '#ffffff'; ctx.lineWidth = clamp(pxPerUnit(d) * 0.025, 0.8, 2.6); ctx.lineJoin = 'round';
       ctx.beginPath(); ring.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke();
     }
-    // 윗면: 위(먼 쪽)는 밝은 흰색, 앞쪽은 아주 옅은 회백색
-    const top = poly(1, (x, y) => floeTopAt(f, x, y));
-    if (top.length > 2) {
-      let y0 = Infinity, y1 = -Infinity; for (const q of top) { y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }
-      const gr = ctx.createLinearGradient(0, y0, 0, y1 + 1);
-      gr.addColorStop(0, mixFog([255, 255, 255], fog)); gr.addColorStop(1, mixFog([236, 238, 240], fog));
-      ctx.globalAlpha = a; ctx.fillStyle = gr; fillPoly(top);
-      // 면 분할선 2~3개
-      const c0 = camSpace(f.x + f.facet.c[0], f.y + f.facet.c[1], floeTopAt(f, f.facet.c[0], f.facet.c[1]));
-      if (c0[1] > rig.near) {
-        const [cx0, cy0] = toScreen(c0);
-        ctx.globalAlpha = a * FL.facetAlpha * (1 - fog); ctx.strokeStyle = '#5a6068'; ctx.lineWidth = 1;
-        for (const ix of f.facet.idx) {
-          const [vx, vy] = shp[ix], cv = camSpace(f.x + vx * 0.96, f.y + vy * 0.96, floeTopAt(f, vx, vy));
-          if (cv[1] <= rig.near) continue;
-          const [ex, ey] = toScreen(cv);
-          ctx.beginPath(); ctx.moveTo(cx0, cy0 + dy); ctx.lineTo(ex, ey + dy); ctx.stroke();
-        }
+    // 윗면: 3~6개 면. 빛(왼쪽 위)을 향한 면은 흰색, 반대 면은 연회색
+    const apexZ = C.floe.topHeight + rf.H + tilt(rf.apex[0], rf.apex[1]);
+    const apexS = P3(rf.apex[0], rf.apex[1], apexZ);
+    ctx.globalAlpha = a;
+    for (const fc of rf.facets) {
+      const pts3 = [[f.x + rf.apex[0], f.y + rf.apex[1], apexZ]].concat(fc.verts.map((i) => [f.x + shp[i][0], f.y + shp[i][1], topZ(i)]));
+      ctx.fillStyle = shadeOf(fc.n, RL.shadeDark, RL.shadeLight);
+      const sp = projPoly(pts3).map(([sx, sy]) => [sx, sy + dy]);
+      fillPoly(sp);
+      ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 0.8; if (sp.length > 2) { ctx.beginPath(); sp.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke(); }   // 면 사이 틈 메움
+    }
+    // 능선: 꼭짓점에서 면 경계로 이어지는 얇은 밝은 선
+    if (apexS[1] > rig.near) {
+      const [ax, ay] = toScreen(apexS);
+      ctx.globalAlpha = a * RL.ridgeAlpha * (1 - fog); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = clamp(pxPerUnit(d) * 0.012, 0.6, 1.6);
+      for (const fc of rf.facets) {
+        const i = fc.verts[0], cs = P3(shp[i][0], shp[i][1], topZ(i));
+        if (cs[1] <= rig.near) continue;
+        const [vx, vy] = toScreen(cs);
+        ctx.beginPath(); ctx.moveTo(ax, ay + dy); ctx.lineTo(vx, vy + dy); ctx.stroke();
       }
     }
     ctx.globalAlpha = 1;
@@ -1172,13 +1264,19 @@
       ctx.globalAlpha = 0.35 * (1 - k); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2;
       ctx.beginPath(); ctx.ellipse(e.x, e.y, e.rx, e.ry, 0, 0, Math.PI * 2); ctx.stroke();
     }
-    // 발자국: 어두운 작은 타원, 3초에 걸쳐 사라짐
-    const FP = C.penguin.footprints;
+    // 모래 발자국: 발바닥 버튼과 같은 모양. 진행 방향으로 회전, 왼발은 좌우 뒤집음. 찍힐 때 살짝 커지며 눌림
+    const FP = C.FOOTPRINTS;
     for (const q of S.prints) {
-      const e = groundEllipse(q.x, q.y, FP.size * C.penguin.scale, z);
-      if (!e) continue;
-      ctx.globalAlpha = FP.alpha * (1 - q.t / FP.life) * (1 - fog); ctx.fillStyle = '#2e2b28';
-      ctx.beginPath(); ctx.ellipse(e.x, e.y, e.rx * 0.7, e.ry * 1.1, 0, 0, Math.PI * 2); ctx.fill();
+      if (!q.on) continue;
+      const press = FP.pressFrom + (1 - FP.pressFrom) * smooth(0, FP.pressTime, q.t), fade = 1 - q.t / FP.life;
+      const fx = Math.cos(q.ang), fy = Math.sin(q.ang), rxv = Math.sin(q.ang), ryv = -Math.cos(q.ang);
+      const shape = (k) => projPoly(PAW_POLY.map(([ux, uy]) => {
+        const a = ux * q.side * FP.size * k * press, b = -uy * FP.size * k * press;
+        return [q.x + fx * b + rxv * a, q.y + fy * b + ryv * a, z];
+      }));
+      ctx.fillStyle = '#2e2b28';
+      ctx.globalAlpha = FP.alpha * fade * (1 - fog); fillPoly(shape(1));
+      ctx.globalAlpha = FP.innerAlpha * fade * (1 - fog) * (1.4 - 0.4 * smooth(0, FP.pressTime * 3, q.t)); fillPoly(shape(0.55));
     }
     ctx.globalAlpha = 1;
   }
@@ -1221,13 +1319,18 @@
     const squash = p.sit ? 0.22 : (S.tapPulse * 0.08 + (slideHeld() && !p.sliding ? 0.1 : 0)) - (p.air && p.vz > 0 ? 0.08 : 0);
     return { fvx: c * fx - s * fy, fvy: s * fx + c * fy, squash };
   }
-  // part: 'above' = 수면 위만, 'below' = 수면 아래만, wl = 수면선(지역 좌표)
-  function drawPenguinFigure(g, u, v, part = 'above', wl = 0) {
+  // part: 'above' = 수면 위만, 'below' = 수면 아래만. cut = 몸을 감싸는 수면 타원 (지역 좌표)
+  // 앞쪽 호(아래로 볼록) 위가 물 밖, 그 아래가 물속
+  function drawPenguinFigure(g, u, v, part = 'above', cut = null) {
     const p = S.p;
-    if (p.sink > 0.01) {
+    if (cut && p.mode === 'water' && !p.air) {
+      const { cx, cy, rx, ry } = cut, big = u * 6;
       g.beginPath();
-      if (part === 'below') g.rect(-u * 2, wl, u * 4, u * 3); else g.rect(-u * 2, wl - u * 3, u * 4, u * 3);
-      g.clip();
+      g.moveTo(cx - big, cy); g.lineTo(cx - rx, cy);
+      g.ellipse(cx, cy, rx, ry, 0, Math.PI, 0, true);          // 앞쪽(아래) 반원
+      g.lineTo(cx + big, cy);
+      if (part === 'below') { g.lineTo(cx + big, cy + big); g.lineTo(cx - big, cy + big); } else { g.lineTo(cx + big, cy - big); g.lineTo(cx - big, cy - big); }
+      g.closePath(); g.clip();
       g.translate(0, p.sink * u);
     } else if (part === 'below') return;
     const { fvx, fvy } = v;
@@ -1270,7 +1373,7 @@
         ctx.beginPath(); ctx.ellipse(e.x, e.y + (p.floe && !p.air ? floeOffset(p.floe) : 0), e.rx, e.ry, 0, 0, Math.PI * 2); ctx.fill();
       }
     }
-    const wl = project(p.x, p.y, 0)[1] - sy;                // 수면선 (펭귄 지역 좌표)
+    const cut = waterCut(sx, sy);
     // 수영: 몸 둘레 물결 고리를 뒤쪽 절반 → 몸 → 앞쪽 절반 순서로 (몸 위로 고리가 비쳐 보이지 않게)
     const e = p.sink > 0.2 ? groundEllipse(p.x, p.y, penH() * 0.45) : null;
     const ringHalf = (front) => {
@@ -1283,10 +1386,28 @@
     };
     ringHalf(false);
     if (p.sink > 0.01) {                                      // 잠긴 몸: 수면선 아래를 옅게
-      ctx.save(); ctx.globalAlpha = C.penguin.underwaterAlpha; ctx.translate(sx, sy); drawPenguinFigure(ctx, u, v, 'below', wl); ctx.restore();
+      ctx.save(); ctx.globalAlpha = C.penguin.underwaterAlpha; ctx.translate(sx, sy); drawPenguinFigure(ctx, u, v, 'below', cut); ctx.restore();
     }
-    ctx.save(); ctx.translate(sx, sy); drawPenguinFigure(ctx, u, v, 'above', wl); ctx.restore();
+    if (cut) waterlineArc(cut, sx, sy, false);
+    ctx.save(); ctx.translate(sx, sy); drawPenguinFigure(ctx, u, v, 'above', cut); ctx.restore();
+    if (cut) waterlineArc(cut, sx, sy, true);
     ringHalf(true);
+  }
+  // 몸을 감싸는 수면 타원: 원근에 맞게 납작하게, 출렁임에 따라 1~2px 흔들림
+  function waterCut(sx, sy) {
+    const p = S.p;
+    if (p.mode !== 'water' || p.air) return null;
+    const e = groundEllipse(p.x, p.y, penH() * 0.33);
+    if (!e) return null;
+    const t = S.time;
+    return { cx: e.x - sx + Math.sin(t * 2.3) * 0.8, cy: e.y - sy + Math.sin(t * 3.1) * 1.2 + Math.sin(t * 5.3) * 0.5, rx: e.rx * (1 + 0.03 * Math.sin(t * 2.7)), ry: e.ry };
+  }
+  // 수면선 가장자리의 얇은 밝은 물결선: 뒤쪽 호는 몸 뒤, 앞쪽 호는 몸 앞
+  function waterlineArc(cut, sx, sy, front) {
+    ctx.save(); ctx.translate(sx, sy);
+    ctx.strokeStyle = '#ffffff'; ctx.globalAlpha = front ? 0.75 : 0.45; ctx.lineWidth = clamp(cut.rx * 0.05, 1, 2.2); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.ellipse(cut.cx, cut.cy, cut.rx * 1.06, cut.ry * 1.06, 0, front ? 0 : Math.PI, front ? Math.PI : Math.PI * 2); ctx.stroke();
+    ctx.restore();
   }
 
   const off = document.createElement('canvas'), og = off.getContext('2d');
@@ -1299,7 +1420,7 @@
     if (off.width !== Math.ceil(size * DPR)) { off.width = off.height = Math.ceil(size * DPR); }
     og.setTransform(DPR, 0, 0, DPR, 0, 0); og.globalCompositeOperation = 'source-over';
     og.clearRect(0, 0, size, size);
-    og.save(); og.translate(ox, oy + (sy - wy)); drawPenguinFigure(og, u, v, 'above', wy - sy); og.restore();
+    og.save(); og.translate(ox, oy + (sy - wy)); drawPenguinFigure(og, u, v, 'above', waterCut(sx, sy)); og.restore();
     og.globalCompositeOperation = 'destination-in';
     const gr = og.createLinearGradient(0, oy, 0, oy - u * C.reflect.fadeLength);
     gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
@@ -1434,6 +1555,22 @@
     drawPaw(a.x, a.y + sc * 0.04, sc, lum.action, (pressed ? 1.4 : 1) * A.alphaScale);
   }
 
+  // 발바닥 모양 (버튼·발자국 공용): 베지어 구간, 그리고 다각형으로 샘플링한 것
+  const PAW_SEGS = [[-0.35, -0.75], [-0.18, -0.89, -0.05, -1.0, 0.165, -1.0], [0.375, -1.0, 0.475, -0.765, 0.55, -0.615],
+    [0.775, -0.565, 0.885, -0.39, 0.885, -0.14], [0.885, 0.36, 0.275, 1.0, -0.15, 1.0], [-0.625, 1.0, -0.885, 0.46, -0.885, -0.14],
+    [-0.885, -0.64, -0.675, -0.8, -0.5, -0.8], [-0.43, -0.8, -0.38, -0.76, -0.35, -0.75]];
+  const PAW_POLY = (() => {
+    const out = []; let [x0, y0] = PAW_SEGS[0];
+    for (let s = 1; s < PAW_SEGS.length; s++) {
+      const [a, b, c2, d2, e2, f2] = PAW_SEGS[s];
+      for (let i = 1; i <= 5; i++) {
+        const t = i / 5, m = 1 - t;
+        out.push([m * m * m * x0 + 3 * m * m * t * a + 3 * m * t * t * c2 + t * t * t * e2, m * m * m * y0 + 3 * m * m * t * b + 3 * m * t * t * d2 + t * t * t * f2]);
+      }
+      x0 = e2; y0 = f2;
+    }
+    return out;
+  })();
   // 둥근 물갈퀴 발바닥: 작은 캔버스에 불투명하게 그린 뒤 한 번에 반투명으로 얹음 (겹친 곳도 같은 농도)
   const pawCv = document.createElement('canvas'), pawG = pawCv.getContext('2d');
   function drawPaw(cx, cy, sc, l, strength) {

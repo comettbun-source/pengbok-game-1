@@ -48,8 +48,6 @@ const WATER_CALM = {
   splash: {
     ringRadius: 2.6,          // 입수 원형 물결 반지름
     ringLife: 1.8,
-    sinkPx: 6,                // 걸어서 빠질 때 가라앉는 깊이 (낙하 속도에 비례해 증가)
-    sinkMaxPx: 10,
   },
   ripple: { life: 1.8, alpha: 0.3, softness: 0.45 },   // 원형 파문 (입수·물고기·제자리 수영)
   curve: {                    // 물결을 직선 대신 유동적인 곡선으로
@@ -75,7 +73,7 @@ const WATER_NORMAL = {
   flowLines: { count: 3, alpha: 0.24, lengthSec: 0.6 },
   inertiaTilt: { accelDeg: 3, stopDeg: 2.2, accelRef: 3 },
   settle: { dampingRatio: 0.4, maxPx: 6 },
-  splash: { ringRadius: 3.2, ringLife: 2.2, sinkPx: 8, sinkMaxPx: 13 },
+  splash: { ringRadius: 3.2, ringLife: 2.2 },
   ripple: { life: 2.2, alpha: 0.4, softness: 0.5 },
   curve: { lineAmp: 0.26, lineWaves: [0.8, 2.0], noiseAmp: 0.18, noiseScale: 0.7, flowSpeed: 0.6, morphSpeed: 0.4, farCount: 20,
     wakeBend: 0.5, rippleWobble: 0.1, rippleThickVar: 0.6, vortex: { every: 1.1, life: 2.0, radius: 0.4, alpha: 0.26, max: 8 } },
@@ -139,6 +137,10 @@ const PHYSICS = {
   slideTurnRate: 3.5,         // 링 방향을 따라 슬라이딩 방향이 도는 빠르기
   turnRate: 14,               // 몸 돌리는 속도
   floeDensity: 0.5,           // 빙하 질량 = 넓이 × 밀도 (펭귄 질량 1)
+  // 물에 빠질 때: 낙하 속도에 비례해 잠겼다가 부력 스프링으로 동동동 (주기 약 1초, 감쇠비 0.25)
+  waterEntry: { period: 1.0, dampingRatio: 0.25, maxSinkBody: 0.5, minSink: 0.18, sinkPerSpeed: 0.05 },
+  // 물에서 가만히 있을 때 느리게 떠다님 (수영 입력을 주면 사라짐)
+  drift: { speed: 0.15, turnRate: 0.35, blend: 0.6, rockDeg: 3, rockPeriod: 4.2 },
   floeWaterDrag: 0.9,         // 손 뗀 뒤 물 저항 (시작 빙하 기준, 작을수록 오래 미끄러짐)
   dragStiffness: 160,         // 손가락이 빙하를 끄는 스프링 (질량이 클수록 천천히 가속)
   buoyancyStiffness: 55,      // 수면 높이로 돌아가는 스프링 강도 (ω²)
@@ -187,6 +189,18 @@ const SHORE_WASH = {
   rippleEvery: 0.45,          // 그때 생기는 작은 파문 간격 (초)
 };
 
+// ── 모래 발자국 (발바닥 버튼과 같은 모양) ─────────────────────────────
+const FOOTPRINTS = {
+  size: 0.17,                 // 발자국 크기 (월드)
+  stride: 0.5,                // 왼발·오른발 좌우 간격 = 펭귄 키 × 이 값 (몸 폭 정도)
+  pressTime: 0.1,             // 찍힐 때 80% → 100% 로 커지는 시간 (초)
+  pressFrom: 0.8,
+  life: 6,                    // 서서히 사라지는 시간 (초)
+  max: 30,                    // 풀 크기
+  alpha: 0.3,                 // 발자국 진하기
+  innerAlpha: 0.16,           // 눌린 안쪽이 더 어두운 정도
+};
+
 window.CONFIG = {
   WATER_PRESETS: { calm: WATER_CALM, normal: WATER_NORMAL },
   water: WATER_CALM,          // ← WATER_NORMAL 로 바꿔 끼우면 보통 물결 (URL ?water=normal 도 가능)
@@ -195,6 +209,7 @@ window.CONFIG = {
   FOG,
   FIREFLY,
   SHORE_WASH,
+  FOOTPRINTS,
 
   ui: {
     // 왼쪽 아래 이동 링. inset = 화면 가장자리 ~ 링 바깥선 간격(엄지 하나 정도)
@@ -256,7 +271,6 @@ window.CONFIG = {
       shore: { wobbleDeg: 12, wobbleFreq: 5, stepSinkPx: 2.5 },   // 한 걸음마다 2~3px 가라앉았다 올라옴
     },
     iceLeanDeg: 6,            // 빙하 위에서 진행 방향으로 기우는 각도 (최대 속도일 때)
-    footprints: { life: 3, max: 24, alpha: 0.28, size: 0.11 },  // 흙 위 발자국
   },
 
   floe: {
@@ -268,7 +282,20 @@ window.CONFIG = {
     sunkAlpha: 0.32,          // 잠긴 부분 진하기 (반투명 회색, 푸른기 약간)
     waterlineAlpha: 0.75,     // 수면과 만나는 흰 물결 링
     contactShadowAlpha: 0.14, // 바로 아래 수면의 접촉 그림자
-    facetAlpha: 0.09,         // 윗면 면 분할선
+    facetAlpha: 0.09,         // (사용 안 함, relief 로 대체)
+    // 윗면 굴곡: 빙하마다 시드로 둔덕·경사·쐐기 모양. 면 정보는 생성 때 한 번만 계산
+    relief: {
+      heightFrac: [0.06, 0.15], // 높이차 = 빙하 지름 × 이 범위
+      startScale: 0.55,         // 시작 빙하는 완만하게
+      wedgeShare: 0.35,         // 한쪽이 높고 비스듬히 내려오는 쐐기 모양 비율
+      lip: 0.04,                // 가장자리 기본 높이
+      facets: [3, 6],           // 윗면 면 수
+      slideSlope: 0.3,          // 이보다 가파르면 미끄러져 내려옴 (높이/거리)
+      slideAccel: 4,            // 미끄러져 내려오는 가속
+      ridgeAlpha: 0.55,         // 능선의 얇은 밝은 선
+      shadeLight: [255, 255, 255], shadeDark: [202, 205, 208],   // 빛(왼쪽 위)을 향한 면 ~ 반대 면
+      cliffDark: [186, 189, 192],                                // 깎아지른 절벽 옆면
+    },
   },
 
   reflect: { alpha: 0.3, fadeLength: 0.95, wobblePx: 2.2, slices: 10 },
