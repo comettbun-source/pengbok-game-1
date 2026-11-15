@@ -1183,6 +1183,7 @@
   }
   // 물가에서 안쪽으로 몇 만큼 물이 덮였는지 (>0 이면 물 속)
   function washDepthAt(x, y) {
+    if (sim) return sim.filmAt(x, y) > SIM.shore.filmMin ? 1 : -1;
     const ws = washShape(); if (!ws.segs.length) return -1;
     let best = null, bd = Infinity;
     for (const q of ws.segs) { const d = Math.hypot(q.x - x, q.y - y); if (d < bd) { bd = d; best = q; } }
@@ -1194,7 +1195,7 @@
   function stepSim(dt) {
     if (!sim) return;
     const p = S.p, B = SIM.body, ld = SIM.size * SIM.lead;
-    sim.recenter(p.x - Math.sin(cam.yaw) * ld, p.y - Math.cos(cam.yaw) * ld, depthAt);
+    sim.recenter(p.x - Math.sin(cam.yaw) * ld, p.y - Math.cos(cam.yaw) * ld, simTerrain);
     sim.begin();
     for (const f of S.floePool) {
       if (!f.active) { if (f._w) sim.body(f, null); continue; }
@@ -1202,7 +1203,26 @@
     }
     { const r = B.penguinRadius * C.penguin.scale, hh = penH();          // 물 밖에 있어도 계속 추적 (잠긴 부피 0) → 들어가는 순간부터 물을 밀어냄
       sim.body(p, { x: p.x, y: p.y, rx: r, ry: r, zc: p.z + hh * (0.5 - (p.sink || 0)), rz: hh * 0.45 }); }
+    // 해안으로 밀려오는 파도 묶음 (해안이 격자 안에 있을 때만)
+    if (sim.hasShore) {
+      const WV = SIM.shore.wave, sw = S.simWave || (S.simWave = { next: 1.5, left: 0, seed: 0 });
+      sw.next -= dt;
+      if (sw.next <= 0) {
+        if (sw.left <= 0) sw.left = Math.round(lerp(WV.count[0], WV.count[1], Math.random()));
+        sw.left--;
+        sw.next = sw.left > 0 ? WV.gap * (0.85 + 0.3 * Math.random()) : lerp(WV.setInterval[0], WV.setInterval[1], Math.random());
+        const sd0 = (sw.seed += 7.3), k = 1 / WV.varLength, a0 = 0.75 + 0.5 * Math.random();
+        sim.shoreWave(WV.offshore, WV.width, WV.amp * a0, (x, y) => Math.max(0, 1 + WV.ampVar * 2 * noise2(y * k + sd0, x * k * 0.3)));
+      }
+    }
     sim.step(dt);
+  }
+  // 물 엔진용 지형: [수심 0~1, 해안선까지 거리(+바다, −뭍)]
+  function simTerrain(x, y, o) {
+    const d = shoreDist(x, y);
+    if (d === Infinity) { o[0] = 1; o[1] = 1e9; return; }
+    if (d <= 0) { const SHc = SIM.shore, kb = 1 / SHc.bumpLength; o[0] = 0; o[1] = d * (1 + SHc.bumpy * noise2(y * kb + 3.1, x * kb)); return; }   // 모래 높낮이가 고르지 않아 물이 혀 모양으로 올라옴
+    o[1] = d; o[0] = Math.pow(smooth(0, C.DEPTH.slope, d), C.DEPTH.power);
   }
 
   function step(dt) {
@@ -1244,7 +1264,7 @@
       }
     }
     S.washRipples = S.washRipples.filter((q) => (q.t += dt) < 1.2);
-    stepWash(dt);
+    if (!sim) stepWash(dt);
   }
 
   // ── 그리기 ──────────────────────────────────────────────
@@ -1528,6 +1548,65 @@
     simG.putImageData(simImg, 0, 0);
     ctx.imageSmoothingEnabled = true; ctx.globalAlpha = 1;
     ctx.drawImage(simCv, 0, y0, W, H - y0);
+  }
+
+  // 해안 그리기: 젖은 모래 → 모래 위 물막 → 거품을 한 장으로 합쳐 칠함 (섬 바닥 위)
+  const shoreCv = document.createElement('canvas'), shoreG = shoreCv.getContext('2d');
+  let shoreImg = null;
+  function drawSimShore() {
+    if (!sim.hasShore) return;
+    const R = SIM.shore.render, RS = SIM.render;
+    const y0 = Math.max(0, Math.floor(rig.horizon) + 2);
+    if (y0 >= H) return;
+    const w = Math.max(8, Math.ceil(W * RS.resolution * 1.4)), h = Math.max(4, Math.ceil((H - y0) * RS.resolution * 1.4));
+    if (!shoreImg || shoreImg.width !== w || shoreImg.height !== h) { fitCv(shoreCv, w, h); shoreImg = shoreG.createImageData(w, h); }
+    const D = shoreImg.data, N = sim.N, inv = 1 / sim.dx, F = sim.foam, Wt = sim.wet, Fm = sim.film, K = sim.k;
+    const far = SIM.size * 1.5, FGd = C.FOG.dist, eC = 1 / SIM.edgeCells, ls = R.laceScale, l0 = R.lace[0], l1 = 1 / (R.lace[1] - R.lace[0]);
+    const wc = R.wetColor, fc = R.filmColor, mc = R.foamColor, fref = 1 / R.filmRef;
+    let any = false, o = 0;
+    for (let j = 0; j < h; j++) {
+      const sy = y0 + (j + 0.5) * (H - y0) / h, u = (rig.cy0 - sy) / rig.f;
+      const hr = -rig.sp + u * rig.cp, t = hr < -1e-4 ? rig.cz / -hr : Infinity;
+      if (t > far) { for (let i = 0; i < w; i++, o += 4) D[o + 3] = 0; continue; }
+      const zf = (rig.cp + u * rig.sp) * t, fogK = 1 - fogAt(t, FGd);
+      const xl = -W / 2 / rig.f * t, xs = W / rig.f * t / w;
+      let gx = ((rig.cx + rig.F[0] * zf + rig.R[0] * (xl + xs * 0.5)) * inv) - sim.ox - 0.5, gy = ((rig.cy + rig.F[1] * zf + rig.R[1] * (xl + xs * 0.5)) * inv) - sim.oy - 0.5;
+      const dgx = rig.R[0] * xs * inv, dgy = rig.R[1] * xs * inv;
+      for (let i = 0; i < w; i++, o += 4, gx += dgx, gy += dgy) {
+        if (gx < 0 || gy < 0 || gx >= N - 1 || gy >= N - 1) { D[o + 3] = 0; continue; }
+        const ci = gx | 0, cj = gy | 0, q = cj * N + ci;
+        if (K[q] >= 0.999 && K[q + 1] >= 0.999 && K[q + N] >= 0.999) { D[o + 3] = 0; continue; }   // 깊은 바다는 건너뜀
+        const fx = gx - ci, fy = gy - cj, w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+        const fade = Math.min(1, Math.min(gx, gy, N - 1 - gx, N - 1 - gy) * eC) * fogK;
+        const wet = (Wt[q] * w00 + Wt[q + 1] * w10 + Wt[q + N] * w01 + Wt[q + N + 1] * w11);
+        const film = (Fm[q] * w00 + Fm[q + 1] * w10 + Fm[q + N] * w01 + Fm[q + N + 1] * w11);
+        let foam = (F[q] * w00 + F[q + 1] * w10 + F[q + N] * w01 + F[q + N + 1] * w11);
+        // 아래부터: 젖은 모래 → 물막 → 거품 (알파 합성)
+        let a = wet * wet * R.wetAlpha, cr = wc[0], cg = wc[1], cb = wc[2];
+        if (film > 0) {
+          const fa = (1 - Math.exp(-film * fref)) * R.filmAlpha, na = fa + a * (1 - fa);
+          if (na > 0) { const kb = a * (1 - fa) / na, kt = fa / na; cr = fc[0] * kt + cr * kb; cg = fc[1] * kt + cg * kb; cb = fc[2] * kt + cb * kb; a = na; }
+        }
+        if (foam > 0.02) {
+          const wxp = (gx + sim.ox) * sim.dx, wyp = (gy + sim.oy) * sim.dx;
+          const nz = 0.5 + 0.5 * (0.65 * noise2(wxp * ls, wyp * ls) + 0.35 * noise2(wxp * ls * 2.7 + 9, wyp * ls * 2.7));   // 레이스 무늬
+          let fk = (foam * (0.45 + 0.9 * nz) - l0) * l1;
+          if (fk > 0) {
+            if (fk > 1) fk = 1;
+            const fa = fk * fk * (3 - 2 * fk) * R.foamAlpha, na = fa + a * (1 - fa), kb = a * (1 - fa) / na, kt = fa / na;
+            cr = mc[0] * kt + cr * kb; cg = mc[1] * kt + cg * kb; cb = mc[2] * kt + cb * kb; a = na;
+          }
+        }
+        a *= fade;
+        if (a < 0.004) { D[o + 3] = 0; continue; }
+        D[o] = cr; D[o + 1] = cg; D[o + 2] = cb; D[o + 3] = 255 * a;
+        any = true;
+      }
+    }
+    if (!any) return;
+    shoreG.putImageData(shoreImg, 0, 0);
+    ctx.imageSmoothingEnabled = true; ctx.globalAlpha = 1;
+    ctx.drawImage(shoreCv, 0, y0, W, H - y0);
   }
 
   function drawWater() {
@@ -2343,7 +2422,7 @@
     }
     drawReflection();
     drawIslandGround();
-    drawShoreWash();
+    if (sim) drawSimShore(); else drawShoreWash();
     // 서 있는 것: 깊이 순서대로 먼 것부터
     const items = [];
     const pd = camSpace(p.x, p.y, p.z)[1];

@@ -3,12 +3,13 @@
 // 참고한 방식
 //  · Evan Wallace "WebGL Water": 물체가 지나간 자리(이전 부피 − 새 부피)만큼 수면을 밀고, 이웃 평균으로 끌려가는 파동
 //  · Matthias Müller "Height Field Water": 칸마다 물기둥 높이·속도, 물체가 차지한 높이의 변화량을 물에 돌려줘 부피 보존
-//  · 얕은 물 파동: 파속² ∝ 수심 → 해안으로 갈수록 느려지고 스러짐
+//  · 얕은 물 파동(Fluid Flux 류): 파속² ∝ 수심 → 해안으로 갈수록 느려지고, 땅 높이보다 수면이 높은 칸만 젖음(젖음/마름 경계)
 //
-// 한 칸의 상태: h(수면 높이 편차, 월드 단위) · v(세로 속도)
-//   a   = k · ∇²(h + τ·v)            k = 수심 계수(0~1), τ = 점성(잔 떨림 제거)
+// 한 칸의 상태: h(수면 높이, 월드 단위. 뭍에서는 땅 높이 E 이상) · v(세로 속도)
+//   a   = ∇·(k ∇(h + τ·v))           k = 수심 계수(0~1), τ = 점성(잔 떨림 제거). 얕아질수록 느려지고 높아짐
 //   a'  = a + β·∇²a                  분산: 짧은 파장은 느리게 → 퍼질수록 링 간격이 벌어짐
 //   v  += (c/dx)² · a' · dt ;  v *= e^(−감쇠·dt) ;  h += v·dt
+// 해안: 뭍 칸은 h ≥ E. 이웃 수면이 내 땅보다 높으면 물이 올라오고(젖음), 낮아지면 빠짐(마름)
 // 격자는 월드에 고정된 칸을 정수 칸 단위로 밀어(스크롤) 펭귄을 따라간다.
 (function () {
   'use strict';
@@ -16,17 +17,20 @@
   const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
   function create(cfg) {
-    const N = cfg.grid, dx = cfg.size / N, n = N * N;
+    const N = cfg.grid, dx = cfg.size / N, n = N * N, SH = cfg.shore;
     const h = new Float32Array(n), v = new Float32Array(n), a = new Float32Array(n), tmp = new Float32Array(n);
-    const k = new Float32Array(n).fill(1);          // 수심 계수: 0 = 뭍, 1 = 깊은 바다
+    const k = new Float32Array(n).fill(1);          // 수심 계수: 0 = 죽은 칸(먼 뭍), 1 = 깊은 바다
+    const E = new Float32Array(n);                  // 땅 높이 (바다 0, 해변은 안쪽으로 갈수록 높아짐)
+    const sd = new Float32Array(n).fill(1e9);       // 해안선까지 거리 (+ 바다, − 뭍)
     const solid = new Uint8Array(n);                // 빙하처럼 물결을 되튕기는 칸
     const edge = new Float32Array(n);               // 격자 가장자리 흡수대: 0(끝) → 1(안쪽)
     const shade = new Float32Array(n);              // 그리기용: 빛 방향 기울기 (부호 있음)
+    const foam = new Float32Array(n), wet = new Float32Array(n), film = new Float32Array(n);   // 거품 · 젖은 모래 · 뭍 위 물막 두께
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
       const d = Math.min(i, j, N - 1 - i, N - 1 - j);
       edge[j * N + i] = smooth(0, cfg.edgeCells, d);
     }
-    const sim = { N, dx, ox: 0, oy: 0, h, v, k, solid, edge, shade, ready: false, maxShade: 0, bodies: [] };
+    const sim = { N, dx, ox: 0, oy: 0, h, v, k, E, sd, solid, edge, shade, foam, wet, film, ready: false, maxShade: 0, hasShore: false, bodies: [] };
 
     // new[i,j] = old[i+sx, j+sy]
     function shift(arr, sx, sy, fill) {
@@ -38,22 +42,37 @@
       }
     }
     const wx = (i) => (sim.ox + i + 0.5) * dx, wy = (j) => (sim.oy + j + 0.5) * dx;
-    function fillTerrain(depthFn) {
+    // terr(x, y, out): out[0] = 수심 0~1, out[1] = 해안선까지 거리 (+ 바다, − 뭍, 해안이 없으면 큰 값)
+    const tout = [1, 1e9];
+    function fillTerrain(terr) {
+      let shore = false;
       for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
         const q = j * N + i;
-        if (k[q] < 0) k[q] = clamp(depthFn(wx(i), wy(j)) / cfg.shallowRef, 0, 1);
+        if (k[q] < 0) {
+          terr(wx(i), wy(j), tout);
+          const d = tout[1];
+          sd[q] = d > 1e8 ? 1e9 : d;
+          if (d >= 0) { k[q] = Math.max(SH.minSpeed, clamp(tout[0] / cfg.shallowRef, 0, 1)); E[q] = 0; }
+          else if (-d < SH.maxInland) { k[q] = SH.minSpeed; E[q] = -d * SH.beachSlope; h[q] = E[q]; }
+          else { k[q] = 0; E[q] = 0; }
+        }
+        if (k[q] < 0.999) shore = true;
       }
+      sim.hasShore = shore;
     }
     // 격자 중심을 (cx, cy) 근처로. 한 칸 이상 벗어나면 칸 단위로 민다
-    sim.recenter = function (cx, cy, depthFn) {
+    sim.recenter = function (cx, cy, terr) {
       const nox = Math.round(cx / dx - N / 2), noy = Math.round(cy / dx - N / 2);
-      if (!sim.ready) { sim.ox = nox; sim.oy = noy; k.fill(-1); fillTerrain(depthFn); sim.ready = true; return; }
+      if (!sim.ready) { sim.ox = nox; sim.oy = noy; k.fill(-1); fillTerrain(terr); sim.ready = true; return; }
       const sx = nox - sim.ox, sy = noy - sim.oy;
       if (!sx && !sy) return;
       sim.ox = nox; sim.oy = noy;
-      if (Math.abs(sx) >= N || Math.abs(sy) >= N) { h.fill(0); v.fill(0); k.fill(-1); }
-      else { shift(h, sx, sy, 0); shift(v, sx, sy, 0); shift(k, sx, sy, -1); }
-      fillTerrain(depthFn);
+      if (Math.abs(sx) >= N || Math.abs(sy) >= N) { h.fill(0); v.fill(0); foam.fill(0); wet.fill(0); k.fill(-1); }
+      else {
+        shift(h, sx, sy, 0); shift(v, sx, sy, 0); shift(k, sx, sy, -1); shift(E, sx, sy, 0); shift(sd, sx, sy, 1e9);
+        if (sim.hasShore) { shift(foam, sx, sy, 0); shift(wet, sx, sy, 0); }
+      }
+      fillTerrain(terr);
     };
 
     // ── 물체 ────────────────────────────────────────────────
@@ -95,10 +114,11 @@
       const qm = (q0 + q1) / 2, qh = (q1 - q0) / 2;
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
         const q = j * N + i, px = wx(i), py = wy(j);
+        const open = !solid[q] && k[q] > 0 && E[q] === 0;                    // 물을 밀 수 있는 칸 (바다)
         const kk = disc ? 1 : k[q];                                          // 얕은 곳에선 몸이 덜 잠김
-        const d = clamp((subAt(cur, px, py) - subAt(prev, px, py)) * kk * g, -B.maxStep, B.maxStep);
-        if (d !== 0) { T += d; if (!solid[q] && k[q] > 0) h[q] -= d; }
-        if (solid[q] || k[q] <= 0) { tmp[q] = 0; continue; }
+        const d = open || disc ? clamp((subAt(cur, px, py) - subAt(prev, px, py)) * kk * g, -B.maxStep, B.maxStep) : 0;
+        if (d !== 0) { T += d; if (open) h[q] -= d; }
+        if (!open) { tmp[q] = 0; continue; }
         const ux = (px - cur.x) / cur.rx, uy = (py - cur.y) / cur.ry, t = (Math.sqrt(ux * ux + uy * uy) - qm) / qh;
         const w = t > -1 && t < 1 ? (1 - t * t) * (1 - t * t) : 0;
         tmp[q] = w; Wsum += w;
@@ -113,10 +133,23 @@
       const R = r * 2, i0 = Math.max(0, Math.floor((x - R) / dx - sim.ox)), i1 = Math.min(N - 1, Math.ceil((x + R) / dx - sim.ox));
       const j0 = Math.max(0, Math.floor((y - R) / dx - sim.oy)), j1 = Math.min(N - 1, Math.ceil((y + R) / dx - sim.oy));
       for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-        const q = j * N + i; if (solid[q] || k[q] <= 0) continue;
+        const q = j * N + i; if (solid[q] || k[q] <= 0 || E[q] > 0) continue;
         const d = Math.hypot(wx(i) - x, wy(j) - y);
         const b1 = d < r ? 0.5 + 0.5 * Math.cos(Math.PI * d / r) : 0, b2 = d < R ? 0.5 + 0.5 * Math.cos(Math.PI * d / R) : 0;
         h[q] += amp * (b1 - 0.25 * b2);
+      }
+    };
+    // 먼바다에서 해안으로 밀려오는 파도 한 줄: 해안선에서 off 떨어진 곳에 폭 w 의 마루를 놓고 해안 쪽으로 보냄
+    // ampFn(x, y) = 해안을 따라 달라지는 세기 (0 이면 그 구간은 파도 없음)
+    sim.shoreWave = function (off, w, amp, ampFn) {
+      if (!sim.hasShore) return;
+      const c = cfg.waveSpeed, lim = w * 2.2;
+      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+        const q = j * N + i, u = sd[q] - off;
+        if (u > lim || u < -lim || solid[q] || E[q] > 0 || k[q] <= 0) continue;
+        const g = Math.exp(-(u / w) * (u / w)) * amp * ampFn(wx(i), wy(j)) * edge[q];
+        h[q] += g;
+        v[q] += c * Math.sqrt(k[q]) * g * (-2 * u / (w * w));               // h(u + c·t): 해안(u 감소) 쪽으로 진행
       }
     };
 
@@ -127,23 +160,32 @@
       const c2 = cour * cour / dt;                                           // (c/dx)²·dt
       const tau = Math.min(cfg.viscosity, 0.2 * dt / (cour * cour));         // 양해법 안정 한계
       const beta = 0.125 * clamp(cfg.dispersion, 0, 1);
-      // 1) a = k · ∇²(h + τv)   — 막힌 칸·격자 밖은 거울(자기 값)로 → 되튕김
+      const shore = sim.hasShore;
+      // 이웃 값: 막힌 칸·격자 밖·마른 높은 땅은 거울(자기 값 c) → 되튕김. 뭍 칸은 자기 땅보다 낮은 물에 끌려 내려가지 않음
+      // 반환값 = 두 칸 사이 흐름: (이웃 − 나) × 경계의 수심 계수. 발산형이라 얕아질수록 파도가 높아짐(천수 효과)
+      const nb = (m, ok, c, eq, kq) => {
+        if (!ok || solid[m] || k[m] <= 0) return 0;
+        let x = h[m] + tau * v[m];
+        if (shore) {
+          const em = E[m];
+          if (em > 0 && em > c && h[m] <= em + 1e-5) return 0;               // 마른 땅이 내 수면보다 높음 = 벽
+          if (x < eq) x = eq;
+        }
+        return (x - c) * 0.5 * (kq + k[m]);
+      };
+      // 1) a = ∇·(k ∇(h + τv))
       for (let j = 0; j < N; j++) {
         const row = j * N;
         for (let i = 0; i < N; i++) {
           const q = row + i;
           if (solid[q] || k[q] <= 0) { a[q] = 0; continue; }
-          const c = h[q] + tau * v[q];
-          let s = -4 * c, m;
-          m = q - 1; s += i > 0 && !solid[m] ? h[m] + tau * v[m] : c;
-          m = q + 1; s += i < N - 1 && !solid[m] ? h[m] + tau * v[m] : c;
-          m = q - N; s += j > 0 && !solid[m] ? h[m] + tau * v[m] : c;
-          m = q + N; s += j < N - 1 && !solid[m] ? h[m] + tau * v[m] : c;
-          a[q] = s * k[q];
+          const c = h[q] + tau * v[q], eq = E[q], kq = k[q];
+          a[q] = nb(q - 1, i > 0, c, eq, kq) + nb(q + 1, i < N - 1, c, eq, kq) + nb(q - N, j > 0, c, eq, kq) + nb(q + N, j < N - 1, c, eq, kq);
         }
       }
       // 2) 분산 + 속도·높이 갱신
       const dmp = cfg.damping, eD = cfg.edgeDamping, sD = cfg.shoreAbsorb, rest = Math.exp(-cfg.restore * dt);
+      const drain = Math.exp(-SH.drain * dt), fric = SH.friction;
       for (let j = 0; j < N; j++) {
         const row = j * N;
         for (let i = 0; i < N; i++) {
@@ -152,7 +194,7 @@
           const kk = k[q];
           if (kk <= 0) { h[q] *= 0.8; v[q] = 0; continue; }
           let acc = a[q];
-          if (beta > 0) {
+          if (beta > 0 && E[q] === 0) {
             const c = acc; let s = -4 * c, m;
             m = q - 1; s += i > 0 && !solid[m] ? a[m] : c;
             m = q + 1; s += i < N - 1 && !solid[m] ? a[m] : c;
@@ -160,13 +202,47 @@
             m = q + N; s += j < N - 1 && !solid[m] ? a[m] : c;
             acc += beta * s;
           }
+          const eq = E[q];
           let nv = v[q] + c2 * acc;
-          nv *= Math.exp(-(dmp + (1 - edge[q]) * eD + (1 - kk) * sD) * dt);
-          v[q] = nv;
+          nv *= Math.exp(-(dmp + (1 - edge[q]) * eD + (1 - kk) * sD + (eq > 0 ? fric : 0)) * dt);
+          if (eq > 0) {                                                      // 뭍: 물막은 땅 위로만, 서서히 빠짐
+            let nh = eq + (h[q] + nv * dt - eq) * drain;
+            if (nh <= eq) { nh = eq; if (nv < 0) nv = 0; }
+            h[q] = nh; v[q] = nv;
+          } else { v[q] = nv; h[q] = (h[q] + nv * dt) * rest; }
         }
       }
-      for (let q = 0; q < n; q++) if (!solid[q] && k[q] > 0) h[q] = (h[q] + v[q] * dt) * rest;
+      if (shore) stepShore(dt);
     };
+    // 거품(부서지는 얕은 물·물막 앞쪽)과 젖은 모래
+    function stepShore(dt) {
+      const fd = Math.exp(-dt / SH.foamLife), dry = dt / SH.dryTime, vth = SH.breakSpeed, fg = SH.foamGain * dt;
+      for (let q = 0; q < n; q++) {
+        const kk = k[q];
+        if (kk <= 0 || kk >= 0.999) { if (foam[q] > 0) foam[q] *= fd; continue; }
+        let f = foam[q] * fd;
+        const av = v[q] < 0 ? -v[q] : v[q];
+        if (E[q] > 0) {
+          const d = h[q] - E[q];
+          film[q] = d;
+          if (d > SH.filmMin) { wet[q] = 1; if (v[q] > 0) f += fg * SH.frontFoam * v[q] / (d + SH.frontDepth); }   // 밀려 올라올 때만 거품 (얇은 앞쪽일수록 많이)
+          else if (wet[q] > 0) wet[q] = Math.max(0, wet[q] - dry);
+        } else {
+          film[q] = 0;
+          if (av > vth) f += fg * (av - vth) * (1 - kk);
+        }
+        foam[q] = f > 1 ? 1 : f;
+      }
+      // 거품을 이웃으로 살짝 번지게 → 칸 모양 계단이 사라지고 가장자리가 부드러움
+      const df = SH.foamSpread;
+      if (df > 0) {
+        tmp.set(foam);
+        for (let j = 1; j < N - 1; j++) for (let i = 1, q = j * N + 1; i < N - 1; i++, q++) {
+          if (k[q] <= 0 || k[q] >= 0.999) continue;
+          foam[q] = tmp[q] * (1 - df) + (tmp[q - 1] + tmp[q + 1] + tmp[q - N] + tmp[q + N]) * 0.25 * df;
+        }
+      }
+    }
 
     // ── 읽기 ────────────────────────────────────────────────
     function bil(arr, x, y) {
@@ -176,6 +252,7 @@
       return (arr[q] * (1 - fx) + arr[q + 1] * fx) * (1 - fy) + (arr[q + N] * (1 - fx) + arr[q + N + 1] * fx) * fy;
     }
     sim.sample = (x, y) => bil(h, x, y);
+    sim.filmAt = (x, y) => (sim.hasShore ? bil(film, x, y) : 0);
     // 물체 둘레(타원 rx, ry) 8점 평균 높이 — 물체가 물결을 타고 오르내리게
     sim.around = function (x, y, rx, ry) {
       let s = 0;
@@ -189,15 +266,15 @@
         const row = j * N;
         for (let i = 1; i < N - 1; i++) {
           const q = row + i;
-          if (solid[q] || k[q] <= 0) { shade[q] = 0; continue; }
-          const s = -((h[q + 1] - h[q - 1]) * lx + (h[q + N] - h[q - N]) * ly) * inv * edge[q] * Math.min(1, k[q] * 3);
+          if (solid[q] || k[q] <= 0 || E[q] > 0) { shade[q] = 0; continue; }
+          const s = -((h[q + 1] - h[q - 1]) * lx + (h[q + N] - h[q - N]) * ly) * inv * edge[q];
           shade[q] = s; const as = s < 0 ? -s : s; if (as > mx) mx = as;
         }
       }
       sim.maxShade = mx;
     };
     sim.shadeAt = (x, y) => bil(shade, x, y);
-    sim.reset = function () { h.fill(0); v.fill(0); sim.ready = false; };
+    sim.reset = function () { h.fill(0); v.fill(0); foam.fill(0); wet.fill(0); sim.ready = false; };
     return sim;
   }
 
