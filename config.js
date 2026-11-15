@@ -42,6 +42,8 @@ const WATER_CALM = {
     avoid: 1.5,               // 빙하·펭귄 윤곽 × 이 반경 안에서는 윤곽을 따라 감돌아 흐름
     eddyAlpha: 0.12,          // 빙하 하류의 작은 소용돌이 곡선
   },
+  // 헤엄칠 때: 선 대신 부드러운 명암 면 (앞쪽 밝은 물 덩어리, 양옆·뒤 어두운 골, 뒤로 길쭉한 얼룩)
+  swimShade: { every: 0.12, life: 1.6, scale: [0.4, 1.8], brightAlpha: 0.14, darkAlpha: 0.1, max: 12, length: 2.2 },
   glints: { max: 20, rate: 14, life: 0.6, alpha: [0.1, 0.2], depth: [2, 22] },   // ③ 미세 반짝 (흰 점·짧은 선)
   tone: { amp: 0.04, period: 24, scale: 0.35 },   // 수면 전체 밝기를 아주 느린 노이즈로 ±4%
   contours: {                 // 빙하·펭귄 둘레의 번지는 등고선 링
@@ -193,9 +195,8 @@ const PHYSICS = {
   slideInitialSpeed: 4.6,     // 슬라이딩 시작 속도
   slideForce: 6,              // 링을 민 채 슬라이딩할 때 미는 힘
   slideMaxSpeed: 5.2,
-  // 물 속 이동 (지금은 섬 물가 근처 shallowBand 안 = 얕은 물, 그 밖 = 깊은 물. 2차 DEPTH 에서 수심으로 교체)
+  // 물 속 이동 (걷기·허우적·헤엄 구분은 DEPTH 수심으로)
   water: {
-    shallowBand: 2.5,         // 섬 물가에서 이 거리까지 얕은 물 (임시)
     shallowMaxSpeed: 0.9, shallowForce: 3.2,      // 얕은 물 걷기: 빙하 걷기의 약 40%, 천천히 가속
     shallowWalk: { wobbleDeg: 8, wobbleFreq: 6 },
     shallowSink: 0.22,        // 얕은 물에서 잠기는 정도 (몸 높이 비율)
@@ -258,14 +259,37 @@ const SHORE_WASH = {
   shoreWidth: 5,              // 해안(물가 ~ 산 밑) 폭 (월드)
   reach: 0.25,                // 최대로 올라오는 폭 = 해안 폭 × 이 값
   dryTime: 6,                 // 젖은 땅이 마르는 시간 (초)
-  markLife: 4,                // 최대로 올라왔던 자리의 얇은 곡선 자국 수명
-  rivulets: [2, 3], rivuletLife: 2.5,   // 물 빠질 때 물줄기 자국 가닥 수·수명
-  edgeLineAlpha: 0.35,        // 물 끝선의 얇고 옅은 흰 선
-  waterAlpha: 0.3,            // 땅 위로 올라온 얇은 물막
-  wetAlpha: 0.32,             // 젖은 땅이 어두워지는 정도
+  // 선 없이 면으로: 젖음 맵(최근일수록 진하게) + 얇은 물막. 자국 선·물줄기·흰 끝선은 없음
+  bins: 5,                    // 물가 안쪽 방향 젖음 칸 수
+  binReach: 1.5,              // 젖음 맵이 덮는 깊이 = 최대 도달 폭 × 이 값 (가장자리는 넓고 부드러운 경사)
+  waterAlpha: 0.3,            // 올라오는 물의 앞쪽 밝은 물막 (해안 쪽으로 갈수록 투명)
+  filmAlpha: 0.2,             // 물이 빠진 뒤 남는 얇은 투명 물막
+  filmTime: 1.2,              // 물막이 남아 있는 시간 (마르는 순서대로 사라짐)
+  wetAlpha: 0.32,             // 젖은 땅이 어두워지는 정도 (가장 최근이 가장 진함)
   resolution: 0.25,           // 젖음 표시 오프스크린 해상도 (화면 대비)
   slowMul: 0.7,               // 물이 올라온 곳에 서 있으면 속도 배율
   rippleEvery: 0.45,          // 그때 생기는 작은 파문 간격 (초)
+};
+
+// ── 수심 지형: 해안선(구불구불)에서 바다 쪽으로 완만하게 깊어짐 ─────────────
+const DEPTH = {
+  slope: 10,                  // 이 거리(월드)에 걸쳐 수심 0 → 1
+  power: 1.4,                 // 수심 = smoothstep(거리/slope) ^ power
+  shoreAmp: 1.5,              // 해안선 굴곡 진폭 (만·곶)
+  shoreWave: [6, 12],         // 굴곡 파장 범위
+  walkMax: 0.25,              // 0 ~ 0.25 걷기
+  wadeMax: 0.55,              // 0.25 ~ 0.55 허우적 걷기, 그 이상 헤엄
+  hysteresis: 0.04,           // 경계에서 떨리지 않게
+  walkSpeed: 1.0, wadeMinSpeed: 0.45,   // 걷기 속도 → 허우적 걷기는 깊어질수록 이 값까지 줄어듦
+  wadeWobbleDeg: 13,          // 허우적거리는 흔들림
+  sinkPerDepth: 0.85,         // 걷는 동안 잠기는 정도 = 수심 × 이 값 (몸 높이 비율)
+  // 4단 그라데이션: 마른 모래 → 젖은 모래 → 얕은 물(모래색이 비침) → 깊은 물
+  dryColor: [176, 170, 158], wetColor: [146, 140, 130], sandColor: [186, 178, 162],
+  wetSandWidth: 1.8,          // 물가 안쪽 젖은 모래 폭
+  sandAlpha: 0.65,            // 얕은 물에 비치는 모래색 (물가) → 0 (shallowEnd 수심에서)
+  shallowEnd: 0.6,
+  strips: 14,                 // 그라데이션을 이루는 띠 수 (선 없이 색·투명도만)
+  viewRange: 40,              // 카메라에서 이 거리 안쪽 해안만 그림
 };
 
 // ── 모래 발자국 (발바닥 버튼과 같은 모양) ─────────────────────────────
@@ -278,6 +302,9 @@ const FOOTPRINTS = {
   max: 30,                    // 모래 발자국 풀
   alpha: 0.3,                 // 모래 발자국 진하기
   innerAlpha: 0.16,           // 눌린 안쪽이 더 어두운 정도
+  toeOutDeg: 20,              // 팔자: 왼발은 왼쪽, 오른발은 오른쪽으로 벌어짐
+  fadeIn: 0.25,               // 찍힐 때 흐림 → 선명 교차 페이드 (초)
+  color: [46, 43, 40],
   ice: { alpha: 0.14, life: 2.5, max: 30, color: [140, 146, 152] },   // 빙하: 옅은 회색 긁힘 자국 (빙하 좌표계에 저장)
   slideTrail: { alpha: 0.2, life: 3, width: 0.03, spacing: 0.08, max: 90 },  // 빙하 위 슬라이딩 활주 자국 한 줄
 };
@@ -288,7 +315,7 @@ const SHADOW_BLUR = {
   layers: 5,                  // 다각형 그림자를 크기를 바꿔 겹쳐 그리는 횟수 (클수록 부드럽게)
   facetTexture: 96,           // 빙하 윗면 음영 캐시 크기 (px)
   facetDownscale: 6,          // 음영을 이만큼 줄였다 키워 경계를 흐림 (생성 때 한 번)
-  wetResolution: 0.15,        // 젖은 땅 오프스크린 해상도
+  wetResolution: 0.1,         // 젖은 땅·물막 오프스크린 해상도 (낮을수록 경계가 부드럽게 번짐)
 };
 
 window.CONFIG = {
@@ -299,6 +326,7 @@ window.CONFIG = {
   FOG,
   FIREFLY,
   SHORE_WASH,
+  DEPTH,
   FOOTPRINTS,
   SHADOW_BLUR,
 
@@ -406,7 +434,7 @@ window.CONFIG = {
 
   world: {
     islandDistance: 40, islandHalfWidth: 16, islandHalfLength: 40,
-    shoreHeight: 0.22, summitHeight: 34,
+    shoreHeight: 0.03, summitHeight: 34,   // 물가는 수면과 거의 같은 높이 (완만한 해변)
   },
 
   fullscreenOnFirstTouch: true,

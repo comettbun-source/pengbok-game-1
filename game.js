@@ -120,6 +120,25 @@
     return ringSprite;
   }
 
+  // 지면(수면) 위에 이미지를 원근에 맞게 눕혀 그림: 중심, 한 축 방향(ax, ay), 두 축 반지름(la, lb)
+  function drawGroundImage(img, x, y, ax, ay, la, lb, alpha, z = 0, oy = 0) {
+    if (alpha <= 0.003) return false;
+    const c = camSpace(x, y, z);
+    if (c[1] < rig.near + 0.3) return false;
+    const pc = toScreen(c), pa = project(x + ax * la, y + ay * la, z), pb = project(x - ay * lb, y + ax * lb, z);
+    const ux = pa[0] - pc[0], uy = pa[1] - pc[1], vx = pb[0] - pc[0], vy = pb[1] - pc[1];
+    if (Math.abs(ux) + Math.abs(vx) > W * 2) return false;
+    const S2 = img.width / 2;
+    ctx.save();
+    ctx.setTransform(DPR * ux / S2, DPR * uy / S2, DPR * vx / S2, DPR * vy / S2, DPR * (pc[0] - ux - vx), DPR * (pc[1] + oy - uy - vy));
+    ctx.globalAlpha = Math.min(1, alpha); ctx.drawImage(img, 0, 0);
+    ctx.restore();
+    return true;
+  }
+  const shadeBright = makeSprite([[0, 'rgba(255,255,255,1)'], [0.45, 'rgba(255,255,255,0.55)'], [1, 'rgba(255,255,255,0)']]);
+  const shadeDark = makeSprite([[0, 'rgba(84,92,102,1)'], [0.45, 'rgba(84,92,102,0.5)'], [1, 'rgba(84,92,102,0)']]);
+  // 명암 고리: 안쪽 밝은 띠 + 바깥 어두운 띠 (선이 아닌 부드러운 면)
+  const shadeRing = makeSprite([[0, 'rgba(255,255,255,0)'], [0.5, 'rgba(255,255,255,0)'], [0.68, 'rgba(255,255,255,0.7)'], [0.82, 'rgba(96,104,114,0.55)'], [1, 'rgba(96,104,114,0)']]);
   // 부드러운 그림자 원판: 경계 번짐 폭 = 반지름 × SHADOW_BLUR.ratio
   let softDisc = null, softDiscR = -1;
   function getSoftDisc() {
@@ -144,7 +163,14 @@
   function makeIsland(side, seed) {
     const w = C.world, r = rng(seed);
     const shoreX = side * w.islandDistance, cx = side * (w.islandDistance + w.islandHalfWidth);
-    const shape = blob(w.islandHalfWidth, w.islandHalfLength, 48, 0.04, seed).map(([x, y]) => [x + cx, y]);
+    // 바다 쪽 해안선: 타원 + 노이즈 두 개(파장 6~12)로 구불구불한 만과 곶
+    const DP = C.DEPTH, l1 = DP.shoreWave[1], l2 = DP.shoreWave[0], o1 = r() * 50, o2 = r() * 50;
+    const shoreNoise = (y) => DP.shoreAmp * (0.6 * noise1(y / l1 + o1) + 0.4 * noise1(y / l2 + o2));
+    const ry = w.islandHalfLength, rx = w.islandHalfWidth;
+    const shoreAt = (y) => { const ys = clamp((y) / ry, -1, 1); return cx - side * rx * Math.sqrt(Math.max(0, 1 - ys * ys)) - side * shoreNoise(y) * Math.sqrt(Math.max(0, 1 - ys * ys)); };
+    const sea = []; for (let y = -ry * 0.995; y <= ry * 0.995; y += 0.6) sea.push([shoreAt(y), y]);
+    const land = blob(rx, ry, 48, 0.04, seed).map(([x, y]) => [x + cx, y]).filter(([x]) => (x - cx) * -side < 0).sort((a, b) => b[1] - a[1]);
+    const shape = sea.concat(land);
     const peaks = [];
     const peak = (dist, y, h, rWant) => {
       const rad = Math.min(rWant, dist - 2.5);
@@ -159,7 +185,7 @@
       peak(21 + r() * 5, y + sg * 2, h * (0.75 + r() * 0.3), 6 + h * 0.2);
     }
     for (let y = -w.islandHalfLength + 6; y <= w.islandHalfLength - 6; y += 4 + r() * 2) peak(6 + r() * 1.5, y, 3 + r() * 4, 3);
-    return { side, shoreX, cx, cy: 0, rx: w.islandHalfWidth, ry: w.islandHalfLength, shape, peaks };
+    return { side, shoreX, cx, cy: 0, rx: w.islandHalfWidth, ry: w.islandHalfLength, shape, peaks, shoreAt };
   }
 
   // ── 빙하 배치 (시드 고정 후보 목록) ─────────────────────────
@@ -301,7 +327,7 @@
     };
     manageField();
     S.p.floe = S.cands[0].floe;
-    S.ripples = []; S.softRipples = []; S.vortex = []; S.prints = []; S.printI = 0; S.icePrints = []; S.icePrintI = 0; S.slideTrail = []; S.washRipples = []; S.wash = null; S.camGroundZ = 0;
+    S.ripples = []; S.swimShade = []; S.softRipples = []; S.vortex = []; S.prints = []; S.printI = 0; S.icePrints = []; S.icePrintI = 0; S.slideTrail = []; S.washRipples = []; S.wash = null; S.camGroundZ = 0;
     S.wake = Array.from({ length: WC().wake.maxParticles }, () => ({ on: false }));
     S.streams = []; S.glints = []; S.swell = null;
     S.lastTapUp = 0; S.tapPulse = 0; S.jumpAt = 0; S.jumpReq = false;
@@ -393,14 +419,23 @@
     if (f) return { mode: 'floe', floe: f, z: floeTopAt(f, x - f.x, y - f.y) };
     return { mode: 'water', z: 0 };
   }
-  // 물 깊이 구분 (임시): 섬 물가에서 shallowBand 안쪽 바다 = 얕은 물, 그 밖 = 깊은 물
-  function waterDepthClass(x, y) {
-    const is = S.islands[0], WP = P.water;
-    if (!is) return 'deep';
-    const ys = (y - is.cy) / is.ry;
-    if (Math.abs(ys) >= 1) return 'deep';
-    const xs = is.cx - is.side * is.rx * Math.sqrt(1 - ys * ys), dist = (x - xs) * -is.side;
-    return dist > 0 && dist < WP.shallowBand ? 'shallow' : 'deep';
+  // 수심: 해안선에서 바다 쪽 거리로 0 → 1 (smoothstep^power). 섬 위는 0, 섬에서 먼 바다는 1
+  function shoreDist(x, y) {
+    const is = S.islands[0];
+    if (!is || Math.abs(y - is.cy) >= is.ry) return Infinity;
+    return (x - is.shoreAt(y)) * -is.side;
+  }
+  function depthAt(x, y) {
+    const d = shoreDist(x, y);
+    if (d === Infinity) return 1;
+    if (d <= 0) return 0;
+    return Math.pow(smooth(0, C.DEPTH.slope, d), C.DEPTH.power);
+  }
+  // 걷기(0~0.25) · 허우적(0.25~0.55) · 헤엄(0.55~). 히스테리시스로 경계에서 떨리지 않게
+  function depthClass(p, dep) {
+    const D = C.DEPTH, h = D.hysteresis, cur = p.wclass || 'swim';
+    const up1 = D.walkMax + (cur === 'walk' ? h : -h), up2 = D.wadeMax + (cur === 'swim' ? -h : h);
+    return dep < up1 ? 'walk' : dep < up2 ? 'wade' : 'swim';
   }
   const surfKey = (m) => (m === 'floe' ? 'ice' : m === 'island' ? 'shore' : 'water');
 
@@ -665,10 +700,14 @@
     const [wx, wy] = screenDirToWorld(mx, my);
     const mag = Math.hypot(mx, my);
     const surf = surfKey(p.mode), WP = P.water;
-    p.depth = p.mode === 'water' ? waterDepthClass(p.x, p.y) : null;
+    const DP = C.DEPTH;
+    p.waterDepth = p.mode === 'water' ? depthAt(p.x, p.y) : 0;
+    p.wclass = p.mode === 'water' ? depthClass(p, p.waterDepth) : null;
+    p.depth = p.wclass === 'swim' ? 'deep' : p.wclass ? 'shallow' : null;
     const shallow = p.depth === 'shallow', deep = p.depth === 'deep';
-    // 이번 단계의 최고 속도·미는 힘 (물: 얕은 물 걷기 / 깊은 물 헤엄)
-    const maxSp = shallow ? WP.shallowMaxSpeed : deep ? WP.deepMaxSpeed : pm.maxSpeed[surf];
+    // 이번 단계의 최고 속도·미는 힘: 걷기 → 허우적(깊어질수록 느려짐) → 헤엄
+    const wadeK = p.wclass === 'wade' ? clamp((p.waterDepth - DP.walkMax) / (DP.wadeMax - DP.walkMax), 0, 1) : 0;
+    const maxSp = shallow ? lerp(DP.walkSpeed, DP.wadeMinSpeed, wadeK) : deep ? WP.deepMaxSpeed : pm.maxSpeed[surf];
     const force = shallow ? WP.shallowForce : pm.moveForce[surf];
 
     if (S.jumpAt && performance.now() >= S.jumpAt) { S.jumpAt = 0; S.jumpReq = 'jump'; }
@@ -815,10 +854,10 @@
     // 헤엄 자세: 깊은 물에서 나아가면 진행 방향으로 약 60° 눕고(슬라이딩 헤엄은 80°), 멈추면 천천히 일어섬
     const layT = inWater && deep ? (p.sliding ? WP.slideLayDeg : sp > 0.3 ? WP.layDeg * clamp((sp - 0.3) / 0.9, 0, 1) : 0) : 0;
     p.lay = (p.lay || 0) + (layT - (p.lay || 0)) * ease(3 / (layT > (p.lay || 0) ? WP.layTime : WP.standTime), dt);
-    const sinkT = !inWater ? 0 : shallow ? WP.shallowSink : p.sliding ? 0.06 : C.penguin.swimSink + 0.2 * (p.lay / 90);   // 누우면 등만 수면 위
+    const sinkT = !inWater ? 0 : shallow ? Math.min(0.5, p.waterDepth * C.DEPTH.sinkPerDepth) : p.sliding ? 0.06 : C.penguin.swimSink + 0.2 * (p.lay / 90);   // 걸을 땐 수심만큼, 누우면 등만 수면 위
     p.sink += (sinkT - p.sink) * ease(8, dt);
     S.tapPulse = Math.max(0, S.tapPulse - dt * 5);
-    const WK = shallow ? { ...WP.shallowWalk, stepSinkPx: 0 } : C.penguin.walk[p.mode === 'island' ? 'shore' : 'ice'];
+    const WK = shallow ? { ...WP.shallowWalk, wobbleDeg: p.wclass === 'wade' ? C.DEPTH.wadeWobbleDeg : WP.shallowWalk.wobbleDeg, stepSinkPx: 0 } : C.penguin.walk[p.mode === 'island' ? 'shore' : 'ice'];
     if (!p.air && (p.mode !== 'water' || shallow) && !p.sliding && sp > 0.12) {
       p.phase += sp * dt * WK.wobbleFreq;
       const amt = Math.min(1, sp / maxSp);
@@ -851,7 +890,16 @@
     if (p.inWash) { p.washRip = (p.washRip || 0) - dt; if (p.washRip <= 0) { p.washRip = C.SHORE_WASH.rippleEvery; S.washRipples.push({ x: p.x, y: p.y, t: 0 }); } }
     if (inWater) {
       if (sp > 0.3) {
-        emitWake(p, p.x - Math.cos(p.face) * 0.2, p.y - Math.sin(p.face) * 0.2, Math.atan2(p.vy, p.vx), sp, pm.maxSpeed.water, 0.22 * C.penguin.scale);
+        // 헤엄: 선(항적 호) 대신 부드러운 명암 얼룩을 0.12초 간격으로 남김
+        const SS = WC().swimShade;
+        p.shadeT = (p.shadeT || 0) - dt;
+        if (deep && p.shadeT <= 0) {
+          p.shadeT = SS.every;
+          const hx = Math.cos(Math.atan2(p.vy, p.vx)), hy = Math.sin(Math.atan2(p.vy, p.vx));
+          S.swimShade.push({ x: p.x - hx * 0.3, y: p.y - hy * 0.3, hx, hy, t: 0, bright: (S.shadeN = (S.shadeN || 0) + 1) % 3 === 0 });
+          if (S.swimShade.length > SS.max) S.swimShade.shift();
+        }
+        if (!deep) emitWake(p, p.x - Math.cos(p.face) * 0.2, p.y - Math.sin(p.face) * 0.2, Math.atan2(p.vy, p.vx), sp, pm.maxSpeed.water, 0.22 * C.penguin.scale);
         // 몸 뒤로 촘촘하게 길게 이어지는 푸른 점 꼬리
         const SPK = C.FIREFLY.sparkle, dx = p.vx / sp, dy = p.vy / sp;
         p.swimAcc = (p.swimAcc || 0) + SPK.swimRate * clamp(sp / pm.maxSpeed.water, 0, 1) * dt;
@@ -1015,19 +1063,19 @@
     scheduleWaves(ws);
     ws.waves = ws.waves.filter((w) => S.time - w.t0 < 30);
     let lv = 0;
+    const B = Wsh.bins, maxIn = max * Wsh.binReach;
     for (const q of ws.segs) {
       let r = 0;
       for (const w of ws.waves) r = Math.max(r, waveEnv(S.time - w.t0 - Math.abs(q.s - w.s0) * Wsh.sweep) * w.amp);
-      const prev = q.reach;
       q.reach = r * q.str * max;
       lv = Math.max(lv, r);
-      // 최대로 올라왔던 자리 자국
-      if (q.reach > prev + 1e-4) { q.peak = Math.max(q.peak, q.reach); q.falling = false; }
-      else if (!q.falling && q.peak > 0.05 && q.reach < q.peak - 0.03) { q.falling = true; q.mark = q.peak; q.markA = 1; }
-      if (q.reach < 0.01) q.peak = 0;
-      q.markA = Math.max(0, q.markA - dt / Wsh.markLife);
-      // 젖은 땅: 물이 덮었던 만큼 남고 dryTime 동안 마름
-      if (q.reach > 0.02) { q.wetExt = Math.max(q.wetExt * (q.wetT > Wsh.dryTime ? 0 : 1), q.reach); q.wetT = 0; } else q.wetT += dt;
+      // 젖음 맵: 물이 닿은 칸은 1, 이후 dryTime 동안 옅어짐 (가장 최근이 가장 진함). 물막은 filmTime 동안
+      if (!q.wet || q.wet.length !== B) { q.wet = new Float32Array(B); q.film = new Float32Array(B); }
+      for (let b = 0; b < B; b++) {
+        const dep = (b + 0.5) / B * maxIn;
+        if (q.reach > dep) { q.wet[b] = 1; q.film[b] = 1; }
+        else { q.wet[b] = Math.max(0, q.wet[b] - dt / Wsh.dryTime); q.film[b] = Math.max(0, q.film[b] - dt / Wsh.filmTime); }
+      }
     }
     ws.level = lv;
     // 물 끝선을 따라 반짝이는 푸른 점 (펭귄 근처 해안)
@@ -1040,16 +1088,6 @@
       const q = near[(Math.random() * near.length) | 0], dep = q.reach * (0.6 + 0.45 * Math.random());
       spawnSpark(q.x - q.nx * dep, q.y - q.ny * dep, 0.01, lerp(SPK.shoreLife[0], SPK.shoreLife[1], Math.random()), C.world.shoreHeight + 0.01);
     }
-    // 물 빠질 때 물줄기 자국 2~3가닥
-    for (const w of ws.waves) {
-      if (!w.rivDone && S.time - w.t0 > Wsh.rise + 0.3) {
-        w.rivDone = true;
-        const near = ws.segs.filter((q) => Math.abs(q.s - w.s0) < 8 && q.peak > max * 0.3);
-        const n = Wsh.rivulets[0] + ((Math.random() * (Wsh.rivulets[1] - Wsh.rivulets[0] + 1)) | 0);
-        for (let i = 0; i < n && near.length; i++) { const q = near[(Math.random() * near.length) | 0]; ws.rivs.push({ q, from: q.peak, t: 0, seed: Math.random() * 10 }); }
-      }
-    }
-    ws.rivs = ws.rivs.filter((rv) => (rv.t += dt) < Wsh.rivuletLife);
   }
   // 물가에서 안쪽으로 몇 만큼 물이 덮였는지 (>0 이면 물 속)
   function washDepthAt(x, y) {
@@ -1083,6 +1121,7 @@
     S.vortex = S.vortex.filter((v) => (v.t += dt) < WC().curve.vortex.life);
     for (const q of S.prints) if (q.on && (q.t += dt) >= C.FOOTPRINTS.life) q.on = false;
     S.softRipples = S.softRipples.filter((q) => (q.t += dt) < P.water.stepRipple.life);
+    S.swimShade = S.swimShade.filter((q) => (q.t += dt) < WC().swimShade.life);
     for (const q of S.icePrints) if (q.on && (q.t += dt) >= C.FOOTPRINTS.ice.life) q.on = false;
     { // 빙하 위 슬라이딩: 끊기지 않는 가는 활주 자국 (빙하 좌표계)
       const p = S.p, ST = C.FOOTPRINTS.slideTrail;
@@ -1324,42 +1363,23 @@
   }
 
   // 빙하·펭귄 둘레: 윤곽을 따라 번지는 가는 등고선 링 2~3겹 (노이즈로 일렁이고 끊어진 호)
+  // 빙하·펭귄 둘레: 선 대신 천천히 바깥으로 번지는 명암 고리 2~3겹 (빙하 모양에 맞춰 타원)
   function drawContours() {
     const K = WC().contours, t = S.time;
-    const ringAround = (cx, cy, outline, seed) => {
-      const cc = camSpace(cx, cy, 0);
-      if (cc[1] < rig.near + 0.5) return;
-      const fog = fogAt(cc[1]), w = clamp(K.width * pxPerUnit(cc[1]) / 110, 0.3, K.width * 1.5);
+    const halo = (x, y, rx, ry, seed) => {
+      const cc = camSpace(x, y, 0); if (cc[1] < rig.near + 0.5) return;
+      const fog = fogAt(cc[1]);
       for (let k = 0; k < K.rings; k++) {
-        const u = ((t / K.life + k / K.rings + seed) % 1 + 1) % 1, off = 0.06 + K.spread * (1 - Math.pow(1 - u, 2));
-        const a = K.alpha * (1 - u) * Math.min(1, u * 6) * (1 - fog);
-        if (a < 0.004) continue;
-        ctx.strokeStyle = `rgba(${COL.water},${a.toFixed(3)})`; ctx.lineWidth = w * (1 - 0.5 * u);
-        const N = outline.length, pts = outline.map(([ox, oy], i) => {
-          const l = Math.hypot(ox, oy) || 1, nn = 1 + (off + K.noise * noise1(i * 0.7 + t * 0.3 + seed * 13 + k * 5)) / l;
-          const c = camSpace(cx + ox * nn, cy + oy * nn, 0); return c[1] > rig.near ? toScreen(c) : null;
-        });
-        for (let i = 0; i < N; i++) {
-          if (noise1(i * 0.9 + k * 11 + seed * 7 + Math.floor(u * 2) * 3) < -1 + 2 * K.gaps) continue;   // 끊어진 호
-          const p0 = pts[i], p1 = pts[(i + 1) % N];
-          if (!p0 || !p1) continue;
-          ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
-        }
+        const u = ((t / K.life + k / K.rings + seed) % 1 + 1) % 1, off = 1.05 + K.spread * (1 - Math.pow(1 - u, 2)) / Math.max(rx, 0.4);
+        const a = K.alpha * 0.8 * (1 - u) * Math.min(1, u * 5) * (1 - fog);
+        drawGroundImage(shadeRing, x, y, 1, 0, rx * off, ry * off, a);
       }
     };
-    for (const f of activeFloes()) {
-      if (!f.contour) {                                       // 윤곽을 조금 더 촘촘하게 (한 번만 계산)
-        f.contour = [];
-        f.shape.forEach(([x, y], i) => { const [x2, y2] = f.shape[(i + 1) % f.shape.length]; f.contour.push([x, y], [(x + x2) / 2, (y + y2) / 2]); });
-      }
-      ringAround(f.x, f.y, f.contour, (f.cand.seed % 1000) / 1000);
-    }
+    for (const f of activeFloes()) halo(f.x, f.y, f.rx * 1.05, f.ry * 1.05, (f.cand.seed % 1000) / 1000);
     const p = S.p;
-    if (p.mode === 'water' && !p.air) {
-      const r0 = penH() * 0.36, circ = Array.from({ length: 20 }, (_, i) => [Math.cos(i / 20 * 6.283) * r0, Math.sin(i / 20 * 6.283) * r0]);
-      ringAround(p.x, p.y, circ, 0.37);
-    }
+    if (p.mode === 'water' && !p.air && Math.hypot(p.vx, p.vy) < 0.4) halo(p.x, p.y, penH() * 0.4, penH() * 0.4, 0.37);
   }
+
 
   function drawWater() {
     const K = WC().curve;
@@ -1368,36 +1388,35 @@
     { const SR = P.water.stepRipple, spr = getRingSprite();
       for (const q of S.softRipples) { const k = q.t / SR.life; groundSprite(spr, q.x, q.y, SR.radius * (0.4 + 0.8 * (1 - Math.pow(1 - k, 2))), SR.alpha * (1 - k) * Math.min(1, k * 10)); }
       ctx.globalAlpha = 1; }
-    // 원형 파문: 가는 선 링 3겹이 0.15초 간격으로 차례로. ease-out 으로 퍼지며 2px→0.5px, 빛 방향 쪽이 더 밝음
-    const RP = WC().ripple, L = lightDir(), lh = Math.hypot(L[0], L[1]) || 1, lx = L[0] / lh, ly = L[1] / lh;
+    // 원형 파문: 선 링이 아닌 명암 고리가 차례로 퍼짐 (3~6겹, ease-out)
+    const RP = WC().ripple;
     for (const r of S.ripples) {
-      const cc = camSpace(r.x, r.y, 0);
-      if (cc[1] < rig.near + 0.3) continue;
-      const fog = fogAt(cc[1]), scl = clamp(pxPerUnit(cc[1]) / 110, 0.35, 1.5);
       for (let j = 0; j < RP.rings; j++) {
         const tj = r.t - j * RP.ringGap;
         if (tj <= 0 || tj >= r.life) continue;
         const k = tj / r.life, rad = r.maxR * (1 - Math.pow(1 - k, 3)) * (1 - 0.6 * j / RP.rings);
-        const a = r.alpha * Math.min(1, tj / RP.fadeIn) * Math.pow(1 - k, 1.6) * (1 - 0.35 * j / RP.rings) * (1 - fog);
-        if (a < 0.004 || rad < 0.02) continue;
-        const inner = RP.rings > 1 ? j / (RP.rings - 1) : 0;    // 안쪽 겹일수록 밝고 조금 굵게
-        const baseW = lerp(RP.widthFrom, RP.widthTo, k) * scl * (1 + 0.3 * inner);
-        const N = 32, pts = [];
-        for (let i = 0; i <= N; i++) {
-          const th = i / N * Math.PI * 2;
-          const rr = rad * (1 + RP.wobble * noise1(th * 1.6 + r.ph + j * 4 + tj * 0.4));
-          const c = camSpace(r.x + Math.cos(th) * rr, r.y + Math.sin(th) * rr, 0);
-          pts.push(c[1] > rig.near ? toScreen(c) : null);
-        }
-        for (let i = 0; i < N; i++) {
-          const th = (i + 0.5) / N * Math.PI * 2;
-          if (noise1(th * 2.1 + r.ph2 + j * 7) < -1 + 2 * RP.breaks) continue;    // 일부가 끊긴 링
-          const p0 = pts[i], p1 = pts[i + 1]; if (!p0 || !p1) continue;
-          const lit = 0.5 + 0.5 * (Math.cos(th) * lx + Math.sin(th) * ly);       // 빛 쪽(왼쪽 위)이 밝게
-          ctx.lineWidth = baseW * (1 + (RP.thickVar || 0) * Math.sin(4 * th + r.ph + tj * 2));   // 가장자리 두께가 물결처럼 변함
-          const m = Math.min(1, lit * RP.lightSide + inner * (RP.centerLight || 0)), col = [96 + (255 - 96) * m, 106 + (255 - 106) * m, 118 + (255 - 118) * m].map(Math.round);
-          ctx.strokeStyle = `rgba(${col.join(',')},${(a * (0.75 + 0.5 * lit)).toFixed(3)})`;
-          ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
+        const a = r.alpha * Math.min(1, tj / RP.fadeIn) * Math.pow(1 - k, 1.6) * (1 - 0.35 * j / RP.rings) * 0.9;
+        const wob = 1 + RP.wobble * noise1(r.ph + j * 3 + tj * 0.5);
+        const cc = camSpace(r.x, r.y, 0);
+        if (cc[1] < rig.near + 0.3 || rad < 0.03) continue;
+        drawGroundImage(shadeRing, r.x, r.y, Math.cos(r.ph), Math.sin(r.ph), rad * wob, rad / wob, a * (1 - fogAt(cc[1])));
+      }
+    }
+    // 헤엄: 앞쪽 밝은 물 덩어리, 양옆·뒤 어두운 골, 뒤로 길쭉한 얼룩 (명암 면, pitch 에 맞게 납작)
+    { const SS = WC().swimShade, p = S.p;
+      for (const q of S.swimShade) {
+        const k = q.t / SS.life, s = lerp(SS.scale[0], SS.scale[1], 1 - Math.pow(1 - k, 2)), cc = camSpace(q.x, q.y, 0);
+        if (cc[1] < rig.near + 0.3) continue;
+        const fade = Math.pow(1 - k, 1.4) * Math.min(1, q.t * 8) * (1 - fogAt(cc[1]));
+        drawGroundImage(q.bright ? shadeBright : shadeDark, q.x, q.y, q.hx, q.hy, s * 0.5 * SS.length * 0.5, s * 0.35, (q.bright ? SS.brightAlpha : SS.darkAlpha) * fade);
+      }
+      if (p.mode === 'water' && !p.air && p.depth === 'deep') {
+        const sp = Math.hypot(p.vx, p.vy), m = clamp(sp / P.penguin.maxSpeed.water, 0, 1);
+        if (m > 0.05) {
+          const hx = p.vx / sp, hy = p.vy / sp, r0 = penH() * 0.42;
+          drawGroundImage(shadeBright, p.x + hx * r0, p.y + hy * r0, hx, hy, r0 * 0.9, r0 * 1.1, SS.brightAlpha * 1.4 * m);            // 앞쪽 밝은 물 덩어리
+          for (const sd of [1, -1]) drawGroundImage(shadeDark, p.x - hy * r0 * sd * 1.1 - hx * r0 * 0.3, p.y + hx * r0 * sd * 1.1 - hy * r0 * 0.3, hx, hy, r0 * 1.2, r0 * 0.45, SS.darkAlpha * 1.3 * m);   // 양옆 골
+          drawGroundImage(shadeDark, p.x - hx * r0 * 1.6, p.y - hy * r0 * 1.6, hx, hy, r0 * 1.3, r0 * 0.6, SS.darkAlpha * m);     // 뒤 골
         }
       }
     }
@@ -1564,14 +1583,12 @@
     // 빙하 위 긁힘 발자국과 활주 자국 (빙하 좌표계)
     const FP = C.FOOTPRINTS;
     ctx.fillStyle = `rgb(${FP.ice.color.join(',')})`;
+    const iceSet = pawPrints(FP.ice.color);
     for (const q of S.icePrints) {
       if (!q.on || q.cand !== f.cand) continue;
-      const fade = 1 - q.t / FP.ice.life, fx = Math.cos(q.ang), fy = Math.sin(q.ang), rxv = Math.sin(q.ang), ryv = -Math.cos(q.ang);
-      const pts = projPoly(PAW_POLY.map(([ux, uy]) => {
-        const a2 = ux * q.side * FP.size, b2 = -uy * FP.size, lx = q.lx + fx * b2 + rxv * a2, ly = q.ly + fy * b2 + ryv * a2;
-        return [f.x + lx, f.y + ly, floeTopAt(f, lx, ly) + 0.004];
-      })).map(([sx, sy]) => [sx, sy + dy]);
-      ctx.globalAlpha = a * FP.ice.alpha * fade * (1 - fog); fillPoly(pts);
+      const cs = camSpace(f.x + q.lx, f.y + q.ly, floeTopAt(f, q.lx, q.ly) + 0.004);
+      if (cs[1] < rig.near) continue;
+      drawPawPrint(iceSet, f.x + q.lx, f.y + q.ly, q.ang, q.side, FP.size, q.t, FP.ice.life, a * FP.ice.alpha * (1 - fog), floeTopAt(f, q.lx, q.ly) + 0.004, dy);
     }
     { const ST = FP.slideTrail; let prev = null;
       ctx.strokeStyle = `rgb(${FP.ice.color.join(',')})`; ctx.lineCap = 'butt';   // 이음매가 점선처럼 겹치지 않게
@@ -1607,13 +1624,44 @@
       const d = camSpace(is.shoreX, clamp(cam.y, -is.ry, is.ry), 0)[1];
       if (d < -is.rx * 2) continue;
       const fog = fogAt(Math.max(d, 0), C.FOG.mountain);
-      ctx.fillStyle = mixFog([112, 110, 106], fog); fillPoly(projPoly(is.shape.map(([x, y]) => [x, y, -0.05])));
-      ctx.fillStyle = mixFog([156, 152, 144], fog); fillPoly(projPoly(is.shape.map(([x, y]) => [x, y, h])));
+      ctx.fillStyle = mixFog(C.DEPTH.dryColor, fog); fillPoly(projPoly(is.shape.map(([x, y]) => [x, y, h])));   // 마른 모래 (완만해서 옆면 없음)
     }
   }
 
   // 해안: 젖은 땅(어둡게) → 얇은 물막 → 물 끝선의 옅은 흰 선 → 물막 위 작은 파문 → 발자국
+  // 해안 그라데이션: 해안선을 따라 놓인 띠들을 한 장씩 채움 (선 없이 색·투명도만)
+  function shoreBand(d0, d1, z, segs) {
+    const outer = [], inner = [];
+    for (const q of segs) { outer.push([q.x + q.nx * d0, q.y + q.ny * d0, z]); inner.push([q.x + q.nx * d1, q.y + q.ny * d1, z]); }
+    return projPoly(outer.concat(inner.reverse()));
+  }
+  // 띠 사이에 이음선이 생기지 않도록, 모두 물가에서 시작하는 겹친 면을 바깥부터 쌓아 목표 알파를 만듦
+  // A_i = 1 - (1 - A_{i+1})(1 - α_i)  →  α_i = 1 - (1 - A_i) / (1 - A_{i+1})
+  function nestedBands(n, edgeOf, targetOf, polyOf) {
+    let outer = 0;
+    for (let i = n - 1; i >= 0; i--) {
+      const A = clamp(targetOf(i), 0, 0.99), al = 1 - (1 - A) / (1 - outer);
+      if (al > 0.002) { ctx.globalAlpha = al; fillPoly(polyOf(edgeOf(i))); }
+      outer = Math.max(outer, A);
+    }
+  }
+  function visibleShore() {
+    const ws = washShape(), R = C.DEPTH.viewRange;
+    return ws.segs.filter((q) => Math.hypot(q.x - cam.x, q.y - cam.y) < R);
+  }
+  // 얕은 물: 모래색이 비치다가(alpha 0.65) 깊어질수록 투명 → 깊은 물
+  function drawShallows() {
+    const D = C.DEPTH, segs = visibleShore();
+    if (segs.length < 2) return;
+    const d0c = camSpace(segs[segs.length >> 1].x, segs[segs.length >> 1].y, 0)[1], fog = fogAt(Math.max(d0c, 0), C.FOG.mountain);
+    if (fog > 0.97) return;
+    ctx.fillStyle = `rgb(${D.sandColor.join(',')})`;
+    const n = D.strips, maxD = D.slope, target = (d) => D.sandAlpha * (1 - smooth(0, D.shallowEnd, Math.pow(smooth(0, D.slope, d), D.power))) * (1 - fog);
+    nestedBands(n, (i) => (i + 1) / n * maxD, (i) => target((i + 0.5) / n * maxD), (d1) => shoreBand(-0.3, d1, 0, segs));
+    ctx.globalAlpha = 1;
+  }
   const wetCv = document.createElement('canvas'), wetG = wetCv.getContext('2d');
+  const filmCv = document.createElement('canvas'), filmG = filmCv.getContext('2d');
   function drawShoreWash() {
     const ws = washShape(), Wsh = C.SHORE_WASH, z = C.world.shoreHeight + 0.004;
     if (ws.segs.length < 2) return;
@@ -1621,69 +1669,39 @@
     if (d0 < -ws.is.rx) return;
     const fog = fogAt(Math.max(d0, 0), C.FOG.mountain);
     if (fog > 0.97) return;
-    const at = (q, depth) => camSpace(q.x - q.nx * depth, q.y - q.ny * depth, z);
-    // 젖은 땅: 낮은 해상도 오프스크린에 구간별 어두운 띠를 그려 부드럽게 얹음 (마를수록 옅게)
+    const D = C.DEPTH, segsV = visibleShore();
+    // 젖은 모래: 물가 쪽이 가장 어둡고 안쪽으로 갈수록 마른 모래로 (띠 그라데이션)
+    ctx.fillStyle = `rgb(${D.wetColor.join(',')})`;
+    if (segsV.length > 1) nestedBands(8, (i) => -(i + 1) / 8 * D.wetSandWidth, (i) => (1 - (i + 0.5) / 8) * 0.85 * (1 - fog), (d1) => shoreBand(0.05, d1, z - 0.002, segsV));
+    // 파도 젖음 맵 + 물막: 낮은 해상도 오프스크린 두 장에 칸별 면으로 그려 부드럽게 키움 (선 없음)
+    const B = Wsh.bins, maxIn = Wsh.shoreWidth * Wsh.reach * Wsh.binReach;
     const res = C.SHADOW_BLUR.wetResolution, w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));
-    if (wetCv.width !== w || wetCv.height !== h) { wetCv.width = w; wetCv.height = h; }
-    wetG.setTransform(1, 0, 0, 1, 0, 0); wetG.clearRect(0, 0, w, h); wetG.setTransform(res, 0, 0, res, 0, 0);
-    wetG.fillStyle = '#3f3c39';
-    let any = false;
-    for (let i = 0; i < ws.segs.length - 1; i++) {
-      const a = ws.segs[i], b = ws.segs[i + 1];
-      const wa = a.wetExt > 0 ? 1 - a.wetT / Wsh.dryTime : 0, wb = b.wetExt > 0 ? 1 - b.wetT / Wsh.dryTime : 0;
-      const wt = (Math.max(0, wa) + Math.max(0, wb)) / 2;
-      if (wt <= 0.01) continue;
-      // 경계가 번지도록 도달선 ±(ratio/2) 로 세 겹
-      for (const m of [1 - C.SHADOW_BLUR.ratio / 2, 1, 1 + C.SHADOW_BLUR.ratio / 2]) {
-        const pts = [at(a, -0.12), at(b, -0.12), at(b, b.wetExt * m), at(a, a.wetExt * m)];
+    for (const cv of [wetCv, filmCv]) if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    for (const g2 of [wetG, filmG]) { g2.setTransform(1, 0, 0, 1, 0, 0); g2.clearRect(0, 0, w, h); g2.setTransform(res, 0, 0, res, 0, 0); }
+    wetG.fillStyle = '#3f3c39'; filmG.fillStyle = '#f4f2ec';
+    let anyW = false, anyF = false;
+    const at = (q, dep) => camSpace(q.x - q.nx * dep, q.y - q.ny * dep, z);
+    for (let i = 0; i < segsV.length - 1; i++) {
+      const a = segsV[i], b = segsV[i + 1];
+      if (!a.wet || !b.wet) continue;
+      for (let k = 0; k < B; k++) {
+        const d0 = k / B * maxIn, d1 = (k + 1) / B * maxIn;
+        const wv = (a.wet[k] + b.wet[k]) / 2;
+        // 올라오는 물 앞쪽 밝은 막(해안 쪽으로 갈수록 투명) + 빠진 뒤 남는 얇은 막
+        const reach = (a.reach + b.reach) / 2, front = reach > d0 ? Wsh.waterAlpha * clamp(d1 / Math.max(reach, 0.01), 0, 1) : 0;
+        const fv = Math.max(front, Wsh.filmAlpha * smooth(0, 1, (a.film[k] + b.film[k]) / 2));
+        if (wv < 0.01 && fv < 0.01) continue;
+        const pts = [at(a, d0), at(b, d0), at(b, d1), at(a, d1)];
         if (pts.some((c) => c[1] < rig.near)) continue;
-        wetG.globalAlpha = wt / 2; any = true;
-        wetG.beginPath(); pts.map(toScreen).forEach(([x, y], k) => (k ? wetG.lineTo(x, y) : wetG.moveTo(x, y))); wetG.closePath(); wetG.fill();
+        const sp = pts.map(toScreen);
+        const path = (g2) => { g2.beginPath(); sp.forEach(([x, y], j) => (j ? g2.lineTo(x, y) : g2.moveTo(x, y))); g2.closePath(); g2.fill(); };
+        if (wv >= 0.01) { wetG.globalAlpha = wv * (1 - k / B * 0.5); path(wetG); anyW = true; }   // 가장자리로 갈수록 넓게 옅어짐
+        if (fv >= 0.01) { filmG.globalAlpha = Math.min(1, fv / Math.max(Wsh.waterAlpha, Wsh.filmAlpha)); path(filmG); anyF = true; }
       }
     }
-    if (any) { ctx.globalAlpha = Wsh.wetAlpha * (1 - fog); ctx.imageSmoothingEnabled = true; ctx.drawImage(wetCv, 0, 0, W, H); }
-    const strokeAlong = (depthOf, alphaOf, width) => {
-      ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-      for (let i = 0; i < ws.segs.length - 1; i++) {
-        const a = ws.segs[i], b = ws.segs[i + 1], al = alphaOf(a, b);
-        if (al <= 0.004) continue;
-        const ca = at(a, depthOf(a)), cb = at(b, depthOf(b));
-        if (ca[1] < rig.near || cb[1] < rig.near) continue;
-        const [x0, y0] = toScreen(ca), [x1, y1] = toScreen(cb);
-        ctx.globalAlpha = al; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-      }
-    };
-    const lw = clamp(pxPerUnit(Math.max(d0, 1)) * 0.012, 0.6, 1.6);
-    // 얇은 물막 (물가 ~ 지금 도달선)
-    if (ws.level > 0.01) {
-      ctx.fillStyle = '#ebe8e0';
-      for (let i = 0; i < ws.segs.length - 1; i++) {
-        const a = ws.segs[i], b = ws.segs[i + 1];
-        if (a.reach < 0.01 && b.reach < 0.01) continue;
-        const pts = [at(a, -0.12), at(b, -0.12), at(b, b.reach), at(a, a.reach)];
-        if (pts.some((c) => c[1] < rig.near)) continue;
-        ctx.globalAlpha = Wsh.waterAlpha * (1 - fog); fillPoly(pts.map(toScreen));
-      }
-      // 물 끝선: 얇고 옅은 흰 선
-      ctx.strokeStyle = '#ffffff';
-      strokeAlong((q) => q.reach, (a, b) => (a.reach > 0.02 && b.reach > 0.02 ? Wsh.edgeLineAlpha * (1 - fog) : 0), lw);
-    }
-    // 최대로 올라왔던 자리의 얇은 곡선 자국
-    ctx.strokeStyle = '#3f3c39';
-    strokeAlong((q) => q.mark, (a, b) => Math.min(a.markA, b.markA) * 0.35 * (1 - fog), lw * 0.8);
-    // 물 빠지는 쪽으로 가는 물줄기 자국
-    for (const rv of ws.rivs) {
-      const k = rv.t / Wsh.rivuletLife, q = rv.q, len = rv.from * (0.3 + 0.7 * Math.min(1, rv.t / 0.8));
-      const pts = [];
-      for (let i = 0; i <= 6; i++) {
-        const u = i / 6, dep = rv.from - len * u, side = Math.sin(u * 5 + rv.seed) * 0.08;
-        const c = camSpace(q.x - q.nx * dep + q.ny * side, q.y - q.ny * dep - q.nx * side, z);
-        if (c[1] > rig.near) pts.push(toScreen(c));
-      }
-      if (pts.length < 2) continue;
-      ctx.globalAlpha = 0.28 * (1 - k) * (1 - fog); ctx.strokeStyle = '#3f3c39'; ctx.lineWidth = lw * 0.7;
-      ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
-    }
+    ctx.imageSmoothingEnabled = true;
+    if (anyW) { ctx.globalAlpha = Wsh.wetAlpha * (1 - fog); ctx.drawImage(wetCv, 0, 0, W, H); }
+    if (anyF) { ctx.globalAlpha = Math.max(Wsh.waterAlpha, Wsh.filmAlpha) * (1 - fog); ctx.drawImage(filmCv, 0, 0, W, H); }
     // 물 끝선을 따라 반짝이는 푸른 점
     for (const s of S.spark) {
       if (!s.on || !s.z0) continue;
@@ -1694,22 +1712,13 @@
     for (const r of S.washRipples) {
       const k = r.t / 1.2, e = groundEllipse(r.x, r.y, 0.15 + 0.5 * k, z);
       if (!e) continue;
-      ctx.globalAlpha = 0.35 * (1 - k); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.ellipse(e.x, e.y, e.rx, e.ry, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 0.3 * (1 - k); ctx.drawImage(shadeRing, e.x - e.rx, e.y - e.ry, e.rx * 2, e.ry * 2);
     }
-    // 모래 발자국: 발바닥 버튼과 같은 모양. 진행 방향으로 회전, 왼발은 좌우 뒤집음. 찍힐 때 살짝 커지며 눌림
-    const FP = C.FOOTPRINTS;
+    // 모래 발자국: 버튼과 같은 발바닥 모양, 팔자로 벌어지고 부드럽게 번짐
+    const FP = C.FOOTPRINTS, sand = pawPrints(FP.color);
     for (const q of S.prints) {
       if (!q.on) continue;
-      const press = FP.pressFrom + (1 - FP.pressFrom) * smooth(0, FP.pressTime, q.t), fade = 1 - q.t / FP.life;
-      const fx = Math.cos(q.ang), fy = Math.sin(q.ang), rxv = Math.sin(q.ang), ryv = -Math.cos(q.ang);
-      const shape = (k) => projPoly(PAW_POLY.map(([ux, uy]) => {
-        const a = ux * q.side * FP.size * k * press, b = -uy * FP.size * k * press;
-        return [q.x + fx * b + rxv * a, q.y + fy * b + ryv * a, z];
-      }));
-      ctx.fillStyle = '#2e2b28';
-      ctx.globalAlpha = FP.alpha * fade * (1 - fog); fillPoly(shape(1));
-      ctx.globalAlpha = FP.innerAlpha * fade * (1 - fog) * (1.4 - 0.4 * smooth(0, FP.pressTime * 3, q.t)); fillPoly(shape(0.55));
+      drawPawPrint(sand, q.x, q.y, q.ang, q.side, FP.size, q.t, FP.life, FP.alpha * (1 - fog), z);
     }
     ctx.globalAlpha = 1;
   }
@@ -2010,6 +2019,36 @@
     }
     return out;
   })();
+  // 발자국 스프라이트: 선명·보통·흐림 3단계를 미리 만들어 둠 (중심이 진한 방사형 그라데이션)
+  const pawPrintSprites = new Map();
+  function pawPrints(rgb) {
+    const key = rgb.join(',');
+    if (pawPrintSprites.has(key)) return pawPrintSprites.get(key);
+    const N = 96, make = (down) => {
+      const s = Math.max(8, Math.round(N / down)), sm = document.createElement('canvas'); sm.width = sm.height = s;
+      const g2 = sm.getContext('2d'), k = s / 2 * 0.82;
+      const gr = g2.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, k * 1.05);
+      gr.addColorStop(0, `rgba(${key},1)`); gr.addColorStop(1, `rgba(${key},0.5)`);
+      g2.fillStyle = gr; g2.beginPath(); PAW_POLY.forEach(([x, y], i) => (i ? g2.lineTo(s / 2 + x * k, s / 2 + y * k) : g2.moveTo(s / 2 + x * k, s / 2 + y * k))); g2.closePath(); g2.fill();
+      const big = document.createElement('canvas'); big.width = big.height = N;
+      const bg2 = big.getContext('2d'); bg2.imageSmoothingEnabled = true; bg2.imageSmoothingQuality = 'high'; bg2.drawImage(sm, 0, 0, N, N);
+      return big;
+    };
+    const set = { sharp: make(1), mid: make(3), blur: make(7) };
+    pawPrintSprites.set(key, set);
+    return set;
+  }
+  // 발자국 하나: 찍힐 때 흐림 → 선명, 사라질 때 선명 → 흐림으로 교차 페이드
+  function drawPawPrint(set, x, y, ang, side, size, t, life, alpha, z, oy = 0) {
+    const FP = C.FOOTPRINTS, a = ang + side * deg(FP.toeOutDeg), rx = Math.sin(a), ry = -Math.cos(a);
+    const kin = smooth(0, FP.fadeIn, t), kout = smooth(0.45, 1, t / life), fade = 1 - smooth(0.6, 1, t / life);
+    const wSharp = kin * (1 - kout), wMid = Math.min(kin, kout) * 0.8 + (1 - kin) * 0.4, wBlur = Math.max(1 - kin, kout);
+    const tot = wSharp + wMid + wBlur || 1;
+    for (const [img, wv] of [[set.blur, wBlur], [set.mid, wMid], [set.sharp, wSharp]]) {
+      if (wv / tot < 0.02) continue;
+      drawGroundImage(img, x, y, rx * side, ry * side, size, -size * side, alpha * fade * wv / tot * 1.3, z, oy);
+    }
+  }
   // 둥근 물갈퀴 발바닥: 작은 캔버스에 불투명하게 그린 뒤 한 번에 반투명으로 얹음 (겹친 곳도 같은 농도)
   const pawCv = document.createElement('canvas'), pawG = pawCv.getContext('2d');
   function drawPaw(cx, cy, sc, l, strength) {
@@ -2114,6 +2153,7 @@
     drawSky();
     // 수면에 붙은 것: 잔물결 → 파문·항적 → 흐름선 → 반영
     drawWaterTone();
+    drawShallows();
     drawSwell();
     drawPlankton();
     drawStreams();
@@ -2124,7 +2164,7 @@
     const p = S.p;
     if (p.mode === 'water' && !p.air) {
       const sp = Math.hypot(p.vx, p.vy);
-      if (sp > 0.05) drawFlowLines(p.x, p.y, [p.vx / sp, p.vy / sp], sp, P.penguin.maxSpeed.water, 0.25 * C.penguin.scale, 0.15, 0);
+      if (sp > 0.05 && p.depth !== 'deep') drawFlowLines(p.x, p.y, [p.vx / sp, p.vy / sp], sp, P.penguin.maxSpeed.water, 0.25 * C.penguin.scale, 0.15, 0);   // 헤엄 중엔 선 대신 명암
     }
     drawReflection();
     drawIslandGround();
