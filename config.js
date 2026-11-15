@@ -16,19 +16,34 @@ const WATER_CALM = {
     penguinLag: 0.25,         // 펭귄이 빙하 출렁임을 따라가는 지연 (초)
     phaseSpread: 6.28,        // 빙하마다 다른 위상 범위 (rad)
   },
-  streams: {                  // 수면 물결선: 노이즈 유동장을 따라 둥글게 말리며 흐르는 가는 곡선
-    max: 60,                  // 화면 안 최대 개수 (풀)
-    steps: [12, 16],          // 유동장을 따라가는 걸음 수
-    stepLen: 0.28,            // 한 걸음 길이 (월드)
-    life: [3, 5],             // 나타났다 사라지는 수명 (초)
-    alpha: [0.08, 0.16],
-    width: 1.3,               // 가까운 곳 선 굵기 (px, 멀수록 가늘게)
-    fieldScale: 0.11,         // 유동장 노이즈 크기 (작을수록 크게 휨)
-    curl: 2.2,                // 말림 정도
-    morph: 0.04,              // 유동장이 시간에 따라 변하는 속도
-    drift: 0.1,               // 선 전체가 흐름 따라 떠가는 속도
-    depth: [3, 45],           // 생성 거리 범위 (먼 곳일수록 촘촘해 보임)
+  // 수면 물결 3겹: ① 너울 띠 ② 중간 물결선(어두운 선 + 밝은 선 쌍) ③ 미세 반짝
+  swell: {                    // ① 아주 옅은 명암 띠가 천천히 지나감
+    count: 4,
+    width: [0.3, 0.6],        // 띠 길이 = 화면 폭 × 이 범위
+    alpha: [0.04, 0.07],
+    period: [8, 14],          // 한 띠가 지나가는 주기 (초)
+    thick: 0.5,               // 띠 두께 (월드)
+    travel: 6,                // 한 주기 동안 이동 거리 (월드)
   },
+  streams: {                  // ② 노이즈 유동장을 따라 흐르는 곡선. 짧은 선 70% + 긴 선 30%
+    max: 70,                  // 풀 (미세 반짝과 합쳐 전체 최대 90)
+    shortShare: 0.7,
+    shortLen: [0.6, 2.2], longLen: [2.2, 4.5],   // 길이 (월드)
+    stepLen: 0.2,
+    life: [2, 6],             // 수명을 크게 흩뜨려 한꺼번에 나타나고 사라지지 않게 (alpha 는 smoothstep)
+    alpha: [0.08, 0.15],
+    width: 1.2,               // 가까운 곳 선 굵기 (px)
+    pairGap: 2.5,             // 어두운 선 옆 밝은 선 간격 (px)
+    pairAlpha: 0.8,           // 밝은 선 진하기 (어두운 선 대비)
+    fieldScale: 0.11, curl: 2.0, morph: 0.04,
+    dirSpread: 60,            // 흐름 방향 ± 분산 (도)
+    speed: [0.05, 0.15],      // 떠가는 속도 (월드/초)
+    depth: [3, 45],           // 생성 거리 (먼 곳은 짧고 촘촘, 가까운 곳은 크고 듬성)
+    avoid: 1.5,               // 빙하·펭귄 윤곽 × 이 반경 안에서는 윤곽을 따라 감돌아 흐름
+    eddyAlpha: 0.12,          // 빙하 하류의 작은 소용돌이 곡선
+  },
+  glints: { max: 20, rate: 14, life: 0.6, alpha: [0.1, 0.2], depth: [2, 22] },   // ③ 미세 반짝 (흰 점·짧은 선)
+  tone: { amp: 0.04, period: 24, scale: 0.35 },   // 수면 전체 밝기를 아주 느린 노이즈로 ±4%
   contours: {                 // 빙하·펭귄 둘레의 번지는 등고선 링
     rings: 3, life: 3.2,      // 동시에 2~3겹, 한 겹 수명 (초)
     spread: 0.9,              // 바깥으로 퍼지는 거리 (월드)
@@ -85,7 +100,11 @@ const WATER_CALM = {
 // 보통: 약한 바람
 const WATER_NORMAL = {
   bob: { periods: [2.6, 4.1], ampsPx: [2.4, 1.6], maxPx: 5, lightBoost: 1.4, tiltDeg: 1.6, penguinLag: 0.25, phaseSpread: 6.28 },
-  streams: { max: 60, steps: [12, 16], stepLen: 0.32, life: [2.5, 4], alpha: [0.12, 0.22], width: 1.6, fieldScale: 0.13, curl: 2.6, morph: 0.07, drift: 0.2, depth: [3, 45] },
+  swell: { count: 5, width: [0.3, 0.6], alpha: [0.06, 0.1], period: [6, 10], thick: 0.6, travel: 8 },
+  streams: { max: 70, shortShare: 0.6, shortLen: [0.8, 2.6], longLen: [2.6, 5], stepLen: 0.2, life: [2, 5], alpha: [0.12, 0.2], width: 1.5, pairGap: 2.5, pairAlpha: 0.8,
+    fieldScale: 0.13, curl: 2.4, morph: 0.07, dirSpread: 60, speed: [0.1, 0.25], depth: [3, 45], avoid: 1.5, eddyAlpha: 0.16 },
+  glints: { max: 20, rate: 20, life: 0.6, alpha: [0.14, 0.26], depth: [2, 22] },
+  tone: { amp: 0.05, period: 18, scale: 0.35 },
   contours: { rings: 3, life: 2.6, spread: 1.1, alpha: 0.26, width: 1.3, noise: 0.14, gaps: 0.3 },
   wake: { halfAngleDeg: 19, life: 2.4, spacing: [0.4, 0.9], arcDeg: [18, 42], alphaMax: 0.42, lineWidth: 1.3, maxParticles: 40 },
   flowLines: { count: 3, alpha: 0.24, lengthSec: 0.6 },
@@ -123,38 +142,35 @@ const FIREFLY = {
     [-9, 1.5], [-15, -2.5], [-21.5, 1.5], [-28, -1.5], [-34, 0.5], [-43.5, 0],
   ],
   reachDist: 5,               // 펭귄이 이만큼 다가오면 다음 웨이포인트로
-  speed: 3.2,                 // 물속에서 미끄러지는 속도
-  hover: 0.25,                // 무리 전체가 제자리에서 맴도는 폭 (가로로만)
-  count: 16,                  // 무리 점 수 (12~20 권장)
-  mobileMax: 30,
-  depth: [0.1, 0.6],          // 수면 아래 깊이 (가로로만 움직임)
-  size: [0.03, 0.075],        // 코어 크기 (월드)
-  glow: [0.22, 0.55],         // 물에 번진 빛 크기 (월드)
-  brightness: [0.55, 1],
-  flickerHz: [0.4, 1.8],
-  swarmRadius: [0.2, 1.4],
-  // 일반(알파) 합성: 진한 청색 코어 + 부드러운 청록 번짐 + 어두운 청색 수중 그림자
-  coreHue: [190, 212], coreSat: 100, coreLight: 50, coreAlpha: 0.95,
-  glowHue: 182, glowSat: 75, glowLight: 55, glowAlpha: 0.4,
-  shadowColor: [24, 52, 96], shadowAlpha: 0.22,
-  overFogAlpha: 0.55,         // 안개 위로 한 번 더 비치는 코어 (안개에 묻히지 않게)
-  farFade: [10, 45, 0.5],     // 이 거리부터 옅어져서 최대 50% 까지
-  // 푸른 점: 이동 꼬리 + 물결·파문 위 반짝임
+  speed: 3.2,                 // 군집 이동 속도
+  curve: 0.45,                // 물살처럼 곡선으로 흐르는 정도 (rad)
+  curveFreq: 0.35,
+  inertia: 1.6,               // 방향·속도가 바뀌는 부드러움 (작을수록 크게 휨)
+  depth: [0.1, 0.5],          // 수면 아래 깊이
+  // 형태: 부드러운 빛 덩이(보케) 5~7개 + 주변의 아주 작고 흐린 입자
+  blobs: [5, 7],
+  blobSize: [0.08, 0.25],     // 빛 덩이 반지름 (월드)
+  blobAlpha: [0.2, 0.35],     // 중심 alpha (0.35 이하)
+  blobSpread: 0.55,           // 군집 중심에서 퍼진 정도 (가우시안 σ, 월드)
+  particles: 34, particleSize: [0.01, 0.028], particleAlpha: [0.12, 0.28], particleSpread: 0.75,
+  follow: 1.1,                // 입자가 군집 중심을 따라가는 빠르기 (느리게)
+  breath: { period: [3, 6], amount: 0.25 },     // 깜빡임 없이 숨쉬듯 ±25%
+  hue: [190, 200], sat: [65, 75], light: [62, 70],   // 채도를 낮춘 맑은 청록, 중심은 흰빛에 가까운 푸른 번짐
+  shadowAlpha: 0,             // 수중 그림자 없음
+  overFogAlpha: 0.45,         // 안개 위로 한 번 더 비치는 빛 덩이
+  farFade: [10, 45, 0.5],
+  // 꼬리·반짝임은 아주 은은하게: 펭귄·빙하가 물을 휘저은 자리에서만
   sparkle: {
     max: 150,
-    trailRate: 30,            // 무리가 움직일 때 초당 흩뿌리는 수
-    trailLife: [1.2, 2.4],    // 꼬리 점이 천천히 꺼지는 시간
-    waveLife: 0.8,            // 물결·파문 위에서 반짝 켜졌다 꺼지는 시간
-    ringRate: 0,              // 파문 링 하나당 초당 반짝임 수
-    swimRate: 0,             // 수영할 때 몸 뒤로 흩뿌리는 점 (최고 속도 기준, 초당)
-    swimLife: [1.4, 2.6],     // 수영 꼬리 점이 꺼지는 시간 (길게 이어지는 꼬리)
-    swimSpread: 0.35,         // 꼬리 점이 옆으로 퍼지는 폭 (월드)
-    shoreRate: 0,            // 해안 물 끝선을 따라 반짝이는 점 (초당)
-    shoreLife: [0.8, 1.6],
-    wakeCount: 0,             // 항적 호 하나당 반짝임 수
-    size: [0.025, 0.06],
+    trailRate: 8, trailLife: [2, 3.5],
+    swimRate: 10, swimLife: [2, 3.5], swimSpread: 0.35,
+    ringRate: 2, wakeCount: 1, waveLife: 2.5,
+    shoreRate: 0, shoreLife: [0.8, 1.6],
+    size: [0.04, 0.09],       // 작은 빛 번짐 반지름 (월드)
+    alpha: 0.18,              // 최대 진하기
   },
 };
+
 
 // ── 경량 물리 ──────────────────────────────────────────────
 const PHYSICS = {
