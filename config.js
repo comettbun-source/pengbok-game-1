@@ -146,13 +146,23 @@ const FIREFLY = {
   reachDist: 5,
   speed: 3.2,
   depth: [0.04, 0.3],         // 수면 아래 깊이
-  members: 40,                // 군집 점 수
-  size: [0.04, 0.4],          // 크기 아주 다양하게 (작은 것이 많고 큰 것은 드묾). 큰 것일수록 옅게
-  alpha: [0.95, 0.25],        // 가장 작은 것 ~ 가장 큰 것의 진하기
+  members: 9,                 // 빛 구름 수
+  size: [0.08, 0.45],         // 빛 구름 크기 (다양하게). 큰 덩이일수록 옅게
+  alpha: [1, 0.55],           // 가장 작은 것 ~ 가장 큰 것의 진하기 배율
+  cloud: { lobes: [2, 3], stretch: 1.35, pins: [3, 5] },   // 덩이마다 타원 2~3겹(진행 방향으로 길쭉) + 작은 핀포인트 3~5개
+  streak: { speedRef: 2.5, maxLen: 3, life: 0.6 },          // 빠르게 움직일 때 진행 반대로 늘어나는 꼬리 (길이 ∝ 속도, 최대 크기×3, 0.6초에 사라짐)
   breath: { period: [3, 6], amount: 0.25 },     // 깜빡임 없이 숨쉬듯 ±25%
   // 색 (알파 합성): 바깥 번짐 #9c9cf4(0.35) · 중간 #b9b9fb(0.5) · 중심 #f0f0ff
-  colors: { outer: [156, 156, 244, 0.35], mid: [185, 185, 251, 0.5], core: [240, 240, 255, 1] },
-  hue: [235, 250], sat: [70, 85], light: [76, 82],   // 꼬리 빛 등 작은 빛 번짐 색
+  // 색: 밝기 대신 채도 대비 + 주변 어둠. 모두 방사형 그라데이션(중심 → 0), 가산 합성 없음
+  // [색, alpha, 크기(빛 구름 대비), 합성]
+  colors: {
+    pool: ['#1b2a4a', 0.10, 1.6, 'multiply'],      // ① 수중 그림자 풀: 빛 주변 물만 살짝 어둡게
+    outer: ['#3a7bff', 0.22, 1.0, 'multiply'],     // ② 바깥 번짐
+    body: ['#5fc8ff', 0.45, 0.55, 'source-over'],  // ③ 본 번짐
+    rim: ['#9c9cf4', 0.18, 1.2, 'source-over'],    // ④ 가장자리 테두리 (고른 색은 여기에만)
+    core: ['#eaf9ff', 0.9, 0.12, 'source-over'],   // ⑤ 중심 핀포인트
+  },
+  hue: [205, 212], sat: [80, 90], light: [62, 70],   // 물을 휘저은 자리의 작은 빛 번짐 색 (청색)
   overFogAlpha: 0.45,
   farFade: [10, 45, 0.5],
   // 길 안내: 펭귄 앞에서 맴돌다, 다가오면 경로를 따라 물러남
@@ -172,8 +182,8 @@ const FIREFLY = {
   },
   // 꼬리·반짝임은 아주 은은하게: 펭귄·빙하가 물을 휘저은 자리에서만
   sparkle: {
-    max: 150,
-    trailRate: 8, trailLife: [2, 3.5],
+    max: 30, maxActive: 12,   // 풀 30, 동시에 12개 이하
+    trailRate: 0, trailLife: [2, 3.5],
     swimRate: 10, swimLife: [2, 3.5], swimSpread: 0.35,
     ringRate: 2, wakeCount: 1, waveLife: 2.5,
     shoreRate: 0, shoreLife: [0.8, 1.6],

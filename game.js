@@ -344,8 +344,11 @@
     S.ff = { i: 0, x: r0[0], y: r0[1], cx: r0[0], cy: r0[1], s: 0, sTarget: 0, speed: 0, mode: 'mill', path: null, lastDist: 0, vApp: 0,
       hist: new Float32Array(128), histI: 0, trailAcc: 0, px: r0[0], py: r0[1],
       members: Array.from({ length: FF.members }, () => {
-        const u = Math.pow(fr(), 2.6), size = lerp(FF.size[0], FF.size[1], u);
-        return { x: r0[0], y: r0[1], size, alpha: lerp(FF.alpha[0], FF.alpha[1], u), ph: fr() * 6.283, w: (0.15 + fr() * 0.35) * (fr() < 0.5 ? -1 : 1),
+        const u = Math.pow(fr(), 1.6), size = lerp(FF.size[0], FF.size[1], u), CL = FF.cloud;
+        const nl = CL.lobes[0] + ((fr() * (CL.lobes[1] - CL.lobes[0] + 1)) | 0), np = CL.pins[0] + ((fr() * (CL.pins[1] - CL.pins[0] + 1)) | 0);
+        const lobes = Array.from({ length: nl }, (_, k) => ({ ox: k ? (fr() - 0.5) * 0.5 : 0, oy: k ? (fr() - 0.5) * 0.35 : 0, s: k ? 0.55 + fr() * 0.35 : 1, st: lerp(1, CL.stretch, fr()) }));
+        const pins = Array.from({ length: np }, () => ({ ox: (fr() - 0.5) * 0.6, oy: (fr() - 0.5) * 0.4, s: 0.6 + fr() * 0.7 }));
+        return { x: r0[0], y: r0[1], px: r0[0], py: r0[1], vx: 0, vy: 0, streak: 0, ang: 0, lobes, pins, size, alpha: lerp(FF.alpha[0], FF.alpha[1], u), ph: fr() * 6.283, w: (0.15 + fr() * 0.35) * (fr() < 0.5 ? -1 : 1),
           rad: G.millRadius * Math.sqrt(fr()), delay: lerp(G.memberDelay[0], G.memberDelay[1], fr()), bp: lerp(FF.breath.period[0], FF.breath.period[1], fr()),
           depth: lerp(FF.depth[0], FF.depth[1], fr()), wob: 0.1 + fr() * 0.2 };
       }) };
@@ -1071,6 +1074,13 @@
       const a = m.ph + S.time * m.w, tx = ff.hist[hi * 2] + Math.cos(a) * m.rad + Math.sin(S.time * 0.3 + m.ph) * m.wob, ty = ff.hist[hi * 2 + 1] + Math.sin(a) * m.rad * 0.85 + Math.cos(S.time * 0.27 + m.ph) * m.wob;
       const km = ease(2.2, dt); m.x += (tx - m.x) * km; m.y += (ty - m.y) * km;
       keepInWater(m);
+      // 속도와 진행 방향 (빛 구름이 길쭉해지는 방향, 빠를 때 꼬리)
+      const mvx = (m.x - m.px) / dt, mvy = (m.y - m.py) / dt; m.px = m.x; m.py = m.y;
+      m.vx += (mvx - m.vx) * ease(6, dt); m.vy += (mvy - m.vy) * ease(6, dt);
+      const spd = Math.hypot(m.vx, m.vy);
+      if (spd > 0.15) m.ang = Math.atan2(m.vy, m.vx);
+      const SK = F.streak, want = clamp((spd - 0.8) / SK.speedRef, 0, 1);
+      m.streak = want > m.streak ? want : Math.max(want, m.streak - dt / SK.life);
     }
     // 움직이면 지나간 자리에 아주 은은한 빛을 조금 남김
     const v = Math.hypot(ff.cx - ff.px, ff.cy - ff.py) / dt; ff.px = ff.cx; ff.py = ff.cy;
@@ -1082,6 +1092,8 @@
   }
   // 푸른 점 풀 (최대 150, 가장 오래된 것부터 재사용)
   function spawnSpark(x, y, depth, life, z0 = 0) {
+    let on = 0; for (const q of S.spark) if (q.on) on++;
+    if (on >= (C.FIREFLY.sparkle.maxActive || 1e9)) return;   // 동시에 12개 이하
     const SP = C.FIREFLY.sparkle, s = S.spark[S.sparkI++ % S.spark.length];
     Object.assign(s, { on: true, x, y, depth, z0, life, t: 0, size: lerp(SP.size[0], SP.size[1], Math.random()), hue: (Math.random() * 3) | 0 });
   }
@@ -1611,13 +1623,16 @@
     // 윗면: 높이장 메시의 칸별 명암을 저해상도 캔버스에 그려 키움 (면 경계가 부드럽게 번짐), 윤곽으로 잘라 얹음
     const outline = projPoly(shp.map(([x, y], i) => [f.x + x, f.y + y, topZ(i)])).map(([sx, sy]) => [sx, sy + dy]);
     if (outline.length > 2) {
-      let minX = Infinity, maxX = -Infinity; for (const q of outline) { minX = Math.min(minX, q[0]); maxX = Math.max(maxX, q[0]); }
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const q of outline) { minX = Math.min(minX, q[0]); maxX = Math.max(maxX, q[0]); minY = Math.min(minY, q[1]); maxY = Math.max(maxY, q[1]); }
       ctx.globalAlpha = a;
       if (maxX - minX < 18) { ctx.fillStyle = mixFog(RL.shadeMid, fog); fillPoly(outline); }
       else {
         const res = RL.shadeResolution, w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));
         if (topCv.width !== w || topCv.height !== h) { topCv.width = w; topCv.height = h; }
-        topG.setTransform(1, 0, 0, 1, 0, 0); topG.clearRect(0, 0, w, h); topG.setTransform(res, 0, 0, res, 0, 0);
+        // 화면에 보이는 윤곽 범위만 지우고 그려서 옮김 (전체 화면 복사 대신)
+        const bx0 = clamp(Math.floor(minX * res) - 2, 0, w), by0 = clamp(Math.floor(minY * res) - 2, 0, h), bx1 = clamp(Math.ceil(maxX * res) + 2, 0, w), by1 = clamp(Math.ceil(maxY * res) + 2, 0, h);
+        topG.setTransform(1, 0, 0, 1, 0, 0); topG.clearRect(bx0, by0, bx1 - bx0, by1 - by0); topG.setTransform(res, 0, 0, res, 0, 0);
         topG.fillStyle = `rgb(${RL.shadeMid.join(',')})`; topG.beginPath(); outline.forEach(([x, y], i) => (i ? topG.lineTo(x, y) : topG.moveTo(x, y))); topG.closePath(); topG.fill();
         const n2 = shp.length;
         for (let k = 0; k < rf.K; k++) for (let i = 0; i < n2; i++) {
@@ -1628,7 +1643,9 @@
           topG.beginPath(); pts.forEach(([x, y], m) => (m ? topG.lineTo(x, y + dy) : topG.moveTo(x, y + dy))); topG.closePath(); topG.fill(); topG.stroke();
         }
         ctx.save(); ctx.beginPath(); outline.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.clip();
-        ctx.imageSmoothingEnabled = true; ctx.drawImage(topCv, 0, 0, W, H); ctx.restore();
+        ctx.imageSmoothingEnabled = true;
+        if (bx1 > bx0 && by1 > by0) ctx.drawImage(topCv, bx0, by0, bx1 - bx0, by1 - by0, bx0 / res, by0 / res, (bx1 - bx0) / res, (by1 - by0) / res);
+        ctx.restore();
         if (fog > 0.01) { ctx.globalAlpha = a * fog; ctx.fillStyle = mixFog([255, 255, 255], 1); fillPoly(outline); }
       }
     }
@@ -1961,15 +1978,60 @@
     drawBokeh(x, y, z0 - depth, size, b * F.sparkle.alpha, hh, (F.sat[0] + F.sat[1]) / 2, (F.light[0] + F.light[1]) / 2);
   }
   // 반딧불이 한 점: 바깥 #9c9cf4 · 중간 #b9b9fb · 중심 #f0f0ff 알파 합성. 숨쉬듯 ±25%, 큰 것일수록 옅게
-  const ffSprite = (() => { const K = C.FIREFLY.colors, cs = (c) => `rgba(${c[0]},${c[1]},${c[2]},${c[3]})`;
-    return makeSprite([[0, cs(K.core)], [0.3, cs(K.mid)], [0.65, cs(K.outer)], [1, `rgba(${K.outer[0]},${K.outer[1]},${K.outer[2]},0)`]]); })();
-  function drawMember(m, k = 1) {
-    const c = camSpace(m.x, m.y, -m.depth);
-    if (c[1] < rig.near + 0.3) return;
-    const a = m.alpha * breath(m) * introVis() * farFade(c[1]) * k;
+  // 바다반딧불이 층별 스프라이트: 색마다 크기 단계(32·64·128px)로 미리 만들어 재사용
+  const ffLayerSprites = (() => {
+    const K = C.FIREFLY.colors, out = {};
+    const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    for (const key of Object.keys(K)) {
+      const [col, , , ] = K[key], [r, g2, b] = rgb(col);
+      out[key] = [32, 64, 128].map((N) => {
+        const cv = document.createElement('canvas'); cv.width = cv.height = N;
+        const gg = cv.getContext('2d'), gr = gg.createRadialGradient(N / 2, N / 2, 0, N / 2, N / 2, N / 2);
+        if (key === 'rim') { gr.addColorStop(0, `rgba(${r},${g2},${b},0)`); gr.addColorStop(0.55, `rgba(${r},${g2},${b},0.15)`); gr.addColorStop(0.78, `rgba(${r},${g2},${b},1)`); gr.addColorStop(1, `rgba(${r},${g2},${b},0)`); }   // 가장자리 테두리
+        else { gr.addColorStop(0, `rgba(${r},${g2},${b},1)`); gr.addColorStop(0.45, `rgba(${r},${g2},${b},0.55)`); gr.addColorStop(1, `rgba(${r},${g2},${b},0)`); }
+        gg.fillStyle = gr; gg.fillRect(0, 0, N, N); return cv;
+      });
+    }
+    return out;
+  })();
+  const ffSprite = (key, px) => { const L = ffLayerSprites[key]; return px < 24 ? L[0] : px < 64 ? L[1] : L[2]; };
+  // 화면에 기울어진 타원으로 한 겹 (중심, 반지름 rx·ry, 각도)
+  function ffEllipse(key, sx, sy, rx, ry, ang, alpha, blend) {
+    if (alpha < 0.004 || rx < 0.4) return;
+    const img = ffSprite(key, rx * 2), c = Math.cos(ang), s = Math.sin(ang), k = img.width / 2;
+    ctx.save(); ctx.globalCompositeOperation = blend; ctx.globalAlpha = Math.min(1, alpha);
+    ctx.setTransform(DPR * c * rx / k, DPR * s * rx / k, DPR * -s * ry / k, DPR * c * ry / k, DPR * sx, DPR * sy);
+    ctx.drawImage(img, -k, -k); ctx.restore();
+  }
+  // 빛 구름 하나: ① 그림자 풀(multiply) ② 바깥 번짐(multiply) ③ 본 번짐 ④ 테두리 ⑤ 핀포인트. 빠를 땐 뒤로 가는 꼬리
+  function drawMember(m, k = 1, pinsOnly = false) {
+    const c0 = camSpace(m.x, m.y, -m.depth);
+    if (c0[1] < rig.near + 0.3) return;
+    const F = C.FIREFLY, K = F.colors, a = m.alpha * breath(m) * introVis() * farFade(c0[1]) * k;
     if (a < 0.004) return;
-    const [sx, sy] = toScreen(c), g = clamp(m.size * pxPerUnit(c[1]) / 0.6, 1.5, 120), flat = clamp(0.35 + rig.sp * 0.9, 0.4, 0.9);
-    ctx.globalAlpha = Math.min(1, a); ctx.drawImage(ffSprite, sx - g, sy - g * flat, g * 2, g * 2 * flat);
+    const [sx, sy] = toScreen(c0), ppu = pxPerUnit(c0[1]), R = clamp(m.size * ppu, 2, 140), flat = clamp(0.35 + rig.sp * 0.9, 0.4, 0.9);
+    // 진행 방향의 화면 각도
+    const hx = Math.cos(m.ang), hy = Math.sin(m.ang), cv = Math.cos(cam.yaw), sv = Math.sin(cam.yaw);
+    const ang = Math.atan2((sv * hx + cv * hy) * flat, cv * hx - sv * hy);
+    if (!pinsOnly) {
+      ffEllipse('pool', sx, sy, R * K.pool[2], R * K.pool[2] * flat, 0, K.pool[1] * a, K.pool[3]);
+      ffEllipse('outer', sx, sy, R * K.outer[2] * 1.1, R * K.outer[2] * flat, ang, K.outer[1] * a, K.outer[3]);
+      // 꼬리: 진행 반대쪽으로 가늘게 늘어남 (길이 ∝ 속도, 최대 크기 × 3)
+      if (m.streak > 0.02) {
+        const len = R * F.streak.maxLen * m.streak, bx = sx - Math.cos(ang) * len * 0.5, by = sy - Math.sin(ang) * len * 0.5;
+        ffEllipse('body', bx, by, len * 0.55 + R * 0.3, R * 0.16, ang, K.body[1] * a * m.streak * 0.8, K.body[3]);
+      }
+      for (const L of m.lobes) {
+        const lx = sx + (Math.cos(ang) * L.ox - Math.sin(ang) * L.oy) * R, ly = sy + (Math.sin(ang) * L.ox + Math.cos(ang) * L.oy) * R * flat;
+        ffEllipse('body', lx, ly, R * K.body[2] * L.s * L.st, R * K.body[2] * L.s * flat, ang, K.body[1] * a / Math.sqrt(m.lobes.length), K.body[3]);
+      }
+      ffEllipse('rim', sx, sy, R * K.rim[2] * 1.08, R * K.rim[2] * flat, ang, K.rim[1] * a, K.rim[3]);
+    }
+    for (const q of m.pins) {
+      const px = sx + (Math.cos(ang) * q.ox - Math.sin(ang) * q.oy) * R, py = sy + (Math.sin(ang) * q.ox + Math.cos(ang) * q.oy) * R * flat;
+      const pr = Math.max(0.8, R * K.core[2] * q.s);
+      ffEllipse('core', px, py, pr, pr * Math.max(flat, 0.7), 0, K.core[1] * a, K.core[3]);
+    }
   }
   // 수면 아래 층: 은은한 빛 + 군집 (빙하·파문은 이 위에 그려져 일부를 가림)
   function drawPlankton() {
@@ -1985,11 +2047,11 @@
   function drawPlanktonOverFog() {
     const F = C.FIREFLY, p = S.p, [psx, psy, pd] = project(p.x, p.y, p.z), u = penScale(pd);
     for (const m of S.ff.members) {
-      if (m.size < 0.12 || floeAt(m.x, m.y)) continue;
+      if (floeAt(m.x, m.y)) continue;
       const c = camSpace(m.x, m.y, -m.depth); if (c[1] < rig.near + 0.3) continue;
       const [sx, sy] = toScreen(c);
       if (c[1] > pd && Math.abs(sx - psx) < u * 0.35 && sy < psy + 4 && sy > psy - u * 1.05) continue;
-      drawMember(m, F.overFogAlpha);
+      drawMember(m, F.overFogAlpha, true);                   // 안개 위로는 중심 핀포인트만
     }
     ctx.globalAlpha = 1;
   }
