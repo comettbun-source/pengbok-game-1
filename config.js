@@ -16,11 +16,25 @@ const WATER_CALM = {
     penguinLag: 0.25,         // 펭귄이 빙하 출렁임을 따라가는 지연 (초)
     phaseSpread: 6.28,        // 빙하마다 다른 위상 범위 (rad)
   },
-  surfaceLines: {             // 수면 잔물결 (아주 옅은 가로선)
-    count: 6,
-    alpha: [0.08, 0.15],
-    speed: 0.12,              // 흐르는 속도 (월드/초)
-    length: [1.2, 2.8],       // 길이 (월드)
+  streams: {                  // 수면 물결선: 노이즈 유동장을 따라 둥글게 말리며 흐르는 가는 곡선
+    max: 60,                  // 화면 안 최대 개수 (풀)
+    steps: [12, 16],          // 유동장을 따라가는 걸음 수
+    stepLen: 0.28,            // 한 걸음 길이 (월드)
+    life: [3, 5],             // 나타났다 사라지는 수명 (초)
+    alpha: [0.08, 0.16],
+    width: 1.3,               // 가까운 곳 선 굵기 (px, 멀수록 가늘게)
+    fieldScale: 0.11,         // 유동장 노이즈 크기 (작을수록 크게 휨)
+    curl: 2.2,                // 말림 정도
+    morph: 0.04,              // 유동장이 시간에 따라 변하는 속도
+    drift: 0.1,               // 선 전체가 흐름 따라 떠가는 속도
+    depth: [3, 45],           // 생성 거리 범위 (먼 곳일수록 촘촘해 보임)
+  },
+  contours: {                 // 빙하·펭귄 둘레의 번지는 등고선 링
+    rings: 3, life: 3.2,      // 동시에 2~3겹, 한 겹 수명 (초)
+    spread: 0.9,              // 바깥으로 퍼지는 거리 (월드)
+    alpha: 0.2, width: 1.1,
+    noise: 0.1,               // 윤곽이 일렁이는 정도
+    gaps: 0.3,                // 끊어진 호 비율
   },
   wake: {                     // 이동 항적 (V자 얇은 호)
     halfAngleDeg: 19,
@@ -49,18 +63,19 @@ const WATER_CALM = {
     ringRadius: 2.6,          // 입수 원형 물결 반지름
     ringLife: 1.8,
   },
-  ripple: { life: 1.8, alpha: 0.3, softness: 0.45 },   // 원형 파문 (입수·물고기·제자리 수영)
-  curve: {                    // 물결을 직선 대신 유동적인 곡선으로
-    lineAmp: 0.16,            // 잔물결선이 휘는 폭 (월드)
-    lineWaves: [0.9, 2.2],    // 사인 두 개의 파수 (길이 1당)
-    noiseAmp: 0.1,            // 저주파 노이즈 휨 폭
-    noiseScale: 0.6,          // 노이즈 주파수
-    flowSpeed: 0.35,          // 물결선 모양이 흘러가는 속도
-    morphSpeed: 0.22,         // 모양이 서서히 바뀌는 속도
-    farCount: 14,             // 먼 곳 물결선 수 (먼 곳일수록 촘촘·옅게)
+  ripple: {                   // 원형 파문: 채운 원판 없이 가는 선 링만 (빛의 아이들 느낌)
+    life: 2.4,                // 퍼지는 시간 (ease-out)
+    rings: 3, ringGap: 0.15,  // 한 번에 3겹, 0.15초 간격
+    widthFrom: 2, widthTo: 0.5,   // 선 굵기 (px, 가까운 거리 기준)
+    fadeIn: 0.1,              // 나타나는 시간, 이후 길게 사라짐
+    alpha: 0.32,
+    wobble: 0.06,             // 노이즈 일그러짐 (반지름 비율)
+    breaks: 0.22,             // 끊어진 부분 비율
+    lightSide: 0.6,           // 빛 방향(왼쪽 위) 쪽이 밝은 정도
+    softness: 0.45,           // (수영 중 몸 둘레 고리 스프라이트용)
+  },
+  curve: {
     wakeBend: 0.35,           // 항적 호가 바깥으로 갈수록 휘는 정도 (rad)
-    rippleWobble: 0.07,       // 원형 파문의 일그러짐 (반지름 비율)
-    rippleThickVar: 0.45,     // 파문 가장자리 두께 변화 비율
     vortex: { every: 1.4, life: 1.6, radius: 0.32, alpha: 0.2, max: 8 },  // 지나간 뒤 양옆에 말려 도는 와류
   },
 };
@@ -68,15 +83,15 @@ const WATER_CALM = {
 // 보통: 약한 바람
 const WATER_NORMAL = {
   bob: { periods: [2.6, 4.1], ampsPx: [2.4, 1.6], maxPx: 5, lightBoost: 1.4, tiltDeg: 1.6, penguinLag: 0.25, phaseSpread: 6.28 },
-  surfaceLines: { count: 10, alpha: [0.12, 0.22], speed: 0.3, length: [1.5, 3.5] },
+  streams: { max: 60, steps: [12, 16], stepLen: 0.32, life: [2.5, 4], alpha: [0.12, 0.22], width: 1.6, fieldScale: 0.13, curl: 2.6, morph: 0.07, drift: 0.2, depth: [3, 45] },
+  contours: { rings: 3, life: 2.6, spread: 1.1, alpha: 0.26, width: 1.3, noise: 0.14, gaps: 0.3 },
   wake: { halfAngleDeg: 19, life: 2.4, spacing: [0.4, 0.9], arcDeg: [18, 42], alphaMax: 0.42, lineWidth: 1.3, maxParticles: 40 },
   flowLines: { count: 3, alpha: 0.24, lengthSec: 0.6 },
   inertiaTilt: { accelDeg: 3, stopDeg: 2.2, accelRef: 3 },
   settle: { dampingRatio: 0.4, maxPx: 6 },
   splash: { ringRadius: 3.2, ringLife: 2.2 },
-  ripple: { life: 2.2, alpha: 0.4, softness: 0.5 },
-  curve: { lineAmp: 0.26, lineWaves: [0.8, 2.0], noiseAmp: 0.18, noiseScale: 0.7, flowSpeed: 0.6, morphSpeed: 0.4, farCount: 20,
-    wakeBend: 0.5, rippleWobble: 0.1, rippleThickVar: 0.6, vortex: { every: 1.1, life: 2.0, radius: 0.4, alpha: 0.26, max: 8 } },
+  ripple: { life: 2.6, rings: 3, ringGap: 0.15, widthFrom: 2.4, widthTo: 0.6, fadeIn: 0.1, alpha: 0.4, wobble: 0.09, breaks: 0.25, lightSide: 0.6, softness: 0.5 },
+  curve: { wakeBend: 0.5, vortex: { every: 1.1, life: 2.0, radius: 0.4, alpha: 0.26, max: 8 } },
 };
 
 // ── 안개 ───────────────────────────────────────────────────
@@ -175,16 +190,22 @@ const ICE_FIELD = {
 
 // ── 해안 물결 (섬 위로 물이 쏴아 들어왔다 나감) ─────────────────────
 const SHORE_WASH = {
-  period: 8,                  // 한 번 들어왔다 나가는 주기 (초)
-  riseFrac: 0.28,             // 주기 중 올라오는 구간 비율 (빠르게 올라오고 천천히 빠짐)
+  segment: 0.5,               // 해안선을 나누는 구간 길이 (구간마다 위상·세기가 다름)
+  sweep: 0.12,                // 구간 사이 도착 지연 (초/월드) → 물의 혀가 해안을 따라 옆으로 번지듯 들어옴
+  strengthVar: 0.4,           // 구간마다 도달 거리 ±40%
+  waves: [2, 3],              // 한 묶음에 연달아 올라오는 파도 수
+  waveGap: 2.2,               // 묶음 안 파도 간격 (초)
+  setInterval: [7, 11],       // 묶음 간격 (초, 무작위)
+  rise: 1.6, fall: 3.2,       // 올라올 때(ease-out) / 빠질 때 (초)
   shoreWidth: 5,              // 해안(물가 ~ 산 밑) 폭 (월드)
-  reach: 0.25,                // 올라오는 폭 = 해안 폭 × 이 값
-  edgeNoise: 0.35,            // 물 끝선 구불구불함 (올라오는 폭 대비)
-  edgeNoiseScale: 0.45,
+  reach: 0.25,                // 최대로 올라오는 폭 = 해안 폭 × 이 값
+  dryTime: 6,                 // 젖은 땅이 마르는 시간 (초)
+  markLife: 4,                // 최대로 올라왔던 자리의 얇은 곡선 자국 수명
+  rivulets: [2, 3], rivuletLife: 2.5,   // 물 빠질 때 물줄기 자국 가닥 수·수명
   edgeLineAlpha: 0.35,        // 물 끝선의 얇고 옅은 흰 선
-  waterAlpha: 0.32,           // 땅 위로 올라온 얇은 물막의 진하기
-  wetAlpha: 0.3,              // 젖은 땅이 어두워지는 정도
-  dryTime: 5,                 // 물이 빠진 뒤 다 마르는 시간 (초)
+  waterAlpha: 0.3,            // 땅 위로 올라온 얇은 물막
+  wetAlpha: 0.32,             // 젖은 땅이 어두워지는 정도
+  resolution: 0.25,           // 젖음 표시 오프스크린 해상도 (화면 대비)
   slowMul: 0.7,               // 물이 올라온 곳에 서 있으면 속도 배율
   rippleEvery: 0.45,          // 그때 생기는 작은 파문 간격 (초)
 };

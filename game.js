@@ -195,7 +195,7 @@
     const rx = baseRX() * c.size, ry = baseRY() * c.size, r = rng(c.seed);
     Object.assign(f, {
       active: true, cand: c, x: c.x, y: c.y, vx: c.vx, vy: c.vy,
-      shape: c.shape || (c.shape = blob(rx, ry, c.start ? 14 : 8 + ((r() * 6) | 0), c.start ? 0.1 : 0.1 + r() * 0.14, c.seed)),
+      contour: null, shape: c.shape || (c.shape = blob(rx, ry, c.start ? 14 : 8 + ((r() * 6) | 0), c.start ? 0.1 : 0.1 + r() * 0.14, c.seed)),
       rx, ry, born: S.time === 0 ? -10 : S.time, grab: null, lastEmit: null, peakSpeed: 0, prevSpeed: 0, aLong: 0, dir: [1, 0],
       ph: [r() * WC().bob.phaseSpread, r() * WC().bob.phaseSpread, r() * 6.28, r() * 6.28],
     });
@@ -286,7 +286,7 @@
     S.p.floe = S.cands[0].floe;
     S.ripples = []; S.vortex = []; S.prints = []; S.printI = 0; S.washRipples = []; S.wash = null; S.camGroundZ = 0;
     S.wake = Array.from({ length: WC().wake.maxParticles }, () => ({ on: false }));
-    S.lines = null;
+    S.streams = [];
     S.lastTapUp = 0; S.tapPulse = 0; S.jumpAt = 0; S.jumpReq = false;
     S.fish = { state: 'wait', t: 0 };
     const r0 = C.FIREFLY.route[0];
@@ -820,8 +820,8 @@
     // 반영 일렁임 세기
     let rip = inWater && sp > 0.3 ? 0.35 : 0.08;
     for (const r of S.ripples) {
-      const k = r.t / r.life, rad = r.maxR * (0.15 + 0.85 * (1 - Math.pow(1 - k, 2.2)));
-      rip += (1 - k) * Math.max(0, 1 - Math.abs(Math.hypot(p.x - r.x, p.y - r.y) - rad) / 1.2);
+      const k = clamp(r.t / r.life, 0, 1), rad = r.maxR * (1 - Math.pow(1 - k, 3));     // 링이 지나갈 때 반영이 잔잔히 흔들림
+      rip += (1 - k) * Math.max(0, 1 - Math.abs(Math.hypot(p.x - r.x, p.y - r.y) - rad) / 0.8);
     }
     p.ripple += (clamp(rip, 0, 1) - p.ripple) * ease(6, dt);
   }
@@ -900,36 +900,84 @@
   }
 
   // ── 해안 물결 ─────────────────────────────────────────
-  // 섬의 바다 쪽 둘레 꼭짓점마다 '얼마나 안쪽까지 물이 올라왔나'와 '젖은 정도'를 기록
+  // 해안선을 0.5 간격 구간으로 나눠 구간마다 도착 지연·세기를 다르게. 파도는 2~3번 연달아 오는 묶음
   function washShape() {
     if (S.wash) return S.wash;
-    const is = S.islands[0], pts = [];
-    is.shape.forEach(([x, y], i) => {
+    const is = S.islands[0], Wsh = C.SHORE_WASH, raw = [];
+    is.shape.forEach(([x, y]) => {
       let nx = (x - is.cx) / (is.rx * is.rx), ny = (y - is.cy) / (is.ry * is.ry); const l = Math.hypot(nx, ny) || 1; nx /= l; ny /= l;
-      if (nx * -is.side > 0.05) pts.push({ x, y, nx, ny, i, reach: 0, wet: 0 });   // 바다를 향한 쪽만
+      if (nx * -is.side > 0.05) raw.push({ x, y, nx, ny });                // 바다를 향한 쪽만
     });
-    pts.sort((a, b) => a.y - b.y);
-    return (S.wash = { is, pts, level: 0 });
+    raw.sort((a, b) => a.y - b.y);
+    const segs = [];
+    let acc = 0;
+    for (let i = 0; i < raw.length - 1; i++) {
+      const a = raw[i], b = raw[i + 1], len = Math.hypot(b.x - a.x, b.y - a.y);
+      for (let s = 0; s < len; s += Wsh.segment) {
+        const u = s / len, nx = lerp(a.nx, b.nx, u), ny = lerp(a.ny, b.ny, u), nl = Math.hypot(nx, ny) || 1;
+        segs.push({ x: lerp(a.x, b.x, u), y: lerp(a.y, b.y, u), nx: nx / nl, ny: ny / nl, s: acc + s, reach: 0, wetExt: 0, wetT: 99, peak: 0, mark: 0, markA: 0, falling: false,
+          str: 1 + Wsh.strengthVar * noise1((acc + s) * 0.33 + 17.1) });
+      }
+      acc += len;
+    }
+    return (S.wash = { is, segs, waves: [], nextSet: 1.2, rivs: [], level: 0 });
   }
-  function washLevel(t) {
-    const Wsh = C.SHORE_WASH, u = (t % Wsh.period) / Wsh.period, r = Wsh.riseFrac;
-    if (u < r) { const k = u / r; return 1 - Math.pow(1 - k, 2.5); }      // 빠르게 올라옴
-    const k = (u - r) / (1 - r); return 1 - k * k * (3 - 2 * k);           // 천천히 빠짐
+  function scheduleWaves(ws) {
+    const Wsh = C.SHORE_WASH;
+    while (S.time >= ws.nextSet - 0.5) {
+      const n = Wsh.waves[0] + ((Math.random() * (Wsh.waves[1] - Wsh.waves[0] + 1)) | 0);
+      // 물의 혀가 번져 나가는 시작점: 펭귄 근처 해안 ± 몇 걸음
+      let s0 = 0, bd = Infinity;
+      for (const q of ws.segs) { const d = Math.hypot(q.x - S.p.x, q.y - S.p.y); if (d < bd) { bd = d; s0 = q.s; } }
+      s0 += (Math.random() - 0.5) * 10;
+      for (let i = 0; i < n; i++) ws.waves.push({ t0: ws.nextSet + i * Wsh.waveGap * (0.85 + 0.3 * Math.random()), amp: 0.75 + 0.35 * Math.random() * (i === 0 ? 1 : 0.85), s0, rivDone: false });
+      ws.nextSet += lerp(Wsh.setInterval[0], Wsh.setInterval[1], Math.random()) + (n - 1) * Wsh.waveGap;
+    }
+  }
+  function waveEnv(tau) {
+    const Wsh = C.SHORE_WASH;
+    if (tau <= 0) return 0;
+    if (tau < Wsh.rise) return 1 - Math.pow(1 - tau / Wsh.rise, 3);                      // 빠르게 올라옴 (ease-out)
+    if (tau < Wsh.rise + Wsh.fall) { const k = (tau - Wsh.rise) / Wsh.fall; return 1 - k * k * (3 - 2 * k); }   // 천천히 빠짐
+    return 0;
   }
   function stepWash(dt) {
-    const ws = washShape(), Wsh = C.SHORE_WASH, max = Wsh.shoreWidth * Wsh.reach, lv = washLevel(S.time);
-    ws.level = lv;
-    for (const q of ws.pts) {
-      q.reach = Math.max(0, max * lv * (1 + Wsh.edgeNoise * noise1(q.y * Wsh.edgeNoiseScale + S.time * 0.25 + Math.floor(S.time / Wsh.period) * 3.7)));
-      q.wet = Math.max(q.reach, q.wet - max * dt / Wsh.dryTime);           // 물이 빠지면 서서히 마름
+    const ws = washShape(), Wsh = C.SHORE_WASH, max = Wsh.shoreWidth * Wsh.reach;
+    scheduleWaves(ws);
+    ws.waves = ws.waves.filter((w) => S.time - w.t0 < 30);
+    let lv = 0;
+    for (const q of ws.segs) {
+      let r = 0;
+      for (const w of ws.waves) r = Math.max(r, waveEnv(S.time - w.t0 - Math.abs(q.s - w.s0) * Wsh.sweep) * w.amp);
+      const prev = q.reach;
+      q.reach = r * q.str * max;
+      lv = Math.max(lv, r);
+      // 최대로 올라왔던 자리 자국
+      if (q.reach > prev + 1e-4) { q.peak = Math.max(q.peak, q.reach); q.falling = false; }
+      else if (!q.falling && q.peak > 0.05 && q.reach < q.peak - 0.03) { q.falling = true; q.mark = q.peak; q.markA = 1; }
+      if (q.reach < 0.01) q.peak = 0;
+      q.markA = Math.max(0, q.markA - dt / Wsh.markLife);
+      // 젖은 땅: 물이 덮었던 만큼 남고 dryTime 동안 마름
+      if (q.reach > 0.02) { q.wetExt = Math.max(q.wetExt * (q.wetT > Wsh.dryTime ? 0 : 1), q.reach); q.wetT = 0; } else q.wetT += dt;
     }
+    ws.level = lv;
+    // 물 빠질 때 물줄기 자국 2~3가닥
+    for (const w of ws.waves) {
+      if (!w.rivDone && S.time - w.t0 > Wsh.rise + 0.3) {
+        w.rivDone = true;
+        const near = ws.segs.filter((q) => Math.abs(q.s - w.s0) < 8 && q.peak > max * 0.3);
+        const n = Wsh.rivulets[0] + ((Math.random() * (Wsh.rivulets[1] - Wsh.rivulets[0] + 1)) | 0);
+        for (let i = 0; i < n && near.length; i++) { const q = near[(Math.random() * near.length) | 0]; ws.rivs.push({ q, from: q.peak, t: 0, seed: Math.random() * 10 }); }
+      }
+    }
+    ws.rivs = ws.rivs.filter((rv) => (rv.t += dt) < Wsh.rivuletLife);
   }
   // 물가에서 안쪽으로 몇 만큼 물이 덮였는지 (>0 이면 물 속)
   function washDepthAt(x, y) {
-    const ws = washShape(); if (!ws.pts.length) return -1;
+    const ws = washShape(); if (!ws.segs.length) return -1;
     let best = null, bd = Infinity;
-    for (const q of ws.pts) { const d = Math.hypot(q.x - x, q.y - y); if (d < bd) { bd = d; best = q; } }
-    const inland = (best.x - x) * best.nx + (best.y - y) * best.ny;        // 물가에서 안쪽으로 들어온 거리
+    for (const q of ws.segs) { const d = Math.hypot(q.x - x, q.y - y); if (d < bd) { bd = d; best = q; } }
+    const inland = (best.x - x) * best.nx + (best.y - y) * best.ny;
     return best.reach - inland;
   }
 
@@ -943,7 +991,8 @@
     stepCamera(dt);
     stepFirefly(dt);
     if (S.stepN % 12 === 0) manageField();
-    S.ripples = S.ripples.filter((r) => (r.t += dt) < r.life);
+    { const RP = WC().ripple; S.ripples = S.ripples.filter((r) => (r.t += dt) < r.life + (RP.rings - 1) * RP.ringGap); }
+    stepStreams(dt);
     const life = WC().wake.life;
     for (const w of S.wake) if (w.on && (w.t += dt) >= life) w.on = false;
     S.vortex = S.vortex.filter((v) => (v.t += dt) < WC().curve.vortex.life);
@@ -1002,80 +1051,132 @@
   const hash1 = (i) => { const s = Math.sin(i * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
   const noise1 = (x) => { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return lerp(hash1(i), hash1(i + 1), u) * 2 - 1; };
 
-  // 수면 잔물결: 저주파 노이즈 + 사인 두 개로 휘는 곡선. 천천히 흐르며 모양이 바뀜. 먼 곳일수록 촘촘·옅게
-  function drawSurfaceLines() {
-    const L = WC().surfaceLines, K = WC().curve;
-    const nNear = Math.max(2, Math.round(L.count * S.quality)), nFar = Math.max(2, Math.round(K.farCount * S.quality));
-    if (!S.lines || S.lines.n !== L.count + K.farCount) {
-      const r = rng(99), mk = (far) => ({ x: r(), y: r(), len: lerp(L.length[0], L.length[1], r()) * (far ? 1.6 : 1), a: lerp(L.alpha[0], L.alpha[1], r()) * (far ? 0.75 : 1), ph: r() * 6.28, ph2: r() * 6.28, seed: r() * 100 });
-      S.lines = { n: L.count + K.farCount, near: Array.from({ length: L.count }, () => mk(false)), far: Array.from({ length: K.farCount }, () => mk(true)) };
+  // 2차원 값 노이즈와 유동장
+  const hash2 = (i, j) => { const s = Math.sin(i * 127.1 + j * 311.7) * 43758.5453; return s - Math.floor(s); };
+  function noise2(x, y) {
+    const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j, ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+    return lerp(lerp(hash2(i, j), hash2(i + 1, j), ux), lerp(hash2(i, j + 1), hash2(i + 1, j + 1), ux), uy) * 2 - 1;
+  }
+  const flowAng = (x, y, t) => { const K = WC().streams; return noise2(x * K.fieldScale + t * K.morph, y * K.fieldScale - t * K.morph * 0.7) * Math.PI * K.curl; };
+
+  // 수면 물결선: 유동장을 12~16걸음 따라가 만든 곡선. 서서히 나타났다 사라지고, 흐름 따라 천천히 떠감 (풀 재사용)
+  function spawnStream(sl) {
+    const K = WC().streams;
+    for (let tries = 0; tries < 6; tries++) {
+      const d = lerp(K.depth[0], K.depth[1], Math.random()), half = d * W / (2 * rig.f) * 1.1, lat = (Math.random() * 2 - 1) * half;
+      let x = rig.cx + rig.F[0] * d + rig.R[0] * lat, y = rig.cy + rig.F[1] * d + rig.R[1] * lat;
+      if (floeAt(x, y) || islandAt(x, y)) continue;
+      const n = K.steps[0] + ((Math.random() * (K.steps[1] - K.steps[0] + 1)) | 0), pts = [[x, y]];
+      for (let s = 0; s < n; s++) { const a = flowAng(x, y, S.time); x += Math.cos(a) * K.stepLen; y += Math.sin(a) * K.stepLen; pts.push([x, y]); }
+      Object.assign(sl, { on: true, pts, t: 0, life: lerp(K.life[0], K.life[1], Math.random()), a: lerp(K.alpha[0], K.alpha[1], Math.random()) });
+      return;
     }
+    sl.on = false;
+  }
+  function stepStreams(dt) {
+    const K = WC().streams, lim = Math.max(10, Math.round(K.max * S.quality));
+    while (S.streams.length < K.max) S.streams.push({ on: false, t: 0, life: 0 });
+    for (let i = 0; i < S.streams.length; i++) {
+      const sl = S.streams[i];
+      if (i >= lim) { sl.on = false; continue; }
+      if (!sl.on || (sl.t += dt) >= sl.life) { if (Math.random() < 0.08 || !sl.on && S.time < 0.1) spawnStream(sl); else sl.on = false; continue; }
+      const a = flowAng(sl.pts[0][0], sl.pts[0][1], S.time), mx = Math.cos(a) * K.drift * dt, my = Math.sin(a) * K.drift * dt;
+      for (const q of sl.pts) { q[0] += mx; q[1] += my; }
+    }
+  }
+  function drawStreams() {
+    const K = WC().streams;
     ctx.lineCap = 'round';
-    const tier = (list, n, T, ahead) => {
-      const ox = cam.x + rig.F[0] * ahead, oy = cam.y + rig.F[1] * ahead, t = S.time;
-      for (let i = 0; i < n; i++) {
-        const l = list[i];
-        const wx = ((l.x * T + t * L.speed - ox) % T + T * 1.5) % T - T / 2 + ox;
-        const wy = ((l.y * T - oy) % T + T * 1.5) % T - T / 2 + oy;
-        if (floeAt(wx, wy) || islandAt(wx, wy)) continue;
-        const cc = camSpace(wx, wy, 0);
-        if (cc[1] < rig.near + 0.8) continue;
-        const base = l.a * (0.55 + 0.45 * Math.sin(t * 0.4 + l.ph)) * (1 - fogAt(cc[1]));
-        if (base <= 0.004) continue;
-        const pts = [], N = 12;
-        for (let k = 0; k <= N; k++) {
-          const s = (k / N - 0.5) * l.len;
-          const off = K.lineAmp * (0.6 * Math.sin(K.lineWaves[0] * s * 6.28 / 3 + K.flowSpeed * t + l.ph) + 0.4 * Math.sin(K.lineWaves[1] * s * 6.28 / 3 - K.flowSpeed * 0.7 * t + l.ph2))
-            + K.noiseAmp * noise1(s * K.noiseScale + t * K.morphSpeed + l.seed);
-          const cs = camSpace(wx + rig.R[0] * s + rig.F[0] * off, wy + rig.R[1] * s + rig.F[1] * off, 0);
-          if (cs[1] < rig.near) { pts.length = 0; break; }
-          pts.push(toScreen(cs));
-        }
-        if (pts.length < 2) continue;
-        const mx = pts[N >> 1][0], edge = clamp(Math.min(mx, W - mx) / 80, 0, 1);
-        ctx.lineWidth = clamp(pxPerUnit(cc[1]) * 0.018, 0.5, 1.3);
-        for (let k = 0; k < pts.length - 1; k++) {               // 양 끝으로 갈수록 옅게
-          const a = base * edge * Math.sin(Math.PI * (k + 0.5) / N);
-          if (a <= 0.004) continue;
-          ctx.strokeStyle = `rgba(${COL.water},${a.toFixed(3)})`;
-          ctx.beginPath(); ctx.moveTo(pts[k][0], pts[k][1]); ctx.lineTo(pts[k + 1][0], pts[k + 1][1]); ctx.stroke();
+    for (const sl of S.streams) {
+      if (!sl.on) continue;
+      const env = Math.sin(Math.PI * clamp(sl.t / sl.life, 0, 1));
+      const sp = [];
+      let ok = true, dsum = 0;
+      for (const [x, y] of sl.pts) { const c = camSpace(x, y, 0); if (c[1] < rig.near + 0.5) { ok = false; break; } sp.push(toScreen(c)); dsum += c[1]; }
+      if (!ok) continue;
+      const d = dsum / sp.length, a = sl.a * env * (1 - fogAt(d));
+      if (a < 0.004) continue;
+      // 가까운 곳은 굵고, 먼 곳은 가늘게. 양 끝은 가늘어짐
+      const w = clamp(K.width * pxPerUnit(d) / 110, 0.3, K.width * 1.6);
+      ctx.strokeStyle = `rgba(${COL.water},${a.toFixed(3)})`;
+      const n = sp.length - 1;
+      for (let k = 0; k < n; k++) {
+        const u = (k + 0.5) / n;
+        ctx.lineWidth = Math.max(0.25, w * Math.sin(Math.PI * u));
+        ctx.beginPath(); ctx.moveTo(sp[k][0], sp[k][1]); ctx.lineTo(sp[k + 1][0], sp[k + 1][1]); ctx.stroke();
+      }
+    }
+  }
+
+  // 빙하·펭귄 둘레: 윤곽을 따라 번지는 가는 등고선 링 2~3겹 (노이즈로 일렁이고 끊어진 호)
+  function drawContours() {
+    const K = WC().contours, t = S.time;
+    const ringAround = (cx, cy, outline, seed) => {
+      const cc = camSpace(cx, cy, 0);
+      if (cc[1] < rig.near + 0.5) return;
+      const fog = fogAt(cc[1]), w = clamp(K.width * pxPerUnit(cc[1]) / 110, 0.3, K.width * 1.5);
+      for (let k = 0; k < K.rings; k++) {
+        const u = ((t / K.life + k / K.rings + seed) % 1 + 1) % 1, off = 0.06 + K.spread * (1 - Math.pow(1 - u, 2));
+        const a = K.alpha * (1 - u) * Math.min(1, u * 6) * (1 - fog);
+        if (a < 0.004) continue;
+        ctx.strokeStyle = `rgba(${COL.water},${a.toFixed(3)})`; ctx.lineWidth = w * (1 - 0.5 * u);
+        const N = outline.length, pts = outline.map(([ox, oy], i) => {
+          const l = Math.hypot(ox, oy) || 1, nn = 1 + (off + K.noise * noise1(i * 0.7 + t * 0.3 + seed * 13 + k * 5)) / l;
+          const c = camSpace(cx + ox * nn, cy + oy * nn, 0); return c[1] > rig.near ? toScreen(c) : null;
+        });
+        for (let i = 0; i < N; i++) {
+          if (noise1(i * 0.9 + k * 11 + seed * 7 + Math.floor(u * 2) * 3) < -1 + 2 * K.gaps) continue;   // 끊어진 호
+          const p0 = pts[i], p1 = pts[(i + 1) % N];
+          if (!p0 || !p1) continue;
+          ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
         }
       }
     };
-    tier(S.lines.far, nFar, 60, 40);
-    tier(S.lines.near, nNear, 30, 10);
+    for (const f of activeFloes()) {
+      if (!f.contour) {                                       // 윤곽을 조금 더 촘촘하게 (한 번만 계산)
+        f.contour = [];
+        f.shape.forEach(([x, y], i) => { const [x2, y2] = f.shape[(i + 1) % f.shape.length]; f.contour.push([x, y], [(x + x2) / 2, (y + y2) / 2]); });
+      }
+      ringAround(f.x, f.y, f.contour, (f.cand.seed % 1000) / 1000);
+    }
+    const p = S.p;
+    if (p.mode === 'water' && !p.air) {
+      const r0 = penH() * 0.36, circ = Array.from({ length: 20 }, (_, i) => [Math.cos(i / 20 * 6.283) * r0, Math.sin(i / 20 * 6.283) * r0]);
+      ringAround(p.x, p.y, circ, 0.37);
+    }
   }
 
   function drawWater() {
     const K = WC().curve;
     ctx.lineCap = 'round';
-    // 원형 파문: 살짝 일그러진 타원으로 퍼지고, 가장자리 두께가 물결처럼 변함
+    // 원형 파문: 가는 선 링 3겹이 0.15초 간격으로 차례로. ease-out 으로 퍼지며 2px→0.5px, 빛 방향 쪽이 더 밝음
+    const RP = WC().ripple, L = lightDir(), lh = Math.hypot(L[0], L[1]) || 1, lx = L[0] / lh, ly = L[1] / lh;
     for (const r of S.ripples) {
-      const k = r.t / r.life, rad = r.maxR * (0.15 + 0.85 * (1 - Math.pow(1 - k, 2.2)));
-      const a0 = r.alpha * Math.pow(1 - k, 1.3) * Math.min(1, k * 8);
-      if (a0 <= 0.004) continue;
       const cc = camSpace(r.x, r.y, 0);
       if (cc[1] < rig.near + 0.3) continue;
-      const fa = a0 * (1 - fogAt(cc[1])), N = 28, pts = [], inner = [];
-      for (let i = 0; i <= N; i++) {
-        const th = i / N * Math.PI * 2;
-        const rr = rad * (1 + K.rippleWobble * Math.sin(2 * th + r.ph + r.t * 0.6) + K.rippleWobble * 0.5 * Math.sin(3 * th + r.ph2));
-        const a = camSpace(r.x + Math.cos(th) * rr, r.y + Math.sin(th) * rr, 0), b = camSpace(r.x + Math.cos(th) * rr * 0.93, r.y + Math.sin(th) * rr * 0.93, 0);
-        pts.push(a[1] > rig.near ? toScreen(a) : null); inner.push(b[1] > rig.near ? toScreen(b) : null);
-      }
-      const w0 = clamp(pxPerUnit(cc[1]) * 0.03, 0.6, 3.2) * (0.6 + 0.8 * (1 - k));
-      for (let i = 0; i < N; i++) {
-        const p0 = pts[i], p1 = pts[i + 1], q0 = inner[i], q1 = inner[i + 1];
-        const th = i / N * Math.PI * 2, wv = 1 + K.rippleThickVar * Math.sin(4 * th + r.ph + r.t * 2);
-        if (p0 && p1) {
-          ctx.lineWidth = w0 * wv * 2.4; ctx.strokeStyle = `rgba(${COL.water},${(fa * 0.3).toFixed(3)})`;
-          ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
-          ctx.lineWidth = w0 * wv; ctx.strokeStyle = `rgba(${COL.water},${(fa * 0.75).toFixed(3)})`;
-          ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
+      const fog = fogAt(cc[1]), scl = clamp(pxPerUnit(cc[1]) / 110, 0.35, 1.5);
+      for (let j = 0; j < RP.rings; j++) {
+        const tj = r.t - j * RP.ringGap;
+        if (tj <= 0 || tj >= r.life) continue;
+        const k = tj / r.life, rad = r.maxR * (1 - Math.pow(1 - k, 3)) * (1 - 0.14 * j);
+        const a = r.alpha * Math.min(1, tj / RP.fadeIn) * Math.pow(1 - k, 1.6) * (1 - 0.25 * j) * (1 - fog);
+        if (a < 0.004 || rad < 0.02) continue;
+        ctx.lineWidth = lerp(RP.widthFrom, RP.widthTo, k) * scl;
+        const N = 32, pts = [];
+        for (let i = 0; i <= N; i++) {
+          const th = i / N * Math.PI * 2;
+          const rr = rad * (1 + RP.wobble * noise1(th * 1.6 + r.ph + j * 4 + tj * 0.4));
+          const c = camSpace(r.x + Math.cos(th) * rr, r.y + Math.sin(th) * rr, 0);
+          pts.push(c[1] > rig.near ? toScreen(c) : null);
         }
-        if (q0 && q1) {                                       // 안쪽의 밝은 물마루
-          ctx.lineWidth = w0 * wv * 0.8; ctx.strokeStyle = `rgba(255,255,255,${(fa * 1.4).toFixed(3)})`;
-          ctx.beginPath(); ctx.moveTo(q0[0], q0[1]); ctx.lineTo(q1[0], q1[1]); ctx.stroke();
+        for (let i = 0; i < N; i++) {
+          const th = (i + 0.5) / N * Math.PI * 2;
+          if (noise1(th * 2.1 + r.ph2 + j * 7) < -1 + 2 * RP.breaks) continue;    // 일부가 끊긴 링
+          const p0 = pts[i], p1 = pts[i + 1]; if (!p0 || !p1) continue;
+          const lit = 0.5 + 0.5 * (Math.cos(th) * lx + Math.sin(th) * ly);       // 빛 쪽(왼쪽 위)이 밝게
+          const m = lit * RP.lightSide, col = [96 + (255 - 96) * m, 106 + (255 - 106) * m, 118 + (255 - 118) * m].map(Math.round);
+          ctx.strokeStyle = `rgba(${col.join(',')},${(a * (0.75 + 0.5 * lit)).toFixed(3)})`;
+          ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
         }
       }
     }
@@ -1233,29 +1334,73 @@
   }
 
   // 해안: 젖은 땅(어둡게) → 얇은 물막 → 물 끝선의 옅은 흰 선 → 물막 위 작은 파문 → 발자국
+  const wetCv = document.createElement('canvas'), wetG = wetCv.getContext('2d');
   function drawShoreWash() {
     const ws = washShape(), Wsh = C.SHORE_WASH, z = C.world.shoreHeight + 0.004;
-    if (ws.pts.length < 2) return;
+    if (ws.segs.length < 2) return;
     const d0 = camSpace(ws.is.shoreX, clamp(cam.y, -ws.is.ry, ws.is.ry), 0)[1];
     if (d0 < -ws.is.rx) return;
     const fog = fogAt(Math.max(d0, 0), C.FOG.mountain);
     if (fog > 0.97) return;
-    const band = (key, out = 0.15) => {
-      const outer = ws.pts.map((q) => [q.x + q.nx * out, q.y + q.ny * out, z]);
-      const inner = ws.pts.map((q) => [q.x - q.nx * q[key], q.y - q.ny * q[key], z]).reverse();
-      return projPoly(outer.concat(inner));
+    const at = (q, depth) => camSpace(q.x - q.nx * depth, q.y - q.ny * depth, z);
+    // 젖은 땅: 낮은 해상도 오프스크린에 구간별 어두운 띠를 그려 부드럽게 얹음 (마를수록 옅게)
+    const res = Wsh.resolution, w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));
+    if (wetCv.width !== w || wetCv.height !== h) { wetCv.width = w; wetCv.height = h; }
+    wetG.setTransform(1, 0, 0, 1, 0, 0); wetG.clearRect(0, 0, w, h); wetG.setTransform(res, 0, 0, res, 0, 0);
+    wetG.fillStyle = '#3f3c39';
+    let any = false;
+    for (let i = 0; i < ws.segs.length - 1; i++) {
+      const a = ws.segs[i], b = ws.segs[i + 1];
+      const wa = a.wetExt > 0 ? 1 - a.wetT / Wsh.dryTime : 0, wb = b.wetExt > 0 ? 1 - b.wetT / Wsh.dryTime : 0;
+      const wt = (Math.max(0, wa) + Math.max(0, wb)) / 2;
+      if (wt <= 0.01) continue;
+      const pts = [at(a, -0.12), at(b, -0.12), at(b, b.wetExt), at(a, a.wetExt)];
+      if (pts.some((c) => c[1] < rig.near)) continue;
+      wetG.globalAlpha = wt; any = true;
+      wetG.beginPath(); pts.map(toScreen).forEach(([x, y], k) => (k ? wetG.lineTo(x, y) : wetG.moveTo(x, y))); wetG.closePath(); wetG.fill();
+    }
+    if (any) { ctx.globalAlpha = Wsh.wetAlpha * (1 - fog); ctx.imageSmoothingEnabled = true; ctx.drawImage(wetCv, 0, 0, W, H); }
+    const strokeAlong = (depthOf, alphaOf, width) => {
+      ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      for (let i = 0; i < ws.segs.length - 1; i++) {
+        const a = ws.segs[i], b = ws.segs[i + 1], al = alphaOf(a, b);
+        if (al <= 0.004) continue;
+        const ca = at(a, depthOf(a)), cb = at(b, depthOf(b));
+        if (ca[1] < rig.near || cb[1] < rig.near) continue;
+        const [x0, y0] = toScreen(ca), [x1, y1] = toScreen(cb);
+        ctx.globalAlpha = al; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      }
     };
-    ctx.globalAlpha = Wsh.wetAlpha * (1 - fog); ctx.fillStyle = '#4a4744'; fillPoly(band('wet'));
+    const lw = clamp(pxPerUnit(Math.max(d0, 1)) * 0.012, 0.6, 1.6);
+    // 얇은 물막 (물가 ~ 지금 도달선)
     if (ws.level > 0.01) {
-      ctx.globalAlpha = Wsh.waterAlpha * (1 - fog) * Math.min(1, ws.level * 3); ctx.fillStyle = '#e9e6de'; fillPoly(band('reach'));
-      // 물 끝선
-      const edge = [];
-      for (const q of ws.pts) { const c = camSpace(q.x - q.nx * q.reach, q.y - q.ny * q.reach, z); if (c[1] > rig.near) edge.push(toScreen(c)); else edge.push(null); }
-      ctx.globalAlpha = Wsh.edgeLineAlpha * (1 - fog) * Math.min(1, ws.level * 4);
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = clamp(pxPerUnit(Math.max(d0, 1)) * 0.012, 0.6, 1.6); ctx.lineJoin = 'round';
-      ctx.beginPath(); let pen = false;
-      for (const e of edge) { if (!e) { pen = false; continue; } if (pen) ctx.lineTo(e[0], e[1]); else { ctx.moveTo(e[0], e[1]); pen = true; } }
-      ctx.stroke();
+      ctx.fillStyle = '#ebe8e0';
+      for (let i = 0; i < ws.segs.length - 1; i++) {
+        const a = ws.segs[i], b = ws.segs[i + 1];
+        if (a.reach < 0.01 && b.reach < 0.01) continue;
+        const pts = [at(a, -0.12), at(b, -0.12), at(b, b.reach), at(a, a.reach)];
+        if (pts.some((c) => c[1] < rig.near)) continue;
+        ctx.globalAlpha = Wsh.waterAlpha * (1 - fog); fillPoly(pts.map(toScreen));
+      }
+      // 물 끝선: 얇고 옅은 흰 선
+      ctx.strokeStyle = '#ffffff';
+      strokeAlong((q) => q.reach, (a, b) => (a.reach > 0.02 && b.reach > 0.02 ? Wsh.edgeLineAlpha * (1 - fog) : 0), lw);
+    }
+    // 최대로 올라왔던 자리의 얇은 곡선 자국
+    ctx.strokeStyle = '#3f3c39';
+    strokeAlong((q) => q.mark, (a, b) => Math.min(a.markA, b.markA) * 0.35 * (1 - fog), lw * 0.8);
+    // 물 빠지는 쪽으로 가는 물줄기 자국
+    for (const rv of ws.rivs) {
+      const k = rv.t / Wsh.rivuletLife, q = rv.q, len = rv.from * (0.3 + 0.7 * Math.min(1, rv.t / 0.8));
+      const pts = [];
+      for (let i = 0; i <= 6; i++) {
+        const u = i / 6, dep = rv.from - len * u, side = Math.sin(u * 5 + rv.seed) * 0.08;
+        const c = camSpace(q.x - q.nx * dep + q.ny * side, q.y - q.ny * dep - q.nx * side, z);
+        if (c[1] > rig.near) pts.push(toScreen(c));
+      }
+      if (pts.length < 2) continue;
+      ctx.globalAlpha = 0.28 * (1 - k) * (1 - fog); ctx.strokeStyle = '#3f3c39'; ctx.lineWidth = lw * 0.7;
+      ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
     }
     // 물막 위 작은 파문 (펭귄 발밑)
     for (const r of S.washRipples) {
@@ -1632,7 +1777,8 @@
     updateRig();
     drawSky();
     // 수면에 붙은 것: 잔물결 → 파문·항적 → 흐름선 → 반영
-    drawSurfaceLines();
+    drawStreams();
+    drawContours();
     drawWater();
     const fl = activeFloes();
     for (const f of fl) drawFlowLines(f.x, f.y, f.dir, Math.hypot(f.vx, f.vy), 4, f.cr, f.R * 0.7, floeOffset(f));
