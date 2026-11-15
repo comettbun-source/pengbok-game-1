@@ -34,7 +34,6 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const safeProbe = document.getElementById('safe');
-  const finishEl = document.getElementById('finish');
   let W = 0, H = 0, DPR = 1;
   const layout = { ring: { x: 0, y: 0 }, action: { x: 0, y: 0 } };
 
@@ -219,7 +218,7 @@
     S.time = 0; S.finished = false; S.stepN = 0;
     S.cands = genField();
     S.floePool = Array.from({ length: IF.maxActive }, newFloeObj);
-    S.islands = [makeIsland(1, 31), makeIsland(-1, 57)];
+    S.islands = [makeIsland(-1, 57)];                        // 왼쪽 섬만. 오른쪽은 안개에 녹는 열린 바다
     const [sfx, sfy] = startForward();
     cam.x = 0; cam.y = 0; cam.z = 0; cam.yaw = cam.yawT = yawFromForward(sfx, sfy);
     cam.pitch = cam.pitchT = deg(C.camera.pitchDeg);
@@ -235,12 +234,11 @@
     S.ripples = [];
     S.wake = Array.from({ length: WC().wake.maxParticles }, () => ({ on: false }));
     S.lines = null;
-    S.lastTapUp = 0; S.tapPulse = 0;
+    S.lastTapUp = 0; S.tapPulse = 0; S.jumpAt = 0; S.jumpReq = false;
     S.fish = { state: 'wait', t: 0 };
     const r0 = C.firefly.route[0];
     S.ff = { i: 0, x: r0[0], y: r0[1], z: r0[2], comp: Array.from({ length: C.firefly.companions }, (_, k) => ({ ph: k * 2.4 + 1, rad: 0.5 + k * 0.25 })) };
     S.events = [];
-    finishEl.classList.remove('show');
   }
   const log = (type) => { S.events.push({ type, t: S.time }); if (S.events.length > 60) S.events.shift(); };
 
@@ -256,7 +254,9 @@
     rig.cy0 = K.horizonY * H + rig.f * Math.tan(deg(K.pitchDeg));       // 주점은 기본 pitch 기준으로 고정
     // 펭귄 발이 penguinScreenY, 키가 penguinScreenH 가 되도록 카메라 거리·높이 계산
     const D = rig.f * penH() * cp / (K.penguinScreenH * H);
-    const V = (rig.cy0 - K.penguinScreenY * H) * D / rig.f;
+    // 위에서 내려다볼수록 펭귄이 화면 중앙 쪽으로
+    const lift = smooth(deg(K.pitchDeg), deg(K.pitchMaxDeg), phi);
+    const V = (rig.cy0 - lerp(K.penguinScreenY, K.penguinScreenYTop, lift) * H) * D / rig.f;
     const back = D * cp + V * sp, up = D * sp - V * cp;
     rig.cx = cam.x - rig.F[0] * back; rig.cy = cam.y - rig.F[1] * back; rig.cz = cam.z + up;
     rig.horizon = rig.cy0 - rig.f * Math.tan(phi);
@@ -366,7 +366,7 @@
     if (role === 'ring' && Math.hypot(x - layout.ring.x, y - layout.ring.y) <= C.ui.ring.radius * 1.15) { ptr.ox = layout.ring.x; ptr.oy = layout.ring.y; }
     if (role === 'drag') { ptr.floe = S.p.floe; const f = ptr.floe; f.grab = f.grab || [f.x, f.y]; f.grabN = (f.grabN || 0) + 1; }
     pointers.set(id, ptr);
-    if (role === 'action') S.tapPulse = 1;
+    if (role === 'action') { S.tapPulse = 1; actionPress(ptr); }
   }
   function release(id, cancelled) {
     const ptr = pointers.get(id);
@@ -389,7 +389,7 @@
     if (ptr.role === 'camera') {
       S.lastCamTouch = S.time;
       cam.yawT += dx * C.camera.rotateSensX;
-      cam.pitchT = clamp(cam.pitchT - dy * C.camera.rotateSensY, deg(C.camera.pitchMinDeg), deg(C.camera.pitchMaxDeg));
+      cam.pitchT = clamp(cam.pitchT + dy * C.camera.rotateSensY, deg(C.camera.pitchMinDeg), deg(C.camera.pitchMaxDeg));
     } else if (ptr.role === 'drag' && ptr.floe && ptr.floe.grab) {
       const [wx, wy] = screenDeltaToWorld(dx, dy, [S.p.x, S.p.y]);
       ptr.floe.grab[0] += wx; ptr.floe.grab[1] += wy;          // 손가락 목표점만 옮김 → 스프링 힘으로 끌림
@@ -433,10 +433,18 @@
   }
 
   // 발자국: 짧은 탭 = 버튼 반응만 / 짧은 탭 두 번 = 두 번째를 뗄 때 점프 / 길게 = 누르는 동안 슬라이딩
+  // 한 번 탭(뗄 때) = 점프. 첫 탭을 뗀 뒤 doubleTapMs 안에 다시 누르면 = 슈퍼점프 (체공 중이면 이어 붙임)
   function shortTap(ptr) {
     log('tap');
-    if (S.lastTapUp && ptr.t0 - S.lastTapUp <= C.input.doubleTapMs) { S.lastTapUp = 0; S.jumpReq = true; }
-    else S.lastTapUp = performance.now();
+    if (ptr.superTap) return;                                // 슈퍼점프로 쓰인 두 번째 탭은 다시 세지 않음
+    S.lastTapUp = performance.now();
+    if (C.input.jumpDelayMs > 0) S.jumpAt = S.lastTapUp + C.input.jumpDelayMs;   // 옵션: 잠깐 기다렸다 점프
+    else S.jumpReq = 'jump';
+  }
+  function actionPress(ptr) {
+    if (S.lastTapUp && ptr.t0 - S.lastTapUp <= C.input.doubleTapMs) {
+      S.lastTapUp = 0; S.jumpAt = 0; ptr.superTap = true; S.jumpReq = 'super';
+    }
   }
   const slideHeld = () => { for (const p of pointers.values()) if (p.role === 'action' && p.long) return true; return false; };
 
@@ -578,15 +586,29 @@
     const mag = Math.hypot(mx, my);
     const surf = surfKey(p.mode);
 
+    if (S.jumpAt && performance.now() >= S.jumpAt) { S.jumpAt = 0; S.jumpReq = 'jump'; }
     if (S.jumpReq) {                                        // 점프: 중력 + 초기 속도의 포물선
-      S.jumpReq = false;
-      if (!p.air) {
-        if (p.sliding) { p.sliding = false; log('slideEnd'); }
-        p.air = true; p.sit = false; p.vz = P.jumpVelocity;
+      const kind = S.jumpReq; S.jumpReq = false;
+      const SJ = P.superJump, h0 = P.jumpVelocity * P.jumpVelocity / (2 * P.gravity);
+      if (kind === 'super') {
+        // 슈퍼점프: 높이 ×heightMul, 거리 ×distanceMul, 체공 ≈ airtime. 공중이면 지금 높이에서 이어 붙임
+        const Hs = h0 * SJ.heightMul, gS = 8 * Hs / (SJ.airtime * SJ.airtime);
+        const base = p.air ? (p.jumpBase || 0) : p.z, dz = Math.max(0, p.z - base);
+        if (!p.air) startAir(p, mag, wx, wy);
+        p.g = gS; p.vz = Math.sqrt(2 * gS * Math.max(0.05, Hs - dz));
+        // 거리 ×distanceMul: 일반 점프의 수평 속도 × 배율 × (일반 체공 / 슈퍼 체공)
+        if (!p.jumpHS && mag > 0.1) p.jumpHS = Math.max(Math.hypot(p.vx, p.vy), P.jumpForwardSpeed * mag);
+        const tEl = p.air ? (p.airT || 0) : 0, tRem = Math.max(0.3, SJ.airtime - tEl);
+        const hs = Math.max(0, (p.jumpHS || 0) * (SJ.distanceMul * jumpAir() - tEl) / tRem);
+        const dir = mag > 0.1 ? Math.atan2(wy, wx) : Math.atan2(p.vy, p.vx);
+        if (hs > 0.05) { p.vx = Math.cos(dir) * hs; p.vy = Math.sin(dir) * hs; }
+        p.airCap = hs;
+        log('superJump');
+      } else if (!p.air) {
+        startAir(p, mag, wx, wy);
+        p.g = P.gravity; p.vz = P.jumpVelocity;
         if (mag > 0.1) { const s = Math.max(Math.hypot(p.vx, p.vy), P.jumpForwardSpeed * mag); p.vx = wx / mag * s; p.vy = wy / mag * s; }
-        const f = p.mode === 'floe' ? p.floe : null;
-        p.cvx = f ? f.vx : 0; p.cvy = f ? f.vy : 0;
-        if (p.mode === 'water') ripple(p.x, p.y, 1.4, 1.2);
+        p.jumpHS = Math.hypot(p.vx, p.vy); p.airCap = p.jumpHS;
         log('jump');
       }
     }
@@ -602,6 +624,9 @@
     const sp0 = Math.hypot(p.vx, p.vy);
     if (p.air) {
       p.vx += wx * pm.airForce / pm.mass * dt; p.vy += wy * pm.airForce / pm.mass * dt;
+      // 공중 조작은 방향만 살짝 바꿈: 도약 때의 수평 속도를 넘지 않음
+      const sa = Math.hypot(p.vx, p.vy), cap = Math.max(p.airCap || 0, 0.6);
+      if (sa > cap) { p.vx *= cap / sa; p.vy *= cap / sa; }
     } else if (p.sliding) {
       // 슬라이딩: 지면 마찰로 감속. 링을 밀면 그 방향으로 힘 + 방향이 부드럽게 따라감
       let dir = sp0 > 0.01 ? Math.atan2(p.vy, p.vx) : p.face, s = sp0;
@@ -641,7 +666,7 @@
 
     // 발판 전환
     if (p.air) {
-      p.vz -= P.gravity * dt; p.z += p.vz * dt;
+      p.vz -= (p.g || P.gravity) * dt; p.z += p.vz * dt; p.airT = (p.airT || 0) + dt;
       const s = surfaceAt(p.x, p.y);
       if (p.vz < 0 && p.z <= s.z) { const vz = p.vz; p.air = false; p.z = s.z; p.vz = 0; setMode(s.mode, s.floe, vz); }
     } else if (p.mode === 'floe') {
@@ -696,6 +721,14 @@
     p.ripple += (clamp(rip, 0, 1) - p.ripple) * ease(6, dt);
   }
 
+  function startAir(p) {
+    if (p.sliding) { p.sliding = false; log('slideEnd'); }
+    p.air = true; p.sit = false; p.jumpBase = p.z; p.jumpHS = 0; p.airT = 0;
+    const f = p.mode === 'floe' ? p.floe : null;
+    p.cvx = f ? f.vx : 0; p.cvy = f ? f.vy : 0;
+    if (p.mode === 'water') ripple(p.x, p.y, 1.4, 1.2);
+  }
+
   function setMode(mode, floe, vz = 0) {
     const p = S.p, prev = p.mode, W2 = WC();
     p.mode = mode;
@@ -716,7 +749,7 @@
       log('splash');
     }
     if (mode !== 'water' && prev === 'water') ripple(p.x, p.y, 1.2, 1.2, W2.ripple.alpha * 0.5);
-    if (mode === 'island' && !S.finished) { S.finished = true; log('arrive'); finishEl.classList.add('show'); }
+    if (mode === 'island' && !S.finished) { S.finished = true; log('arrive'); }   // 도착 판정만 (화면 표시 없음)
   }
 
   function stepCamera(dt) {
@@ -730,26 +763,19 @@
     const K = C.camera;
     let camHeld = false; for (const q of pointers.values()) if (q.role === 'camera') camHeld = true;
     if (K.autoTurn && !camHeld && S.time - S.lastCamTouch > K.autoTurnDelay && !S.finished) {
-      const tg = turnTarget(), dx = tg[0] - p.x, dy = tg[1] - p.y;
-      if (Math.hypot(dx, dy) > 3) cam.yawT += angDiff(cam.yawT, yawFromForward(dx, dy)) * ease(K.autoTurnRate, dt);
+      const tg = turnTarget(), dx = tg[0] - p.x, dy = tg[1] - p.y, da = angDiff(cam.yawT, yawFromForward(dx, dy));
+      // 일부러 크게 돌려 다른 쪽(열린 바다)을 보고 있으면 끌어오지 않음
+      if (Math.hypot(dx, dy) > 3 && Math.abs(da) < deg(K.autoTurnMaxDeg)) cam.yawT += da * ease(K.autoTurnRate, dt);
     }
+    // 기울기 복귀 (옵션)
+    if (K.pitchReturn && !camHeld && S.time - S.lastCamTouch > K.pitchReturnDelay) cam.pitchT += (deg(K.pitchDeg) - cam.pitchT) * ease(K.pitchReturnRate, dt);
     const kr = ease(K.rotateSmooth, dt);
     cam.yaw += (cam.yawT - cam.yaw) * kr;
     cam.pitch += (cam.pitchT - cam.pitch) * kr;
     updateRig();
   }
-  // 다음 목표: 반딧불이 웨이포인트. 오른쪽 섬으로 마음먹고 간 경우엔 오른쪽 해안
-  // 지금 카메라가 향한 쪽에 더 가까운 목표를 고름 → 오른쪽 섬으로 방향을 돌린 경우 그쪽을 유지
-  function turnTarget() {
-    const p = S.p, r = C.firefly.route[S.ff.i];
-    const cands = [[r[0], r[1]], [C.world.islandDistance + 1.5, clamp(p.y, -10, 10)]];
-    let best = cands[0], bd = 9;
-    for (const c of cands) {
-      const dd = Math.abs(angDiff(cam.yawT, yawFromForward(c[0] - p.x, c[1] - p.y)));
-      if (dd < bd) { bd = dd; best = c; }
-    }
-    return best;
-  }
+  // 다음 목표: 반딧불이 웨이포인트
+  function turnTarget() { const r = C.firefly.route[S.ff.i]; return [r[0], r[1]]; }
   function stepFirefly(dt) {
     const F = C.firefly, ff = S.ff, p = S.p, route = F.route;
     if (ff.i < route.length - 1 && Math.hypot(route[ff.i][0] - p.x, route[ff.i][1] - p.y) < F.reachDist) { ff.i++; log('firefly' + ff.i); }
@@ -809,11 +835,12 @@
   function drawSky() {
     const hz = rig.horizon;
     ctx.fillStyle = COL.bg; ctx.fillRect(0, 0, W, H);
-    const g = ctx.createLinearGradient(0, hz - H * 0.4, 0, hz + H * 0.1);
-    g.addColorStop(0, 'rgba(251,248,242,1)'); g.addColorStop(0.75, 'rgba(248,245,238,1)'); g.addColorStop(1, 'rgba(243,238,227,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, Math.max(0, hz + H * 0.1));
-    const g2 = ctx.createLinearGradient(0, hz, 0, H);
-    g2.addColorStop(0, 'rgba(120,110,95,0)'); g2.addColorStop(1, 'rgba(120,110,95,0.07)');
+    // 하늘과 먼 수면이 같은 미색 안개로 이어져 수평선이 거의 구분되지 않게
+    const g = ctx.createLinearGradient(0, hz - H * 0.5, 0, hz + H * 0.25);
+    g.addColorStop(0, 'rgba(249,246,239,1)'); g.addColorStop(0.65, 'rgba(246,242,233,1)'); g.addColorStop(1, 'rgba(243,238,227,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, Math.max(0, hz + H * 0.25));
+    const g2 = ctx.createLinearGradient(0, hz + H * 0.15, 0, H);
+    g2.addColorStop(0, 'rgba(120,110,95,0)'); g2.addColorStop(1, 'rgba(120,110,95,0.05)');
     ctx.fillStyle = g2; ctx.fillRect(0, Math.max(0, hz), W, H);
   }
 
@@ -965,12 +992,15 @@
     const squash = p.sit ? 0.22 : (S.tapPulse * 0.08 + (slideHeld() && !p.sliding ? 0.1 : 0)) - (p.air && p.vz > 0 ? 0.08 : 0);
     return { fvx: c * fx - s * fy, fvy: s * fx + c * fy, squash };
   }
-  function drawPenguinFigure(g, u, v) {
+  // part: 'above' = 수면 위만, 'below' = 수면 아래만, wl = 수면선(지역 좌표)
+  function drawPenguinFigure(g, u, v, part = 'above', wl = 0) {
     const p = S.p;
     if (p.sink > 0.01) {
-      g.beginPath(); g.rect(-u * 2, -u * 3, u * 4, u * 3); g.clip();
+      g.beginPath();
+      if (part === 'below') g.rect(-u * 2, wl, u * 4, u * 3); else g.rect(-u * 2, wl - u * 3, u * 4, u * 3);
+      g.clip();
       g.translate(0, p.sink * u);
-    }
+    } else if (part === 'below') return;
     const { fvx, fvy } = v;
     const lm = deg(WC().inertiaTilt.accelDeg); g.rotate(clamp(p.lean.h, -lm, lm));
     if (p.sliding) {
@@ -1011,11 +1041,23 @@
         ctx.beginPath(); ctx.ellipse(e.x, e.y + (p.floe && !p.air ? floeOffset(p.floe) : 0), e.rx, e.ry, 0, 0, Math.PI * 2); ctx.fill();
       }
     }
-    ctx.save(); ctx.translate(sx, sy); drawPenguinFigure(ctx, u, v); ctx.restore();
-    if (p.sink > 0.2) {
-      const e = groundEllipse(p.x, p.y, penH() * 0.45);
-      if (e) { ctx.globalAlpha = 0.5; ctx.drawImage(getRingSprite(), e.x - e.rx, e.y - e.ry, e.rx * 2, e.ry * 2); ctx.globalAlpha = 1; }
+    const wl = project(p.x, p.y, 0)[1] - sy;                // 수면선 (펭귄 지역 좌표)
+    // 수영: 몸 둘레 물결 고리를 뒤쪽 절반 → 몸 → 앞쪽 절반 순서로 (몸 위로 고리가 비쳐 보이지 않게)
+    const e = p.sink > 0.2 ? groundEllipse(p.x, p.y, penH() * 0.45) : null;
+    const ringHalf = (front) => {
+      if (!e) return;
+      ctx.save(); ctx.beginPath();
+      if (front) ctx.rect(e.x - e.rx, e.y, e.rx * 2, e.ry + 1); else ctx.rect(e.x - e.rx, e.y - e.ry - 1, e.rx * 2, e.ry + 1);
+      ctx.clip(); ctx.globalAlpha = C.penguin.swimRingAlpha;
+      ctx.drawImage(getRingSprite(), e.x - e.rx, e.y - e.ry, e.rx * 2, e.ry * 2);
+      ctx.restore();
+    };
+    ringHalf(false);
+    if (p.sink > 0.01) {                                      // 잠긴 몸: 수면선 아래를 옅게
+      ctx.save(); ctx.globalAlpha = C.penguin.underwaterAlpha; ctx.translate(sx, sy); drawPenguinFigure(ctx, u, v, 'below', wl); ctx.restore();
     }
+    ctx.save(); ctx.translate(sx, sy); drawPenguinFigure(ctx, u, v, 'above', wl); ctx.restore();
+    ringHalf(true);
   }
 
   const off = document.createElement('canvas'), og = off.getContext('2d');
@@ -1027,7 +1069,7 @@
     if (off.width !== Math.ceil(size * DPR)) { off.width = off.height = Math.ceil(size * DPR); }
     og.setTransform(DPR, 0, 0, DPR, 0, 0); og.globalCompositeOperation = 'source-over';
     og.clearRect(0, 0, size, size);
-    og.save(); og.translate(ox, oy + (sy - wy)); drawPenguinFigure(og, u, v); og.restore();
+    og.save(); og.translate(ox, oy + (sy - wy)); drawPenguinFigure(og, u, v, 'above', wy - sy); og.restore();
     og.globalCompositeOperation = 'destination-in';
     const gr = og.createLinearGradient(0, oy, 0, oy - u * C.reflect.fadeLength);
     gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
@@ -1146,17 +1188,39 @@
     let pressed = false;
     for (const ptr of pointers.values()) if (ptr.role === 'action') pressed = true;
     const sc = A.radius * (pressed ? 0.9 : 1) * (1 + S.tapPulse * 0.06);
-    ctx.save(); ctx.translate(a.x, a.y + sc * 0.05); ctx.scale(sc, sc);
-    ctx.fillStyle = uiColor(lum.action, pressed ? 1.5 : 1);
-    ctx.beginPath();
-    ctx.moveTo(0, 0.62);
-    ctx.quadraticCurveTo(-0.22, 0.42, -0.62, -0.42);
-    ctx.quadraticCurveTo(-0.28, -0.28, -0.04, -0.78);
-    ctx.lineTo(0.04, -0.78);
-    ctx.quadraticCurveTo(0.28, -0.28, 0.62, -0.42);
-    ctx.quadraticCurveTo(0.22, 0.42, 0, 0.62);
-    ctx.closePath(); ctx.fill();
-    ctx.restore();
+    drawPaw(a.x, a.y + sc * 0.04, sc, lum.action, (pressed ? 1.4 : 1) * A.alphaScale);
+  }
+
+  // 둥근 물갈퀴 발바닥: 작은 캔버스에 불투명하게 그린 뒤 한 번에 반투명으로 얹음 (겹친 곳도 같은 농도)
+  const pawCv = document.createElement('canvas'), pawG = pawCv.getContext('2d');
+  function drawPaw(cx, cy, sc, l, strength) {
+    const A = C.ui.adapt, t = 1 - smooth(A.threshold[0], A.threshold[1], l);
+    const rgb = COL.ink.map((v) => Math.round(v + (255 - v) * t));
+    const alpha = clamp((A.lightAlpha + (A.darkAlpha - A.lightAlpha) * t) * strength, 0, 1);
+    const size = Math.ceil(sc * 2.2 * DPR);
+    if (pawCv.width !== size) { pawCv.width = pawCv.height = size; }
+    const g2 = pawG;
+    g2.setTransform(1, 0, 0, 1, 0, 0); g2.clearRect(0, 0, size, size);
+    g2.setTransform(size / 2.2, 0, 0, size / 2.2, size / 2, size / 2);
+    g2.fillStyle = `rgb(${rgb.join(',')})`;
+    const toes = [[-0.6, -0.4], [0, -0.68], [0.6, -0.4]], tr = 0.19;
+    // 물갈퀴: 발가락 사이가 안쪽으로 오목하게 이어진 막 (조금 옅게)
+    g2.globalAlpha = 0.55;
+    g2.beginPath();
+    g2.moveTo(-0.6, -0.4);
+    g2.quadraticCurveTo(-0.24, -0.26, 0, -0.68);
+    g2.quadraticCurveTo(0.24, -0.26, 0.6, -0.4);
+    g2.quadraticCurveTo(0.36, -0.08, 0.34, 0.14);
+    g2.lineTo(-0.34, 0.14);
+    g2.quadraticCurveTo(-0.36, -0.08, -0.6, -0.4);
+    g2.closePath(); g2.fill();
+    // 큰 둥근 패드 + 둥근 발가락 3개
+    g2.globalAlpha = 1;
+    g2.beginPath(); g2.ellipse(0, 0.34, 0.46, 0.38, 0, 0, Math.PI * 2); g2.fill();
+    for (const [x, y] of toes) { g2.beginPath(); g2.arc(x, y, tr, 0, Math.PI * 2); g2.fill(); }
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(pawCv, cx - sc * 1.1, cy - sc * 1.1, sc * 2.2, sc * 2.2);
+    ctx.globalAlpha = 1;
   }
 
   function draw(dt) {
@@ -1179,9 +1243,15 @@
     drawIslandGround();
     // 서 있는 것: 깊이 순서대로 먼 것부터
     const items = [];
-    for (const f of fl) { const d = camSpace(f.x, f.y, 0)[1]; if (d > -f.R) items.push({ d, draw: () => drawFloe(f, Math.max(d, 0)) }); }
+    const pd = camSpace(p.x, p.y, p.z)[1];
+    for (const f of fl) {
+      const d = camSpace(f.x, f.y, 0)[1];
+      // 펭귄이 올라선 빙하는 항상 펭귄보다 먼저 (빙하가 발을 덮지 않게)
+      const sd = f === p.floe && !p.air ? Math.max(d, pd + 0.01) : d;
+      if (d > -f.R) items.push({ d: sd, draw: () => drawFloe(f, Math.max(d, 0)) });
+    }
     mountainItems(items);
-    items.push({ d: camSpace(p.x, p.y, p.z)[1], draw: drawPenguin });
+    items.push({ d: pd, draw: drawPenguin });
     if (S.fish.visible) { const d = camSpace(S.fish.x, S.fish.y, S.fish.z)[1]; if (d > rig.near) items.push({ d, draw: () => drawFish(d) }); }
     fireflyItems(items);
     items.sort((a, b) => b.d - a.d);

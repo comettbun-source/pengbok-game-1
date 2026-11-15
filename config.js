@@ -79,6 +79,7 @@ const PHYSICS = {
   friction: { ice: 1.4, shore: 7, water: 3.2 },    // 걷기·수영 감쇠 (1/초). 빙하는 미끄럽고 해안은 뻑뻑
   slideFriction: { ice: 0.35, shore: 3.5, water: 1.4 },
   jumpVelocity: 6.6,          // 점프 초기 속도 → 체공 = 2v/g ≈ 0.6초
+  superJump: { heightMul: 1.8, distanceMul: 1.6, airtime: 1.0 },  // 두 번 탭: 높이·거리 배율, 체공(초)
   jumpForwardSpeed: 3.4,      // 링을 민 채 점프할 때 수평 속도 (점프 최대 거리 = 이 값 × 체공)
   slideInitialSpeed: 4.6,     // 슬라이딩 시작 속도
   slideForce: 6,              // 링을 민 채 슬라이딩할 때 미는 힘
@@ -109,7 +110,7 @@ const ICE_FIELD = {
   ],
   spacing: [7, 12],           // 시드 배치 열 간격: 출발 근처 ~ 섬 근처 (점점 넓어짐)
   perColumn: 2.2,             // 열마다 평균 빙하 수 (출발 근처 기준, 섬 쪽으로 갈수록 줄어듦)
-  density: { left: 1.0, right: 0.7 },   // 왼쪽(물고기·반딧불이 쪽)이 조금 더 많음
+  density: { left: 1.0, right: 0 },     // 오른쪽은 고정 조각 하나 뒤로 열린 바다만
   spreadY: 22,                // 바다 위아래로 흩어지는 폭
   bigShare: 0.3,              // 큰 빙하 비율 (섬 쪽으로 갈수록 줄어듦)
   sizeStart: [0.6, 1.0],      // 큰 빙하 크기 (시작 빙하 대비)
@@ -135,32 +136,38 @@ window.CONFIG = {
       deadZone: 6,
       releasePush: 170,        // 터치 시작점에서 이만큼 벗어나면 입력 0 (역할은 뗄 때까지 유지)
     },
-    action: { insetX: 70, insetY: 46, radius: 38, hitRadius: 100 },
+    // 오른쪽 물갈퀴 발바닥 버튼 (반지름·터치 영역 약 1.4배, 알파 약 70%)
+    action: { insetX: 70, insetY: 46, radius: 53, hitRadius: 140, alphaScale: 0.7 },
     adapt: { lightAlpha: 0.42, darkAlpha: 0.5, threshold: [0.35, 0.6], smooth: 3, sampleMs: 120 },
   },
 
   input: {
-    doubleTapMs: 260,
+    doubleTapMs: 260,         // 첫 탭을 뗀 뒤 이 시간 안에 다시 누르면 슈퍼점프
+    jumpDelayMs: 0,           // 0 = 탭 즉시 점프. 값을 주면 그만큼 기다렸다 점프(그 사이 두 번째 탭이면 땅에서 바로 슈퍼점프)
     longPressMs: 220,
     penguinHitPx: 48,
   },
 
   // 펭귄 등 뒤 낮은 시점 (원근 투영). 펭귄 화면 위치·크기와 수평선에 맞춰 카메라 거리·높이를 자동 계산
   camera: {
-    pitchDeg: 18, pitchMinDeg: 10, pitchMaxDeg: 30,
+    pitchDeg: 18, pitchMinDeg: 10, pitchMaxDeg: 55,   // 아래로 끌면 위에서 내려다보는 쪽으로 (최대 55°)
     focal: 1.0,               // 초점 거리 (화면 높이 배수, 클수록 망원)
     horizonY: 0.35,           // 기본 pitch 일 때 수평선 위치 (위에서부터 비율)
-    penguinScreenY: 0.78,     // 펭귄 발 위치 (위에서부터 비율)
+    penguinScreenY: 0.78,     // 펭귄 발 위치 (위에서부터 비율, 기본 각도)
+    penguinScreenYTop: 0.56,  // 최대 각도에서 펭귄 발 위치 (올릴수록 화면 중앙 쪽으로)
     penguinScreenH: 0.26,     // 펭귄 키 / 화면 높이
     near: 0.35,               // 이보다 가까운 것은 잘라냄
     followRate: 2.6, lead: 0.35,
     rotateSensX: -0.005,      // 가로 드래그 회전 감도 (부호 반대 = 방향 반전)
-    rotateSensY: 0.002,       // 세로 드래그 기울기 감도
+    rotateSensY: 0.0026,      // 세로 드래그 기울기 감도 (아래로 끌면 내려다봄, 부호 반대 = 방향 반전)
     rotateSmooth: 10,
     startLookAt: [-40, 4],    // 시작 시 바라보는 점 (왼쪽 앞 첫 빙하와 먼 섬이 화면에 들어오게)
     autoTurn: true,           // 손을 떼고 잠시 뒤 다음 목표(반딧불이) 방향으로 천천히 돌아옴
     autoTurnDelay: 2,         // 초
     autoTurnRate: 0.45,       // 돌아오는 빠르기 (작을수록 천천히)
+    autoTurnMaxDeg: 100,      // 이보다 크게 돌려 다른 쪽을 보고 있으면 끌어오지 않음
+    pitchReturn: false,       // 손을 떼면 기본 각도로 천천히 돌아오기 (기본 끔)
+    pitchReturnDelay: 2, pitchReturnRate: 0.5,
     fog: { start: 8, end: 75, max: 0.82 },         // 빙하·수면·물결이 미색에 녹는 거리
     mountainFog: { start: 6, end: 60, max: 0.86 },  // 산 (멀리선 연회색 능선, 가까울수록 짙은 절벽)
   },
@@ -185,6 +192,8 @@ window.CONFIG = {
     scale: 1.3,               // ★ 펭귄 크기 배율 (그림·잡기 영역·반영 함께)
     height: 0.75,
     swimSink: 0.5,            // 수영 시 몸이 잠기는 비율 (그림)
+    underwaterAlpha: 0.28,    // 수면 아래 잠긴 몸의 진하기
+    swimRingAlpha: 0.5,       // 수영 중 몸 둘레 물결 고리 진하기
     walkWobbleDeg: 7, walkWobbleFreq: 9,
   },
 

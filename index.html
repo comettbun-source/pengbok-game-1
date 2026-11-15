@@ -29,14 +29,6 @@
     font-size: 13px; font-family: inherit; touch-action: none;
   }
   #reset:active { background: rgba(40, 40, 44, 0.25); }
-  #finish {
-    position: fixed; left: 50%; top: 16%; transform: translateX(-50%); text-align: center;
-    padding: 10px 22px; border-radius: 18px; background: rgba(243, 238, 227, 0.88);
-    color: #2a2a2e; font-size: 20px; letter-spacing: 0.08em; white-space: nowrap;
-    opacity: 0; transition: opacity 1.6s ease; pointer-events: none;
-  }
-  #finish small { display: block; margin-top: 6px; font-size: 13px; opacity: 0.6; letter-spacing: 0.02em; }
-  #finish.show { opacity: 1; }
   #rotate {
     position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
     background: #f3eee3; color: #3a3a3e; font-size: 16px; text-align: center; z-index: 10;
@@ -48,7 +40,6 @@
 <canvas id="game"></canvas>
 <div id="safe"></div>
 <button id="reset" type="button">처음으로</button>
-<div id="finish">섬에 도착했어요<small>첫 구간 끝</small></div>
 <div id="rotate">휴대폰을 가로로 돌려주세요</div>
 <script src="config.js"></script>
 <script src="game.js"></script>
