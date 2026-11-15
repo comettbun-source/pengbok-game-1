@@ -1,86 +1,131 @@
 // ─────────────────────────────────────────────────────────────
-//  조작감 조정 값 모음 — 이 파일만 고치면 됩니다.
-//  거리 단위: 월드 1 = 펭귄 키(약 0.75)보다 조금 큰 길이. 화면 높이에 camera.viewHeight 만큼 보임.
-//  UI 단위: CSS px (안전 영역 inset 은 자동으로 더해짐).
-//  URL 로 임시 덮어쓰기: index.html?cfg=move.walkSpeed=3,input.doubleTapMs=200
+//  조작감·연출 조정 값 모음 — 이 파일만 고치면 됩니다.
+//  거리 단위: 월드 (화면 세로에 camera.viewHeight 만큼 보임). UI 단위: CSS px.
+//  로컬 실행 시 URL 로 임시 덮어쓰기: index.html?cfg=move.walkSpeed=3,input.doubleTapMs=200
 // ─────────────────────────────────────────────────────────────
 window.CONFIG = {
   ui: {
-    // 왼쪽 아래 이동 패드. inset = 화면 가장자리 ~ 패드 그림 가장자리 간격(엄지 하나 정도)
-    dpad: {
-      insetX: 64, insetY: 40,  // 가장자리에서 안쪽으로
-      radius: 56,              // 그림 반지름
-      hitRadius: 100,          // 실제 터치 판정 반지름 (그림보다 넉넉하게)
-      releaseRadius: 160,      // 손가락이 중심에서 이만큼 벗어나면 입력 0 (역할은 손 뗄 때까지 유지)
-      deadZone: 0.15,          // 반지름 대비 무시 구간
-      fullAt: 0.7,             // 반지름 대비 이 지점부터 최대 속도
+    // 왼쪽 아래 이동 링. inset = 화면 가장자리 ~ 링 바깥선 간격(엄지 하나 정도)
+    ring: {
+      insetX: 70, insetY: 46,
+      radius: 34,              // 링 표시 반지름
+      lineWidth: 3,
+      hitRadius: 100,          // 실제 터치 판정 반지름 (표시보다 넉넉하게)
+      maxPush: 46,             // 엄지를 이만큼 밀면 최고 속도 (px)
+      deadZone: 6,             // 이보다 덜 밀면 무시 (px)
+      releasePush: 170,        // 터치 시작점에서 이만큼 벗어나면 입력 0 (역할은 뗄 때까지 유지)
     },
-    // 오른쪽 아래 점프·슬라이딩 버튼
+    // 오른쪽 아래 물갈퀴 발자국 버튼
     action: {
-      insetX: 64, insetY: 40,
-      radius: 44,
-      hitRadius: 92,
+      insetX: 70, insetY: 46,
+      radius: 38,              // 표시 크기
+      hitRadius: 100,
     },
-    opacity: 0.4,             // 버튼 반투명도
+    // 배경 밝기에 따른 색 전환
+    adapt: {
+      lightAlpha: 0.42,        // 밝은 배경 위 옅은 먹색 농도
+      darkAlpha: 0.5,          // 어두운 배경 위 흰색 농도
+      threshold: [0.35, 0.6],  // 이 밝기 구간에서 먹색↔흰색이 섞임
+      smooth: 3,               // 전환 속도 (작을수록 천천히, 물결에 깜빡이지 않음)
+      sampleMs: 120,           // 배경 밝기 측정 주기
+    },
   },
 
   move: {
     walkSpeed: 2.2,           // 빙하·섬 위 걷기 최고 속도 (월드/초)
     swimSpeed: 2.8,           // 수영 최고 속도
-    accel: 10,                // 가속 (클수록 즉각적)
+    accel: 10,                // 가속
+    stopRate: 16,             // 링에서 손 뗐을 때 멈추는 빠르기
     turnRate: 14,             // 몸 돌리는 속도
-    airControl: 0.35,         // 공중에서 방향 조절 비율 (0~1)
-  },
-
-  jump: {
-    height: 0.9,              // 점프 높이 (월드)
-    gravity: 22,
-    crouchDepth: 0.22,        // 첫 터치 시 몸 낮추는 정도 (0~1)
-  },
-
-  slide: {
-    distance: 4.0,            // 배 슬라이딩 거리 (월드)
-    duration: 0.6,            // 슬라이딩 시간 (초)
+    airControl: 0.35,
   },
 
   input: {
-    doubleTapMs: 220,         // 더블탭 판정 시간. 단일 탭 점프는 이 시간 뒤 발동
-    penguinHitPx: 48,         // 펭귄 잡기 터치 반경 (px, 최소값)
-    floeDragScale: 1.0,       // 펭귄 끌 때 빙하 이동 배율
+    doubleTapMs: 260,         // 첫 탭을 뗀 뒤 두 번째 탭을 누르기까지 허용 간격
+    longPressMs: 220,         // 이 시간 이상 누르면 길게 누르기(슬라이딩)로 판정
+    penguinHitPx: 48,         // 펭귄 잡기 터치 반경 기본값 (펭귄 배율이 곱해짐)
+    floeDragScale: 1.0,
+  },
+
+  jump: { height: 0.9, gravity: 22 },
+
+  slide: {
+    speed: 5.2,               // 이동 링을 밀고 있을 때 슬라이딩 속도
+    startSpeed: 3.8,          // 슬라이딩 시작 순간 최소 속도
+    accel: 6,                 // 슬라이딩 속도까지 붙는 빠르기
+    turnRate: 3.5,            // 링 방향을 따라 슬라이딩 방향이 도는 빠르기 (작을수록 부드럽게)
+    coastDecel: 2.5,          // 링 없이 발자국만 누를 때 감속 (멈춰도 배는 댄 채 유지)
   },
 
   camera: {
-    viewHeight: 12,           // 화면 세로에 보이는 월드 길이 (작을수록 확대)
-    followRate: 2.6,          // 추적 속도 (클수록 빨리 따라옴)
-    lead: 0.35,               // 진행 방향으로 앞서 보는 시간 (초)
-    rotateSensX: -0.006,      // 가로 드래그 → 회전 감도 (rad/px, 부호 반대로 하면 방향 반전)
-    rotateSensY: 0.004,       // 세로 드래그 → 기울기 감도
-    rotateSmooth: 14,         // 회전 부드러움 (클수록 즉각적)
-    pitchDeg: 52,             // 기본 내려다보는 각도 (90 = 정수리 위)
+    viewHeight: 12,           // 화면 세로에 보이는 월드 길이 (줌)
+    followRate: 2.6,
+    lead: 0.35,
+    rotateSensX: -0.006,      // 가로 드래그 회전 감도 (부호 반대 = 방향 반전)
+    rotateSensY: 0.004,
+    rotateSmooth: 14,
+    pitchDeg: 52,
     pitchMinDeg: 28,
     pitchMaxDeg: 82,
-    screenY: 0.52,            // 펭귄이 놓일 화면 세로 위치 (0 위 ~ 1 아래)
-  },
-
-  floe: {
-    radiusX: 2.4, radiusY: 1.8, // 빙하 크기
-    damping: 1.4,             // 손 뗀 뒤 미끄러짐 감쇠
-    maxSpeed: 8,
-  },
-
-  world: {
-    islandDistance: 40,       // 출발점 ~ 섬 해안까지 거리 (좌우 모두)
-    islandHalfWidth: 9,       // 섬 가로 반폭
-    islandHalfLength: 30,     // 섬 세로 반길이 (넉넉해야 대각선으로 흘러도 도착)
-    islandHeight: 0.45,
+    screenY: 0.5,             // 펭귄의 화면 세로 위치
   },
 
   penguin: {
-    height: 0.75,
-    swimSink: 0.5,            // 수영 시 몸이 잠기는 비율
-    walkWobbleDeg: 7,         // 걷기 좌우 흔들림 각도
-    walkWobbleFreq: 9,        // 흔들림 빈도 (이동 거리당)
+    scale: 1.3,               // ★ 펭귄 크기 배율 (그림·잡기 영역·반영 모두 함께)
+    height: 0.75,             // 배율 1 일 때 키
+    swimSink: 0.5,
+    walkWobbleDeg: 7,
+    walkWobbleFreq: 9,
   },
 
-  fullscreenOnFirstTouch: true, // 안드로이드: 첫 터치에 전체화면 + 가로 고정 시도
+  floe: {
+    scale: 1.25,              // ★ 빙하 크기 배율 (그림·발판 판정 함께)
+    radiusX: 2.4, radiusY: 1.8, // 배율 1 일 때 크기
+    damping: 1.4,
+    maxSpeed: 8,
+  },
+
+  water: {
+    rippleLife: 1.8,          // 일반 파문 지속 시간 (초)
+    rippleAlpha: 0.34,        // 파문 진하기
+    rippleSoftness: 0.45,     // 파문 띠 폭 (반지름 대비, 클수록 넓고 부드럽게)
+    splashRadius: 3.4,        // 퐁당 파문 최대 반지름
+    splashLife: 2.4,
+    wakeLife: 3.2,            // 빙하 물자국 지속 시간
+    wakeAlpha: 0.11,          // 물자국 한 점의 진하기 (겹쳐서 길게 보임)
+    wakeSpread: 0.9,          // 물자국이 옆으로 번지는 속도
+    swimWakeAlpha: 0.1,
+  },
+
+  reflect: {
+    alpha: 0.3,               // 반영 진하기 (0 = 끔)
+    fadeLength: 0.95,         // 몸 높이 대비 이 길이에 걸쳐 흐려짐
+    wobblePx: 2.2,            // 파문이 지날 때 윤곽 일렁임 폭
+    slices: 10,
+  },
+
+  fish: {
+    delay: 1.8,               // 시작 후 첫 점프까지 (초)
+    startSide: 1.8,           // 빙하 오른쪽 끝에서 더 바깥으로
+    front: 0.7,               // 빙하 앞 가장자리에서 더 앞으로 (펭귄 몸에 가리지 않게)
+    landSide: 2.4,            // 빙하 왼쪽 끝에서 더 바깥으로 착수
+    jump1: { height: 2.0, duration: 0.95 },
+    pause: 0.35,
+    jump2: { distance: 3.6, height: 0.9, duration: 0.6, rise: 0.8 },
+    size: 0.75,
+  },
+
+  world: {
+    islandDistance: 40,       // 출발점 ~ 섬 물가 거리 (좌우 모두)
+    islandHalfWidth: 16,
+    islandHalfLength: 40,     // 섬 세로 반길이 (넉넉해야 대각선으로 흘러도 도착)
+    shoreHeight: 0.22,        // 완만한 물가 높이
+    summitHeight: 34,         // 산 정상 높이 (화면 밖으로 이어지는 규모)
+    nearDist: 9,              // 이보다 가까운 산은 짙은 먹색
+    farDist: 34,              // 이보다 먼 산은 연회색
+    farRidgeParallax: 0.1,    // 먼 능선 시차 (작을수록 먼저·천천히 보임)
+    farRidgeShow: [30, 16],   // 섬까지 거리가 30 이하부터 먼 능선이 드러나 16 에서 완전히 보임
+  },
+
+  fullscreenOnFirstTouch: true,
 };
