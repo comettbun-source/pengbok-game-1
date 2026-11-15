@@ -1213,7 +1213,7 @@
         const a = r.alpha * Math.min(1, tj / RP.fadeIn) * Math.pow(1 - k, 1.6) * (1 - 0.35 * j / RP.rings) * (1 - fog);
         if (a < 0.004 || rad < 0.02) continue;
         const inner = RP.rings > 1 ? j / (RP.rings - 1) : 0;    // 안쪽 겹일수록 밝고 조금 굵게
-        ctx.lineWidth = lerp(RP.widthFrom, RP.widthTo, k) * scl * (1 + 0.3 * inner);
+        const baseW = lerp(RP.widthFrom, RP.widthTo, k) * scl * (1 + 0.3 * inner);
         const N = 32, pts = [];
         for (let i = 0; i <= N; i++) {
           const th = i / N * Math.PI * 2;
@@ -1226,6 +1226,7 @@
           if (noise1(th * 2.1 + r.ph2 + j * 7) < -1 + 2 * RP.breaks) continue;    // 일부가 끊긴 링
           const p0 = pts[i], p1 = pts[i + 1]; if (!p0 || !p1) continue;
           const lit = 0.5 + 0.5 * (Math.cos(th) * lx + Math.sin(th) * ly);       // 빛 쪽(왼쪽 위)이 밝게
+          ctx.lineWidth = baseW * (1 + (RP.thickVar || 0) * Math.sin(4 * th + r.ph + tj * 2));   // 가장자리 두께가 물결처럼 변함
           const m = Math.min(1, lit * RP.lightSide + inner * (RP.centerLight || 0)), col = [96 + (255 - 96) * m, 106 + (255 - 106) * m, 118 + (255 - 118) * m].map(Math.round);
           ctx.strokeStyle = `rgba(${col.join(',')},${(a * (0.75 + 0.5 * lit)).toFixed(3)})`;
           ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();

@@ -71,6 +71,7 @@ const WATER_CALM = {
     fadeIn: 0.1,              // 나타나는 시간, 이후 길게 사라짐
     alpha: 0.32,
     wobble: 0.06,             // 노이즈 일그러짐 (반지름 비율)
+    thickVar: 0.4,            // 링 가장자리 두께가 물결처럼 변하는 정도
     breaks: 0.22,             // 끊어진 부분 비율
     lightSide: 0.6,           // 빛 방향(왼쪽 위) 쪽이 밝은 정도
     softness: 0.45,           // (수영 중 몸 둘레 고리 스프라이트용)
@@ -91,7 +92,7 @@ const WATER_NORMAL = {
   inertiaTilt: { accelDeg: 3, stopDeg: 2.2, accelRef: 3 },
   settle: { dampingRatio: 0.4, maxPx: 6 },
   splash: { ringRadius: 3.2, ringLife: 2.2 },
-  ripple: { life: 2.6, rings: 6, ringGap: 0.12, centerLight: 0.4, widthFrom: 2.4, widthTo: 0.6, fadeIn: 0.1, alpha: 0.4, wobble: 0.09, breaks: 0.25, lightSide: 0.6, softness: 0.5 },
+  ripple: { life: 2.6, rings: 6, ringGap: 0.12, centerLight: 0.4, widthFrom: 2.4, widthTo: 0.6, fadeIn: 0.1, alpha: 0.4, wobble: 0.09, thickVar: 0.5, breaks: 0.25, lightSide: 0.6, softness: 0.5 },
   curve: { wakeBend: 0.5, vortex: { every: 1.1, life: 2.0, radius: 0.4, alpha: 0.26, max: 8 } },
 };
 
