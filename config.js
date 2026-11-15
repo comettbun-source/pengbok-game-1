@@ -95,22 +95,27 @@ const PHYSICS = {
 };
 
 // ── 빙하 배치 ──────────────────────────────────────────────
+// 빙하는 길이 아니라 쉬어 가는 징검다리. 바다 곳곳에 하나둘 떠 있고 대부분은 열린 바다.
 const ICE_FIELD = {
   seed: 20261115,             // 같은 시드 = 같은 배치
-  maxActive: 14,              // 동시에 존재하는 빙하 상한
-  activeRange: 24,            // 카메라 주변 이 거리 안에서만 생성
-  fadeRange: [14, 21],        // 이 거리에서 진함 → 옅음
+  maxActive: 8,               // 동시에 존재하는 빙하 상한
+  activeRange: 26,            // 펭귄 주변 이 거리 안에서만 생성
   fadeInTime: 1.2,            // 새로 나타날 때 서서히 진해지는 시간
-  sizeStart: [0.6, 1.0],      // 시작 빙하 대비 지름 비율 (출발 근처)
-  sizeEnd: [0.15, 0.3],       // 섬 근처
-  gapEarly: [0.25, 0.7],      // 초반 간격 = 점프 최대 거리 × 이 비율 (0.7 이하 = 점프로 건넘)
-  gapLate: [0.95, 1.9],       // 중반 이후 (1 근처 = 겨우 닿음, 그 이상 = 수영)
-  earlyUntil: 0.3,            // 진행률(0~1) 이 지점까지 초반
-  openSea: 7,                 // 상륙 직전 빙하 없는 열린 바다 길이
-  density: { left: 1.3, right: 0.75 },  // 클수록 촘촘 (왼쪽 = 물고기 쪽)
-  pathWobble: 0.8,            // 경로 빙하가 위아래로 흩어지는 폭
-  sideFloes: 2,               // 경로 한 칸당 곁 빙하 수 (출발 근처 기준, 갈수록 줄어듦)
-  sideScatter: [3, 7],        // 곁 빙하가 경로에서 떨어진 거리
+  // 위치 고정 빙하 (월드 좌표, size = 시작 빙하 대비 지름 비율)
+  fixed: [
+    { x: 0, y: 0, size: 1, start: true },     // 시작 빙하
+    { x: -5.2, y: 2.6, size: 0.72 },          // 왼쪽 앞 첫 빙하 (점프 한 번으로 건넘)
+    { x: -3, y: -4.6, size: 0.28 },           // 오른쪽 조각
+  ],
+  spacing: [7, 12],           // 시드 배치 열 간격: 출발 근처 ~ 섬 근처 (점점 넓어짐)
+  perColumn: 2.2,             // 열마다 평균 빙하 수 (출발 근처 기준, 섬 쪽으로 갈수록 줄어듦)
+  density: { left: 1.0, right: 0.7 },   // 왼쪽(물고기·반딧불이 쪽)이 조금 더 많음
+  spreadY: 22,                // 바다 위아래로 흩어지는 폭
+  bigShare: 0.3,              // 큰 빙하 비율 (섬 쪽으로 갈수록 줄어듦)
+  sizeStart: [0.6, 1.0],      // 큰 빙하 크기 (시작 빙하 대비)
+  sizeEnd: [0.15, 0.3],       // 작은 조각 크기
+  openSea: 8,                 // 상륙 직전 빙하 없는 열린 바다 길이
+  keepClear: 3,               // 고정 빙하·물고기 구역 주변 여백
 };
 
 window.CONFIG = {
@@ -140,11 +145,41 @@ window.CONFIG = {
     penguinHitPx: 48,
   },
 
+  // 펭귄 등 뒤 낮은 시점 (원근 투영). 펭귄 화면 위치·크기와 수평선에 맞춰 카메라 거리·높이를 자동 계산
   camera: {
-    viewHeight: 12, followRate: 2.6, lead: 0.35,
-    rotateSensX: -0.006, rotateSensY: 0.004, rotateSmooth: 14,
-    pitchDeg: 52, pitchMinDeg: 28, pitchMaxDeg: 82, screenY: 0.5,
+    pitchDeg: 18, pitchMinDeg: 10, pitchMaxDeg: 30,
+    focal: 1.0,               // 초점 거리 (화면 높이 배수, 클수록 망원)
+    horizonY: 0.35,           // 기본 pitch 일 때 수평선 위치 (위에서부터 비율)
+    penguinScreenY: 0.78,     // 펭귄 발 위치 (위에서부터 비율)
+    penguinScreenH: 0.26,     // 펭귄 키 / 화면 높이
+    near: 0.35,               // 이보다 가까운 것은 잘라냄
+    followRate: 2.6, lead: 0.35,
+    rotateSensX: -0.005,      // 가로 드래그 회전 감도 (부호 반대 = 방향 반전)
+    rotateSensY: 0.002,       // 세로 드래그 기울기 감도
+    rotateSmooth: 10,
+    startLookAt: [-40, 4],    // 시작 시 바라보는 점 (왼쪽 앞 첫 빙하와 먼 섬이 화면에 들어오게)
+    autoTurn: true,           // 손을 떼고 잠시 뒤 다음 목표(반딧불이) 방향으로 천천히 돌아옴
+    autoTurnDelay: 2,         // 초
+    autoTurnRate: 0.45,       // 돌아오는 빠르기 (작을수록 천천히)
+    fog: { start: 8, end: 75, max: 0.82 },         // 빙하·수면·물결이 미색에 녹는 거리
+    mountainFog: { start: 6, end: 60, max: 0.86 },  // 산 (멀리선 연회색 능선, 가까울수록 짙은 절벽)
   },
+
+  // 섬까지 안내하는 반딧불이. 경로는 route 웨이포인트로만 정의 (마지막 = 낮은 해안)
+  firefly: {
+    route: [
+      [-9, 1.5, 1.1], [-15, -2.5, 1.2], [-21.5, 1.5, 1.2], [-28, -1.5, 1.1], [-34, 0.5, 1.0], [-43.5, 0, 1.1],
+    ],
+    reachDist: 5,             // 펭귄이 이만큼 다가오면 다음 웨이포인트로
+    speed: 3.2,               // 비행 속도
+    hover: 0.25,              // 제자리 맴돌기 폭
+    size: 0.09,               // 빛 알맹이 크기 (월드)
+    glow: 0.55,               // 번짐 크기 (월드)
+    companions: 2,            // 곁에서 맴도는 작은 반딧불이 수
+  },
+
+  // 바다 이동 한계 (펭귄·빙하가 이 밖으로 나가지 않게 부드럽게 밀어 줌)
+  bounds: { x: [-75, 75], y: [-36, 36], push: 6 },
 
   penguin: {
     scale: 1.3,               // ★ 펭귄 크기 배율 (그림·잡기 영역·반영 함께)
@@ -162,15 +197,16 @@ window.CONFIG = {
   reflect: { alpha: 0.3, fadeLength: 0.95, wobblePx: 2.2, slices: 10 },
 
   fish: {
-    delay: 1.8, startSide: 1.8, front: 0.7, landSide: 2.4,
+    delay: 1.8,
+    startRight: 3.5, ahead: 8,  // 펭귄 기준 오른쪽·앞 (화면 기준)
+    landLeft: 4,                // 왼쪽 착수
     jump1: { height: 2.0, duration: 0.95 }, pause: 0.35,
-    jump2: { distance: 3.6, height: 0.9, duration: 0.6, rise: 0.8 }, size: 0.75,
+    jump2: { distance: 3.2, ahead: 2, height: 0.9, duration: 0.6 }, size: 0.75,
   },
 
   world: {
     islandDistance: 40, islandHalfWidth: 16, islandHalfLength: 40,
-    shoreHeight: 0.22, summitHeight: 34, nearDist: 9, farDist: 34,
-    farRidgeParallax: 0.1, farRidgeShow: [30, 16],
+    shoreHeight: 0.22, summitHeight: 34,
   },
 
   fullscreenOnFirstTouch: true,
