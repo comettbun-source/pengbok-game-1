@@ -195,6 +195,9 @@
       ph: [r() * WC().bob.phaseSpread, r() * WC().bob.phaseSpread, r() * 6.28, r() * 6.28],
     });
     f.R = Math.max(...f.shape.map(([x, y]) => Math.hypot(x, y)));
+    { const fr = rng(c.seed + 5), n = f.shape.length;                // 윗면 면 분할선: 안쪽 한 점에서 가장자리 2~3곳으로
+      const i0 = (fr() * n) | 0;
+      f.facet = { c: [(fr() - 0.5) * rx * 0.5, (fr() - 0.5) * ry * 0.5], idx: [i0, (i0 + Math.round(n / 3) + ((fr() * 2) | 0)) % n, (i0 + Math.round(2 * n / 3)) % n].slice(0, fr() < 0.5 ? 2 : 3) }; }
     f.cr = (rx + ry) / 2 * 0.92;                              // 충돌 원 반지름
     f.mass = Math.PI * rx * ry * P.floeDensity;
     f.heave.h = 0; f.heave.v = 0; f.tilt.x = f.tilt.y = f.tilt.vx = f.tilt.vy = 0; f.hist.fill(0);
@@ -224,20 +227,25 @@
     cam.pitch = cam.pitchT = deg(C.camera.pitchDeg);
     S.lastCamTouch = -99;
     S.p = {
-      x: 0, y: 0, z: 0.12, vx: 0, vy: 0, vz: 0, cvx: 0, cvy: 0,
+      x: 0, y: 0, z: C.floe.topHeight, vx: 0, vy: 0, vz: 0, cvx: 0, cvy: 0,
       face: Math.atan2(sfy, sfx), mode: 'floe', floe: null, lx: 0, ly: 0, air: false,
       sliding: false, sit: true, sink: 0, wobble: 0, phase: 0, idleRing: 0, ripple: 0,
       heave: { h: 0, v: 0 }, lean: { h: 0, v: 0 }, peakSpeed: 0, prevSpeed: 0, aLong: 0, lastEmit: null,
     };
     manageField();
     S.p.floe = S.cands[0].floe;
-    S.ripples = [];
+    S.ripples = []; S.vortex = [];
     S.wake = Array.from({ length: WC().wake.maxParticles }, () => ({ on: false }));
     S.lines = null;
     S.lastTapUp = 0; S.tapPulse = 0; S.jumpAt = 0; S.jumpReq = false;
     S.fish = { state: 'wait', t: 0 };
-    const r0 = C.firefly.route[0];
-    S.ff = { i: 0, x: r0[0], y: r0[1], z: r0[2], comp: Array.from({ length: C.firefly.companions }, (_, k) => ({ ph: k * 2.4 + 1, rad: 0.5 + k * 0.25 })) };
+    const r0 = C.FIREFLY.route[0];
+    const FF = C.FIREFLY, fr = rng(4242), n = Math.min(FF.count, FF.mobileMax);
+    S.ff = { i: 0, x: r0[0], y: r0[1], z: r0[2], px: r0[0], py: r0[1], trail: [], trailT: 0,
+      sw: Array.from({ length: n }, () => ({
+        rad: lerp(FF.swarmRadius[0], FF.swarmRadius[1], Math.pow(fr(), 0.7)), ph: fr() * 6.28, sp: (0.25 + fr() * 0.6) * (fr() < 0.5 ? -1 : 1),
+        zr: 0.15 + fr() * 0.35, size: lerp(FF.size[0], FF.size[1], fr()), glow: lerp(FF.glow[0], FF.glow[1], fr()),
+        bri: lerp(FF.brightness[0], FF.brightness[1], fr()), fl: lerp(FF.flickerHz[0], FF.flickerHz[1], fr()), hue: (fr() * 3) | 0 })) };
     S.events = [];
   }
   const log = (type) => { S.events.push({ type, t: S.time }); if (S.events.length > 60) S.events.shift(); };
@@ -282,7 +290,7 @@
     return [rig.R[0] * a + rig.F[0] * b, rig.R[1] * a + rig.F[1] * b];
   }
   // 안개: 깊이에 따라 미색으로 섞이는 비율
-  const fogAt = (d, fg = C.camera.fog) => fg.max * smooth(fg.start, fg.end, d);
+  const fogAt = (d, fg = C.FOG.dist) => fg.max * smooth(fg.start, fg.end, d);
   const BG = [243, 238, 227];
   const mixFog = (rgb, t) => `rgb(${rgb.map((v, i) => Math.round(v + (BG[i] - v) * t)).join(',')})`;
   // 앞쪽 잘림면(near)으로 다각형 자르기 → 화면 좌표
@@ -301,8 +309,7 @@
   }
 
   // ── 지형 판정 (빙하 = 그림과 같은 다각형, 충돌 = 원·타원) ──────
-  const FLOE_TOP = 0.12;
-  const floeTopAt = (f, lx, ly) => FLOE_TOP + f.tilt.x * lx + f.tilt.y * ly;
+  const floeTopAt = (f, lx, ly) => C.floe.topHeight + f.tilt.x * lx + f.tilt.y * ly;
   const onFloe = (f, x, y, scale = 1) => f && f.active && inPoly(f.shape, (x - f.x) / scale, (y - f.y) / scale);
   const floeAt = (x, y, scale = 1) => S.floePool.find((f) => f.active && onFloe(f, x, y, scale)) || null;
   const islandAt = (x, y) => S.islands.find((is) => inPoly(is.shape, x, y));
@@ -317,7 +324,7 @@
   // ── 물결 ────────────────────────────────────────────────
   function ripple(x, y, maxR, life, alpha) {
     const R = WC().ripple;
-    S.ripples.push({ x, y, t: 0, maxR, life: life || R.life, alpha: alpha == null ? R.alpha : alpha });
+    S.ripples.push({ x, y, t: 0, maxR, life: life || R.life, alpha: alpha == null ? R.alpha : alpha, ph: Math.random() * 6.28, ph2: Math.random() * 6.28 });
   }
   // V자 항적 입자 (풀 재사용, 가득 차면 가장 오래된 것 교체)
   function wakeLimit() { return Math.max(8, Math.round(WC().wake.maxParticles * S.quality)); }
@@ -325,7 +332,16 @@
     const Wk = WC().wake, s = clamp(speed / maxSp, 0, 1);
     const spacing = lerp(Wk.spacing[0], Wk.spacing[1], s);
     if (hull.lastEmit && Math.hypot(x - hull.lastEmit[0], y - hull.lastEmit[1]) < spacing) return;
+    if (hull.lastEmit) hull.vtxDist = (hull.vtxDist || 0) + Math.hypot(x - hull.lastEmit[0], y - hull.lastEmit[1]);
     hull.lastEmit = [x, y];
+    // 지나간 자리 양옆에 작게 말려 도는 와류
+    const V = WC().curve.vortex;
+    if (hull.vtxDist > V.every && s > 0.25) {
+      hull.vtxDist = 0;
+      const px = -Math.sin(ang), py = Math.cos(ang), side = (S.vtxFlip = -(S.vtxFlip || 1));
+      if (S.vortex.length >= V.max) S.vortex.shift();
+      S.vortex.push({ x: x + px * halfW * 1.3 * side, y: y + py * halfW * 1.3 * side, t: 0, dir: side, ph: ang + Math.PI, r: V.radius * (0.7 + 0.6 * s) * (0.6 + halfW), a: V.alpha * (0.5 + 0.5 * s) });
+    }
     const lim = wakeLimit();
     let slot = null, oldest = null;
     for (let i = 0; i < lim; i++) {
@@ -775,12 +791,22 @@
     updateRig();
   }
   // 다음 목표: 반딧불이 웨이포인트
-  function turnTarget() { const r = C.firefly.route[S.ff.i]; return [r[0], r[1]]; }
+  function turnTarget() { const r = C.FIREFLY.route[S.ff.i]; return [r[0], r[1]]; }
   function stepFirefly(dt) {
-    const F = C.firefly, ff = S.ff, p = S.p, route = F.route;
+    const F = C.FIREFLY, ff = S.ff, p = S.p, route = F.route;
     if (ff.i < route.length - 1 && Math.hypot(route[ff.i][0] - p.x, route[ff.i][1] - p.y) < F.reachDist) { ff.i++; log('firefly' + ff.i); }
     const t = route[ff.i], dx = t[0] - ff.x, dy = t[1] - ff.y, dz = t[2] - ff.z, d = Math.hypot(dx, dy, dz);
     if (d > 0.01) { const m = Math.min(d, F.speed * dt * clamp(d / 1.5, 0.25, 1)); ff.x += dx / d * m; ff.y += dy / d * m; ff.z += dz / d * m; }
+    // 이동 중: 수면을 따라 짧게 번지는 푸른 잔광
+    const v = Math.hypot(ff.x - ff.px, ff.y - ff.py) / dt; ff.px = ff.x; ff.py = ff.y;
+    ff.trailT -= dt;
+    if (v > 0.4 && ff.trailT <= 0) {
+      ff.trailT = F.trail.every;
+      const q = ff.sw[(Math.random() * ff.sw.length) | 0], a = q.ph + S.time * q.sp;
+      if (ff.trail.length >= F.trail.max) ff.trail.shift();
+      ff.trail.push({ x: ff.x + Math.cos(a) * q.rad, y: ff.y + Math.sin(a) * q.rad * 0.8, t: 0, s: 0.6 + Math.random() * 0.6 });
+    }
+    ff.trail = ff.trail.filter((tq) => (tq.t += dt) < F.trail.life);
   }
 
   function step(dt) {
@@ -796,6 +822,7 @@
     S.ripples = S.ripples.filter((r) => (r.t += dt) < r.life);
     const life = WC().wake.life;
     for (const w of S.wake) if (w.on && (w.t += dt) >= life) w.on = false;
+    S.vortex = S.vortex.filter((v) => (v.t += dt) < WC().curve.vortex.life);
   }
 
   // ── 그리기 ──────────────────────────────────────────────
@@ -844,36 +871,102 @@
     ctx.fillStyle = g2; ctx.fillRect(0, Math.max(0, hz), W, H);
   }
 
-  // 수면 잔물결: 아주 옅은 가로선 몇 개가 월드에 떠서 천천히 흐름 (펭귄 앞쪽 주변에서 순환)
+  // 1차원 값 노이즈 (부드럽게 보간)
+  const hash1 = (i) => { const s = Math.sin(i * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+  const noise1 = (x) => { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return lerp(hash1(i), hash1(i + 1), u) * 2 - 1; };
+
+  // 수면 잔물결: 저주파 노이즈 + 사인 두 개로 휘는 곡선. 천천히 흐르며 모양이 바뀜. 먼 곳일수록 촘촘·옅게
   function drawSurfaceLines() {
-    const L = WC().surfaceLines, n = Math.max(2, Math.round(L.count * S.quality)), T = 30;
-    if (!S.lines || S.lines.length !== L.count) {
-      const r = rng(99); S.lines = Array.from({ length: L.count }, () => ({ x: r() * T, y: r() * T, len: lerp(L.length[0], L.length[1], r()), a: lerp(L.alpha[0], L.alpha[1], r()), ph: r() * 6.28 }));
+    const L = WC().surfaceLines, K = WC().curve;
+    const nNear = Math.max(2, Math.round(L.count * S.quality)), nFar = Math.max(2, Math.round(K.farCount * S.quality));
+    if (!S.lines || S.lines.n !== L.count + K.farCount) {
+      const r = rng(99), mk = (far) => ({ x: r(), y: r(), len: lerp(L.length[0], L.length[1], r()) * (far ? 1.6 : 1), a: lerp(L.alpha[0], L.alpha[1], r()) * (far ? 0.75 : 1), ph: r() * 6.28, ph2: r() * 6.28, seed: r() * 100 });
+      S.lines = { n: L.count + K.farCount, near: Array.from({ length: L.count }, () => mk(false)), far: Array.from({ length: K.farCount }, () => mk(true)) };
     }
-    const ox = cam.x + rig.F[0] * T * 0.35, oy = cam.y + rig.F[1] * T * 0.35;
     ctx.lineCap = 'round';
-    for (let i = 0; i < n; i++) {
-      const l = S.lines[i];
-      const wx = ((l.x + S.time * L.speed - ox) % T + T * 1.5) % T - T / 2 + ox;
-      const wy = ((l.y - oy) % T + T * 1.5) % T - T / 2 + oy;
-      if (floeAt(wx, wy) || islandAt(wx, wy)) continue;
-      const h = l.len / 2, a0 = camSpace(wx - rig.R[0] * h, wy - rig.R[1] * h, 0), a1 = camSpace(wx + rig.R[0] * h, wy + rig.R[1] * h, 0);
-      if (a0[1] < rig.near + 0.5 || a1[1] < rig.near + 0.5) continue;
-      const [x0, y0, d] = toScreen(a0), [x1, y1] = toScreen(a1);
-      const edge = Math.min(1, Math.min((x0 + x1) / 2, W - (x0 + x1) / 2) / 80);
-      const a = l.a * (0.55 + 0.45 * Math.sin(S.time * 0.4 + l.ph)) * Math.max(0, edge) * (1 - fogAt(d));
-      if (a <= 0.004) continue;
-      ctx.lineWidth = clamp(pxPerUnit(d) * 0.02, 0.6, 1.4);
-      ctx.strokeStyle = `rgba(${COL.water},${a.toFixed(3)})`;
-      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo((x0 + x1) / 2, (y0 + y1) / 2 + 1.5, x1, y1); ctx.stroke();
-    }
+    const tier = (list, n, T, ahead) => {
+      const ox = cam.x + rig.F[0] * ahead, oy = cam.y + rig.F[1] * ahead, t = S.time;
+      for (let i = 0; i < n; i++) {
+        const l = list[i];
+        const wx = ((l.x * T + t * L.speed - ox) % T + T * 1.5) % T - T / 2 + ox;
+        const wy = ((l.y * T - oy) % T + T * 1.5) % T - T / 2 + oy;
+        if (floeAt(wx, wy) || islandAt(wx, wy)) continue;
+        const cc = camSpace(wx, wy, 0);
+        if (cc[1] < rig.near + 0.8) continue;
+        const base = l.a * (0.55 + 0.45 * Math.sin(t * 0.4 + l.ph)) * (1 - fogAt(cc[1]));
+        if (base <= 0.004) continue;
+        const pts = [], N = 12;
+        for (let k = 0; k <= N; k++) {
+          const s = (k / N - 0.5) * l.len;
+          const off = K.lineAmp * (0.6 * Math.sin(K.lineWaves[0] * s * 6.28 / 3 + K.flowSpeed * t + l.ph) + 0.4 * Math.sin(K.lineWaves[1] * s * 6.28 / 3 - K.flowSpeed * 0.7 * t + l.ph2))
+            + K.noiseAmp * noise1(s * K.noiseScale + t * K.morphSpeed + l.seed);
+          const cs = camSpace(wx + rig.R[0] * s + rig.F[0] * off, wy + rig.R[1] * s + rig.F[1] * off, 0);
+          if (cs[1] < rig.near) { pts.length = 0; break; }
+          pts.push(toScreen(cs));
+        }
+        if (pts.length < 2) continue;
+        const mx = pts[N >> 1][0], edge = clamp(Math.min(mx, W - mx) / 80, 0, 1);
+        ctx.lineWidth = clamp(pxPerUnit(cc[1]) * 0.018, 0.5, 1.3);
+        for (let k = 0; k < pts.length - 1; k++) {               // 양 끝으로 갈수록 옅게
+          const a = base * edge * Math.sin(Math.PI * (k + 0.5) / N);
+          if (a <= 0.004) continue;
+          ctx.strokeStyle = `rgba(${COL.water},${a.toFixed(3)})`;
+          ctx.beginPath(); ctx.moveTo(pts[k][0], pts[k][1]); ctx.lineTo(pts[k + 1][0], pts[k + 1][1]); ctx.stroke();
+        }
+      }
+    };
+    tier(S.lines.far, nFar, 60, 40);
+    tier(S.lines.near, nNear, 30, 10);
   }
 
   function drawWater() {
-    const rs = getRingSprite();
+    const K = WC().curve;
+    ctx.lineCap = 'round';
+    // 원형 파문: 살짝 일그러진 타원으로 퍼지고, 가장자리 두께가 물결처럼 변함
     for (const r of S.ripples) {
       const k = r.t / r.life, rad = r.maxR * (0.15 + 0.85 * (1 - Math.pow(1 - k, 2.2)));
-      groundSprite(rs, r.x, r.y, rad, r.alpha * Math.pow(1 - k, 1.3) * Math.min(1, k * 8));
+      const a0 = r.alpha * Math.pow(1 - k, 1.3) * Math.min(1, k * 8);
+      if (a0 <= 0.004) continue;
+      const cc = camSpace(r.x, r.y, 0);
+      if (cc[1] < rig.near + 0.3) continue;
+      const fa = a0 * (1 - fogAt(cc[1])), N = 28, pts = [], inner = [];
+      for (let i = 0; i <= N; i++) {
+        const th = i / N * Math.PI * 2;
+        const rr = rad * (1 + K.rippleWobble * Math.sin(2 * th + r.ph + r.t * 0.6) + K.rippleWobble * 0.5 * Math.sin(3 * th + r.ph2));
+        const a = camSpace(r.x + Math.cos(th) * rr, r.y + Math.sin(th) * rr, 0), b = camSpace(r.x + Math.cos(th) * rr * 0.93, r.y + Math.sin(th) * rr * 0.93, 0);
+        pts.push(a[1] > rig.near ? toScreen(a) : null); inner.push(b[1] > rig.near ? toScreen(b) : null);
+      }
+      const w0 = clamp(pxPerUnit(cc[1]) * 0.03, 0.6, 3.2) * (0.6 + 0.8 * (1 - k));
+      for (let i = 0; i < N; i++) {
+        const p0 = pts[i], p1 = pts[i + 1], q0 = inner[i], q1 = inner[i + 1];
+        const th = i / N * Math.PI * 2, wv = 1 + K.rippleThickVar * Math.sin(4 * th + r.ph + r.t * 2);
+        if (p0 && p1) {
+          ctx.lineWidth = w0 * wv * 2.4; ctx.strokeStyle = `rgba(${COL.water},${(fa * 0.3).toFixed(3)})`;
+          ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
+          ctx.lineWidth = w0 * wv; ctx.strokeStyle = `rgba(${COL.water},${(fa * 0.75).toFixed(3)})`;
+          ctx.beginPath(); ctx.moveTo(p0[0], p0[1]); ctx.lineTo(p1[0], p1[1]); ctx.stroke();
+        }
+        if (q0 && q1) {                                       // 안쪽의 밝은 물마루
+          ctx.lineWidth = w0 * wv * 0.8; ctx.strokeStyle = `rgba(255,255,255,${(fa * 1.4).toFixed(3)})`;
+          ctx.beginPath(); ctx.moveTo(q0[0], q0[1]); ctx.lineTo(q1[0], q1[1]); ctx.stroke();
+        }
+      }
+    }
+    // 와류: 둥글게 말려 드는 작은 호
+    for (const v of S.vortex) {
+      const k = v.t / K.vortex.life, a = v.a * Math.sin(Math.PI * Math.min(1, k * 1.2)) * (1 - k);
+      const cc = camSpace(v.x, v.y, 0);
+      if (a < 0.004 || cc[1] < rig.near + 0.3) continue;
+      const pts = [];
+      for (let i = 0; i <= 10; i++) {
+        const u = i / 10, th = v.ph + v.dir * (u * 4.2 + v.t * 2.2), rr = v.r * (0.45 + 0.55 * k) * (1 - 0.55 * u);
+        const cs = camSpace(v.x + Math.cos(th) * rr, v.y + Math.sin(th) * rr, 0);
+        if (cs[1] > rig.near) pts.push(toScreen(cs));
+      }
+      if (pts.length < 2) continue;
+      ctx.lineWidth = clamp(pxPerUnit(cc[1]) * 0.022, 0.6, 2.2);
+      ctx.strokeStyle = `rgba(${COL.water},${(a * (1 - fogAt(cc[1]))).toFixed(3)})`;
+      ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
     }
     ctx.globalAlpha = 1;
     // V자 항적: 방출점을 중심으로 퍼지는 얇은 호. 반지름 = 진행거리 × tan(반각) → 팔이 반각 19°
@@ -889,8 +982,10 @@
         const pts = [];
         let dsum = 0;
         for (let i = 0; i <= 6; i++) {                       // 카메라 바로 앞에서 잘린 부분만 빼고 그림
-          const th = c0 - w.span / 2 + w.span * i / 6;
-          const cs = camSpace(w.x + Math.cos(th) * rad, w.y + Math.sin(th) * rad, 0);
+          // 바깥(뒤)쪽 끝으로 갈수록 뒤로 살짝 휘는 곡선 호
+          const u = i / 6, th = c0 - w.span / 2 + w.span * u + sd * K.wakeBend * u * u * (0.5 + k);
+          const rr = rad * (1 + 0.08 * Math.sin(u * 3.1 + w.t * 1.5));
+          const cs = camSpace(w.x + Math.cos(th) * rr, w.y + Math.sin(th) * rr, 0);
           if (cs[1] < rig.near) continue;
           pts.push(toScreen(cs)); dsum += cs[1];
         }
@@ -930,16 +1025,54 @@
     }
   }
 
-  const FLOE_TOP_RGB = [255, 255, 255], FLOE_SIDE_RGB = [217, 213, 204];
+  const FLOE_SIDE_RGB = [214, 214, 210], FLOE_SUNK_RGB = [150, 162, 172], FLOE_SHADOW_RGB = [70, 76, 84];
   function floeAlpha(f) { return f === S.p.floe ? 1 : clamp((S.time - f.born) / IF.fadeInTime, 0, 1); }
+  // 빙하: 물에 반쯤 잠긴 덩어리. 접촉 그림자 → 잠긴 몸(아래로 옅어짐) → 수면 위 옆면 → 수면 흰 링 → 윗면(그라데이션·면 분할선)
   function drawFloe(f, d) {
     const a = floeAlpha(f);
     if (a <= 0.01) return;
-    const dy = floeOffset(f), fog = fogAt(d);
-    const off3 = (zf) => projPoly(f.shape.map(([x, y]) => [x + f.x, y + f.y, zf(x, y)])).map(([sx, sy]) => [sx, sy + dy]);
+    const FL = C.floe, dy = floeOffset(f), fog = fogAt(d), shp = f.shape;
+    const tilt = (x, y) => f.tilt.x * x + f.tilt.y * y;
+    const poly = (scale, zf, shift = dy) => projPoly(shp.map(([x, y]) => [f.x + x * scale, f.y + y * scale, zf(x * scale, y * scale)])).map(([sx, sy]) => [sx, sy + shift]);
+    // 접촉 그림자 (수면, 출렁임에 반만 따라감)
+    ctx.globalAlpha = a * FL.contactShadowAlpha * (1 - fog);
+    ctx.fillStyle = `rgb(${FLOE_SHADOW_RGB.join(',')})`; fillPoly(poly(1.1, () => 0, dy * 0.5));
+    // 잠긴 몸: 깊을수록 옅게
+    for (let k = 3; k >= 1; k--) {
+      ctx.globalAlpha = a * FL.sunkAlpha * (1 - (k - 1) / 3) * 0.55 * (1 - fog);
+      ctx.fillStyle = `rgb(${FLOE_SUNK_RGB.join(',')})`;
+      fillPoly(poly(1 + 0.035 * k, (x, y) => -FL.sunkDepth * k / 3 + tilt(x, y)));
+    }
+    // 수면 위 옆면 (연회색)
     ctx.globalAlpha = a;
-    ctx.fillStyle = mixFog(FLOE_SIDE_RGB, fog); fillPoly(off3((x, y) => -0.18 + f.tilt.x * x + f.tilt.y * y));
-    ctx.fillStyle = mixFog(FLOE_TOP_RGB, fog); fillPoly(off3((x, y) => floeTopAt(f, x, y)));
+    ctx.fillStyle = mixFog(FLOE_SIDE_RGB, fog); fillPoly(poly(1, (x, y) => tilt(x, y) - 0.01));
+    // 수면과 만나는 흰 물결 링
+    const ring = poly(1.03, (x, y) => tilt(x, y) - 0.005);
+    if (ring.length > 2) {
+      ctx.globalAlpha = a * FL.waterlineAlpha * (1 - fog);
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = clamp(pxPerUnit(d) * 0.025, 0.8, 2.6); ctx.lineJoin = 'round';
+      ctx.beginPath(); ring.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.stroke();
+    }
+    // 윗면: 위(먼 쪽)는 밝은 흰색, 앞쪽은 아주 옅은 회백색
+    const top = poly(1, (x, y) => floeTopAt(f, x, y));
+    if (top.length > 2) {
+      let y0 = Infinity, y1 = -Infinity; for (const q of top) { y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }
+      const gr = ctx.createLinearGradient(0, y0, 0, y1 + 1);
+      gr.addColorStop(0, mixFog([255, 255, 255], fog)); gr.addColorStop(1, mixFog([236, 238, 240], fog));
+      ctx.globalAlpha = a; ctx.fillStyle = gr; fillPoly(top);
+      // 면 분할선 2~3개
+      const c0 = camSpace(f.x + f.facet.c[0], f.y + f.facet.c[1], floeTopAt(f, f.facet.c[0], f.facet.c[1]));
+      if (c0[1] > rig.near) {
+        const [cx0, cy0] = toScreen(c0);
+        ctx.globalAlpha = a * FL.facetAlpha * (1 - fog); ctx.strokeStyle = '#5a6068'; ctx.lineWidth = 1;
+        for (const ix of f.facet.idx) {
+          const [vx, vy] = shp[ix], cv = camSpace(f.x + vx * 0.96, f.y + vy * 0.96, floeTopAt(f, vx, vy));
+          if (cv[1] <= rig.near) continue;
+          const [ex, ey] = toScreen(cv);
+          ctx.beginPath(); ctx.moveTo(cx0, cy0 + dy); ctx.lineTo(ex, ey + dy); ctx.stroke();
+        }
+      }
+    }
     ctx.globalAlpha = 1;
   }
 
@@ -948,7 +1081,7 @@
     for (const is of S.islands) {
       const d = camSpace(is.shoreX, clamp(cam.y, -is.ry, is.ry), 0)[1];
       if (d < -is.rx * 2) continue;
-      const fog = fogAt(Math.max(d, 0), C.camera.mountainFog);
+      const fog = fogAt(Math.max(d, 0), C.FOG.mountain);
       ctx.fillStyle = mixFog([112, 110, 106], fog); fillPoly(projPoly(is.shape.map(([x, y]) => [x, y, -0.05])));
       ctx.fillStyle = mixFog([156, 152, 144], fog); fillPoly(projPoly(is.shape.map(([x, y]) => [x, y, h])));
     }
@@ -975,7 +1108,7 @@
       const minX = Math.min(...sb.map((q) => q[0]), sa[0]), maxX = Math.max(...sb.map((q) => q[0]), sa[0]);
       if (maxX < 0 || minX > W) continue;
       items.push({ d: cb[1], draw: () => {
-        const fog = fogAt(cb[1], C.camera.mountainFog);
+        const fog = fogAt(cb[1], C.FOG.mountain);
         const shape = hull(sb.concat([sa, toScreen(camSpace(pk.x + pk.ax * 0.5 - pk.r * 0.35 * pk.so, pk.y, pk.h * pk.sh))]));
         ctx.fillStyle = mixFog(COL.mountNear, fog); fillPoly(shape);
         // 한쪽 면을 살짝 밝게 (양감)
@@ -1100,40 +1233,53 @@
     ctx.restore(); ctx.globalAlpha = 1;
   }
 
-  // 반딧불이: 따뜻한 빛 알맹이 + 번짐, 수면에 옅은 반영. 곁에 작은 반딧불이가 맴돎
-  const glowSprite = makeSprite([[0, 'rgba(255,240,190,1)'], [0.18, 'rgba(250,200,95,0.75)'], [0.5, 'rgba(240,175,70,0.22)'], [1, 'rgba(240,170,60,0)']]);
-  function fireflyPoints() {
-    const F = C.firefly, ff = S.ff, t = S.time;
-    const x = ff.x + Math.sin(t * 1.3) * F.hover, y = ff.y + Math.cos(t * 1.7) * F.hover, z = ff.z + Math.sin(t * 2.1) * F.hover * 0.6;
-    const pts = [{ x, y, z, k: 1, fl: 0.8 + 0.2 * Math.sin(t * 7.3) * Math.sin(t * 2.9) }];
-    for (const c of ff.comp) pts.push({ x: x + Math.cos(t * 1.1 + c.ph) * c.rad, y: y + Math.sin(t * 0.9 + c.ph) * c.rad, z: z + Math.sin(t * 1.7 + c.ph) * 0.2, k: 0.55, fl: 0.6 + 0.4 * Math.sin(t * 5.1 + c.ph * 3) });
-    return pts;
-  }
-  function drawGlow(x, y, z, k, a) {
-    const c = camSpace(x, y, z);
-    if (c[1] < rig.near + 0.3) return;
-    const [sx, sy] = toScreen(c), ppu = pxPerUnit(c[1]);
-    const g = clamp(C.firefly.glow * ppu, 10, 46) * k, core = clamp(C.firefly.size * ppu, 1.6, 6) * k;
-    const aa = a * (1 - fogAt(c[1]) * 0.5);
-    ctx.globalAlpha = aa; ctx.drawImage(glowSprite, sx - g, sy - g, g * 2, g * 2);
-    ctx.globalAlpha = Math.min(1, aa * 1.2); ctx.fillStyle = '#fff8e0';
-    ctx.beginPath(); ctx.arc(sx, sy, core, 0, Math.PI * 2); ctx.fill();
-    ctx.globalAlpha = 1;
-  }
-  function drawFireflyReflection() {
-    for (const q of fireflyPoints()) {
-      const c = camSpace(q.x, q.y, -q.z);
-      if (c[1] < rig.near + 0.3) continue;
-      const [sx, sy] = toScreen(c), g = Math.max(8, C.firefly.glow * pxPerUnit(c[1])) * q.k * 0.7;
-      ctx.globalAlpha = 0.22 * q.fl * (1 - fogAt(c[1]));
-      ctx.drawImage(glowSprite, sx - g, sy - g * 0.6, g * 2, g * 1.2);
+  // 반딧불이: 바다 야광 플랑크톤 같은 푸른빛 무리. 가산 합성으로 번지고, 미색 바탕에서도 보이게 옅은 푸른 번짐을 깔아 줌
+  const ffSprites = (() => {
+    const F = C.FIREFLY, out = [];
+    for (let i = 0; i < 3; i++) {
+      const h = lerp(F.hue[0], F.hue[1], i / 2), s = F.sat, l = F.light;
+      out.push({
+        glow: makeSprite([[0, `hsla(${h},${s}%,${Math.min(95, l + 30)}%,1)`], [0.2, `hsla(${h},${s}%,${l}%,0.7)`], [0.55, `hsla(${h},${s}%,${l}%,0.18)`], [1, `hsla(${h},${s}%,${l}%,0)`]]),
+        halo: makeSprite([[0, `hsla(${h},${s}%,${l - 12}%,0.9)`], [0.5, `hsla(${h},${s}%,${l - 12}%,0.3)`], [1, `hsla(${h},${s}%,${l - 12}%,0)`]]),
+        core: `hsl(${h},${Math.min(100, s)}%,92%)`,
+      });
     }
-    ctx.globalAlpha = 1;
+    return out;
+  })();
+  function fireflyPoints() {
+    const F = C.FIREFLY, ff = S.ff, t = S.time;
+    const lx = ff.x + Math.sin(t * 1.3) * F.hover, ly = ff.y + Math.cos(t * 1.7) * F.hover, lz = ff.z + Math.sin(t * 2.1) * F.hover * 0.6;
+    return ff.sw.map((q) => {
+      const a = q.ph + t * q.sp;
+      return { x: lx + Math.cos(a) * q.rad, y: ly + Math.sin(a * 0.8 + q.ph) * q.rad * 0.8, z: lz + Math.sin(t * 1.3 * Math.abs(q.sp) + q.ph) * q.zr,
+        q, b: q.bri * (0.55 + 0.45 * Math.sin(t * 6.283 * q.fl + q.ph * 3)) };
+    });
+  }
+  function drawGlowAt(c, q, b, flat = 1, alphaK = 1) {
+    if (c[1] < rig.near + 0.3) return;
+    const [sx, sy] = toScreen(c), ppu = pxPerUnit(c[1]), sp = ffSprites[q.hue];
+    const g = clamp(q.glow * ppu, 6, 40), core = clamp(q.size * ppu, 1, 5);
+    const fog = fogAt(c[1]), aa = b * alphaK * (1 - fog * 0.55);          // 안개 속에서도 은은하게
+    ctx.globalAlpha = clamp(C.FIREFLY.haloAlpha * aa, 0, 1);
+    ctx.drawImage(sp.halo, sx - g * 0.8, sy - g * 0.8 * flat, g * 1.6, g * 1.6 * flat);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = clamp(aa, 0, 1); ctx.drawImage(sp.glow, sx - g, sy - g * flat, g * 2, g * 2 * flat);
+    if (flat === 1) { ctx.fillStyle = sp.core; ctx.beginPath(); ctx.arc(sx, sy, core, 0, Math.PI * 2); ctx.fill(); }
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  }
+  // 수면: 무리의 옅은 푸른 반사 + 이동할 때 짧게 번지는 잔광
+  function drawFireflyReflection() {
+    const F = C.FIREFLY;
+    for (const tq of S.ff.trail) {
+      const k = tq.t / F.trail.life, c = camSpace(tq.x, tq.y, 0);
+      drawGlowAt(c, { glow: F.trail.size * tq.s * (0.6 + 0.6 * k), size: 0, hue: 1 }, F.trail.alpha * (1 - k), 0.35);
+    }
+    for (const pt of fireflyPoints()) drawGlowAt(camSpace(pt.x, pt.y, -pt.z), pt.q, pt.b, 0.5, F.reflectAlpha);
   }
   function fireflyItems(items) {
-    for (const q of fireflyPoints()) {
-      const d = camSpace(q.x, q.y, q.z)[1];
-      items.push({ d, draw: () => drawGlow(q.x, q.y, q.z, q.k, q.fl) });
+    for (const pt of fireflyPoints()) {
+      const c = camSpace(pt.x, pt.y, pt.z);
+      items.push({ d: c[1], draw: () => drawGlowAt(c, pt.q, pt.b) });
     }
   }
 
@@ -1203,24 +1349,47 @@
     g2.setTransform(1, 0, 0, 1, 0, 0); g2.clearRect(0, 0, size, size);
     g2.setTransform(size / 2.2, 0, 0, size / 2.2, size / 2, size / 2);
     g2.fillStyle = `rgb(${rgb.join(',')})`;
-    const toes = [[-0.6, -0.4], [0, -0.68], [0.6, -0.4]], tr = 0.19;
-    // 물갈퀴: 발가락 사이가 안쪽으로 오목하게 이어진 막 (조금 옅게)
-    g2.globalAlpha = 0.55;
+    // 보내 준 그림처럼 하나로 이어진 둥근 물갈퀴 발자국 (위쪽에 둥근 봉우리 세 개, 아래는 둥글게)
     g2.beginPath();
-    g2.moveTo(-0.6, -0.4);
-    g2.quadraticCurveTo(-0.24, -0.26, 0, -0.68);
-    g2.quadraticCurveTo(0.24, -0.26, 0.6, -0.4);
-    g2.quadraticCurveTo(0.36, -0.08, 0.34, 0.14);
-    g2.lineTo(-0.34, 0.14);
-    g2.quadraticCurveTo(-0.36, -0.08, -0.6, -0.4);
+    g2.moveTo(-0.35, -0.75);
+    g2.bezierCurveTo(-0.18, -0.89, -0.05, -1.0, 0.165, -1.0);
+    g2.bezierCurveTo(0.375, -1.0, 0.475, -0.765, 0.55, -0.615);
+    g2.bezierCurveTo(0.775, -0.565, 0.885, -0.39, 0.885, -0.14);
+    g2.bezierCurveTo(0.885, 0.36, 0.275, 1.0, -0.15, 1.0);
+    g2.bezierCurveTo(-0.625, 1.0, -0.885, 0.46, -0.885, -0.14);
+    g2.bezierCurveTo(-0.885, -0.64, -0.675, -0.8, -0.5, -0.8);
+    g2.bezierCurveTo(-0.43, -0.8, -0.38, -0.76, -0.35, -0.75);
     g2.closePath(); g2.fill();
-    // 큰 둥근 패드 + 둥근 발가락 3개
-    g2.globalAlpha = 1;
-    g2.beginPath(); g2.ellipse(0, 0.34, 0.46, 0.38, 0, 0, Math.PI * 2); g2.fill();
-    for (const [x, y] of toes) { g2.beginPath(); g2.arc(x, y, tr, 0, Math.PI * 2); g2.fill(); }
     ctx.globalAlpha = alpha;
     ctx.drawImage(pawCv, cx - sc * 1.1, cy - sc * 1.1, sc * 2.2, sc * 2.2);
     ctx.globalAlpha = 1;
+  }
+
+  // 안개: 수평선 안개띠 + 천천히 흐르는 큰 안개 층 (낮은 해상도 오프스크린에 그려 확대)
+  const fogCv = document.createElement('canvas'), fogG = fogCv.getContext('2d');
+  function drawFogLayers() {
+    const FG = C.FOG, w = Math.max(8, Math.ceil(W * FG.resolution)), h = Math.max(8, Math.ceil(H * FG.resolution));
+    if (fogCv.width !== w || fogCv.height !== h) { fogCv.width = w; fogCv.height = h; }
+    fogG.setTransform(1, 0, 0, 1, 0, 0); fogG.clearRect(0, 0, w, h);
+    const hz = rig.horizon / H, yawShift = cam.yaw / (Math.PI * 2);
+    // 수평선 안개띠
+    const bh = FG.horizonBand.height, gb = fogG.createLinearGradient(0, (hz - bh) * h, 0, (hz + bh) * h);
+    gb.addColorStop(0, 'rgba(246,242,234,0)'); gb.addColorStop(0.5, `rgba(246,242,234,${FG.horizonBand.alpha})`); gb.addColorStop(1, 'rgba(246,242,234,0)');
+    fogG.fillStyle = gb; fogG.fillRect(0, (hz - bh) * h, w, bh * 2 * h);
+    // 큰 안개 층 2~3겹: 가로로 긴 부드러운 덩어리들이 천천히 흐름 (카메라를 돌리면 함께 밀림)
+    FG.layers.forEach((L, li) => {
+      const cy = (hz + L.y) * h, rh = L.height * h, n = 4;
+      for (let i = 0; i < n; i++) {
+        const u = ((i / n + S.time * L.speed + yawShift * L.scale * 2 + li * 0.17) % 1 + 1) % 1;
+        const cx = (u * 1.6 - 0.3) * w, rw = w * 0.32 * L.scale;
+        fogG.save(); fogG.translate(cx, cy + Math.sin(S.time * 0.05 + i * 2 + li) * rh * 0.2); fogG.scale(rw / rh, 1);
+        const gr = fogG.createRadialGradient(0, 0, 0, 0, 0, rh);
+        gr.addColorStop(0, `rgba(248,245,238,${L.alpha})`); gr.addColorStop(1, 'rgba(248,245,238,0)');
+        fogG.fillStyle = gr; fogG.fillRect(-rh, -rh, rh * 2, rh * 2); fogG.restore();
+      }
+    });
+    ctx.imageSmoothingEnabled = true;
+    ctx.globalAlpha = 1; ctx.drawImage(fogCv, 0, 0, W, H);
   }
 
   function draw(dt) {
@@ -1255,7 +1424,13 @@
     if (S.fish.visible) { const d = camSpace(S.fish.x, S.fish.y, S.fish.z)[1]; if (d > rig.near) items.push({ d, draw: () => drawFish(d) }); }
     fireflyItems(items);
     items.sort((a, b) => b.d - a.d);
-    for (const it of items) it.draw();
+    // 먼 것 → 안개 층 → 가까운 것 (펭귄·가까운 빙하는 선명하게)
+    let fogged = false;
+    for (const it of items) {
+      if (!fogged && it.d < C.FOG.keepClearDepth) { drawFogLayers(); fogged = true; }
+      it.draw();
+    }
+    if (!fogged) drawFogLayers();
     ctx.globalAlpha = 1;
     drawUI(dt);
   }

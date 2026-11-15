@@ -52,6 +52,19 @@ const WATER_CALM = {
     sinkMaxPx: 10,
   },
   ripple: { life: 1.8, alpha: 0.3, softness: 0.45 },   // 원형 파문 (입수·물고기·제자리 수영)
+  curve: {                    // 물결을 직선 대신 유동적인 곡선으로
+    lineAmp: 0.16,            // 잔물결선이 휘는 폭 (월드)
+    lineWaves: [0.9, 2.2],    // 사인 두 개의 파수 (길이 1당)
+    noiseAmp: 0.1,            // 저주파 노이즈 휨 폭
+    noiseScale: 0.6,          // 노이즈 주파수
+    flowSpeed: 0.35,          // 물결선 모양이 흘러가는 속도
+    morphSpeed: 0.22,         // 모양이 서서히 바뀌는 속도
+    farCount: 14,             // 먼 곳 물결선 수 (먼 곳일수록 촘촘·옅게)
+    wakeBend: 0.35,           // 항적 호가 바깥으로 갈수록 휘는 정도 (rad)
+    rippleWobble: 0.07,       // 원형 파문의 일그러짐 (반지름 비율)
+    rippleThickVar: 0.45,     // 파문 가장자리 두께 변화 비율
+    vortex: { every: 1.4, life: 1.6, radius: 0.32, alpha: 0.2, max: 8 },  // 지나간 뒤 양옆에 말려 도는 와류
+  },
 };
 
 // 보통: 약한 바람
@@ -64,6 +77,43 @@ const WATER_NORMAL = {
   settle: { dampingRatio: 0.4, maxPx: 6 },
   splash: { ringRadius: 3.2, ringLife: 2.2, sinkPx: 8, sinkMaxPx: 13 },
   ripple: { life: 2.2, alpha: 0.4, softness: 0.5 },
+  curve: { lineAmp: 0.26, lineWaves: [0.8, 2.0], noiseAmp: 0.18, noiseScale: 0.7, flowSpeed: 0.6, morphSpeed: 0.4, farCount: 20,
+    wakeBend: 0.5, rippleWobble: 0.1, rippleThickVar: 0.6, vortex: { every: 1.1, life: 2.0, radius: 0.4, alpha: 0.26, max: 8 } },
+};
+
+// ── 안개 ───────────────────────────────────────────────────
+const FOG = {
+  dist: { start: 8, end: 75, max: 0.82 },        // 거리 안개: 수면·빙하·물결
+  mountain: { start: 12, end: 48, max: 0.98 },   // 섬의 산: 멀리선 거의 안 보이다가 가까워질수록 드러남
+  horizonBand: { height: 0.14, alpha: 0.55 },    // 수평선 부근 옅은 안개띠 (화면 높이 비율)
+  layers: [                                      // 천천히 흐르는 큰 안개 층 (y = 수평선 기준 화면 높이 비율)
+    { alpha: 0.12, y: -0.02, height: 0.22, speed: 0.012, scale: 1.0 },
+    { alpha: 0.08, y: 0.1, height: 0.26, speed: -0.008, scale: 1.4 },
+    { alpha: 0.05, y: -0.14, height: 0.3, speed: 0.005, scale: 2.0 },
+  ],
+  resolution: 0.125,          // 안개 층 오프스크린 해상도 (화면 대비)
+  keepClearDepth: 9,          // 이보다 가까운 것(펭귄·가까운 빙하)은 안개 층 위에 그려 선명하게
+};
+
+// ── 반딧불이 (바다 야광 플랑크톤 같은 푸른빛 무리) ─────────────────
+const FIREFLY = {
+  route: [                    // 섬까지 안내 경로 웨이포인트 [x, y, 높이]. 마지막 = 낮은 해안
+    [-9, 1.5, 1.1], [-15, -2.5, 1.2], [-21.5, 1.5, 1.2], [-28, -1.5, 1.1], [-34, 0.5, 1.0], [-43.5, 0, 1.1],
+  ],
+  reachDist: 5,               // 펭귄이 이만큼 다가오면 다음 웨이포인트로
+  speed: 3.2,                 // 비행 속도
+  hover: 0.25,                // 무리 전체가 제자리에서 맴도는 폭
+  count: 16,                  // 무리 점 수 (12~20 권장)
+  mobileMax: 30,              // 상한
+  hue: [195, 215], sat: 95, light: 58,   // 청색 계열, 채도 높게
+  size: [0.025, 0.07],        // 빛 알맹이 크기 범위 (월드)
+  glow: [0.18, 0.5],          // 번짐 크기 범위 (월드)
+  brightness: [0.45, 1],      // 밝기 범위
+  flickerHz: [0.5, 2.2],      // 깜빡임 빠르기 범위
+  swarmRadius: [0.2, 1.3],    // 무리 퍼짐 반경 범위
+  haloAlpha: 0.2,             // 미색 바탕에서도 보이도록 깔아 주는 푸른 번짐 (일반 합성)
+  reflectAlpha: 0.32,         // 수면 반사
+  trail: { life: 0.5, every: 0.05, alpha: 0.3, size: 0.8, max: 24 },  // 이동할 때 수면을 따라 번지는 잔광
 };
 
 // ── 경량 물리 ──────────────────────────────────────────────
@@ -124,6 +174,8 @@ window.CONFIG = {
   water: WATER_CALM,          // ← WATER_NORMAL 로 바꿔 끼우면 보통 물결 (URL ?water=normal 도 가능)
   PHYSICS,
   ICE_FIELD,
+  FOG,
+  FIREFLY,
 
   ui: {
     // 왼쪽 아래 이동 링. inset = 화면 가장자리 ~ 링 바깥선 간격(엄지 하나 정도)
@@ -168,21 +220,6 @@ window.CONFIG = {
     autoTurnMaxDeg: 100,      // 이보다 크게 돌려 다른 쪽을 보고 있으면 끌어오지 않음
     pitchReturn: false,       // 손을 떼면 기본 각도로 천천히 돌아오기 (기본 끔)
     pitchReturnDelay: 2, pitchReturnRate: 0.5,
-    fog: { start: 8, end: 75, max: 0.82 },         // 빙하·수면·물결이 미색에 녹는 거리
-    mountainFog: { start: 6, end: 60, max: 0.86 },  // 산 (멀리선 연회색 능선, 가까울수록 짙은 절벽)
-  },
-
-  // 섬까지 안내하는 반딧불이. 경로는 route 웨이포인트로만 정의 (마지막 = 낮은 해안)
-  firefly: {
-    route: [
-      [-9, 1.5, 1.1], [-15, -2.5, 1.2], [-21.5, 1.5, 1.2], [-28, -1.5, 1.1], [-34, 0.5, 1.0], [-43.5, 0, 1.1],
-    ],
-    reachDist: 5,             // 펭귄이 이만큼 다가오면 다음 웨이포인트로
-    speed: 3.2,               // 비행 속도
-    hover: 0.25,              // 제자리 맴돌기 폭
-    size: 0.09,               // 빛 알맹이 크기 (월드)
-    glow: 0.55,               // 번짐 크기 (월드)
-    companions: 2,            // 곁에서 맴도는 작은 반딧불이 수
   },
 
   // 바다 이동 한계 (펭귄·빙하가 이 밖으로 나가지 않게 부드럽게 밀어 줌)
@@ -201,6 +238,12 @@ window.CONFIG = {
     scale: 1.25,              // ★ 시작 빙하 크기 배율 (그림·발판 판정 함께)
     radiusX: 2.4, radiusY: 1.8,
     maxSpeed: 8,
+    topHeight: 0.05,          // 윗면 높이 (수면 위로 아주 낮게)
+    sunkDepth: 0.55,          // 물속으로 내려가며 옅어지는 깊이
+    sunkAlpha: 0.32,          // 잠긴 부분 진하기 (반투명 회색, 푸른기 약간)
+    waterlineAlpha: 0.75,     // 수면과 만나는 흰 물결 링
+    contactShadowAlpha: 0.14, // 바로 아래 수면의 접촉 그림자
+    facetAlpha: 0.09,         // 윗면 면 분할선
   },
 
   reflect: { alpha: 0.3, fadeLength: 0.95, wobblePx: 2.2, slices: 10 },
