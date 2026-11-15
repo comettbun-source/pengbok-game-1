@@ -175,23 +175,38 @@ const FIREFLY = {
 // ── 경량 물리 ──────────────────────────────────────────────
 const PHYSICS = {
   hz: 60,                     // 고정 시간 단계
-  gravity: 22,
+  gravity: 22.7,              // 일반 점프: 높이 0.5 · 체공 0.42초 → g = 8h/T²
   penguin: {
     mass: 1,
     moveForce: { ice: 3.5, shore: 5.5, water: 9 },  // 링 입력이 주는 힘 (빙하·흙은 작게 → 천천히 가속)
-    maxSpeed: { ice: 2.2, shore: 1.2, water: 2.8 },  // 흙(해안)은 물·빙하의 약 50%
+    maxSpeed: { ice: 2.2, shore: 1.2, water: 2.4 },  // 흙(해안)은 물·빙하의 약 50%, 물 = 깊은 물 헤엄
     airForce: 3,
   },
   friction: { ice: 0.56, shore: 4.5, water: 3.2 },  // 걷기·수영 감쇠 (1/초). 빙하는 미끌미끌(이전의 40%), 흙은 뻑뻑
   slideFriction: { ice: 0.15, shore: 6, water: 1.4 }, // 슬라이딩 감쇠: 빙하 위는 길게, 흙에선 금방 멈춤
   shoreJump: { velocityMul: 0.72, forwardMul: 0.6 },  // 흙에서 점프: 낮고 짧게
   shoreSlideMul: 0.55,        // 흙에서 슬라이딩 시작 속도 배율
-  jumpVelocity: 6.6,          // 점프 초기 속도 → 체공 = 2v/g ≈ 0.6초
-  superJump: { heightMul: 1.8, distanceMul: 1.6, airtime: 1.0 },  // 두 번 탭: 높이·거리 배율, 체공(초)
-  jumpForwardSpeed: 3.4,      // 링을 민 채 점프할 때 수평 속도 (점프 최대 거리 = 이 값 × 체공)
+  jumpVelocity: 4.76,         // 점프 초기 속도 = 4h/T → 높이 0.5, 체공 0.42초 (낮고 빠르게)
+  superJump: { heightMul: 2.0, distanceMul: 2.33, airtime: 0.62 },  // 두 번 탭: 높이 1.0 · 거리 4.2 · 체공 0.62초 (납작한 포물선)
+  jumpForwardSpeed: 4.29,     // 링을 민 채 점프할 때 수평 속도 → 최대 거리 = 4.29 × 0.42 ≈ 1.8
+  landingSquashPx: 2,         // 착지할 때 몸이 눌렸다 돌아오는 깊이 (px)
   slideInitialSpeed: 4.6,     // 슬라이딩 시작 속도
   slideForce: 6,              // 링을 민 채 슬라이딩할 때 미는 힘
   slideMaxSpeed: 5.2,
+  // 물 속 이동 (지금은 섬 물가 근처 shallowBand 안 = 얕은 물, 그 밖 = 깊은 물. 2차 DEPTH 에서 수심으로 교체)
+  water: {
+    shallowBand: 2.5,         // 섬 물가에서 이 거리까지 얕은 물 (임시)
+    shallowMaxSpeed: 0.9, shallowForce: 3.2,      // 얕은 물 걷기: 빙하 걷기의 약 40%, 천천히 가속
+    shallowWalk: { wobbleDeg: 8, wobbleFreq: 6 },
+    shallowSink: 0.22,        // 얕은 물에서 잠기는 정도 (몸 높이 비율)
+    stepRipple: { radius: 0.32, life: 1.1, alpha: 0.22 },   // 한 걸음마다 발목 둘레 부드러운 파문
+    deepMaxSpeed: 2.4,        // 깊은 물 헤엄
+    slideMaxSpeed: 3.8,       // 슬라이딩을 누른 채 헤엄 (가장 빠름)
+    layDeg: 60, slideLayDeg: 80,   // 헤엄칠 때 진행 방향으로 눕는 각도 / 슬라이딩 헤엄
+    layTime: 0.3, standTime: 1.0,  // 눕는 데 / 멈춰서 다시 일어서는 데 걸리는 시간 (초)
+    deepJumpMul: 0.25, shallowJumpMul: 0.6,   // 물에서 점프 높이 배율 (깊은 물은 슈퍼점프 불가)
+    deepJumpCooldown: 0.8,    // 깊은 물 점프 연타 방지 (초)
+  },
   slideTurnRate: 3.5,         // 링 방향을 따라 슬라이딩 방향이 도는 빠르기
   turnRate: 14,               // 몸 돌리는 속도
   floeDensity: 0.5,           // 빙하 질량 = 넓이 × 밀도 (펭귄 질량 1)
@@ -312,7 +327,8 @@ window.CONFIG = {
 
   // 펭귄 등 뒤 낮은 시점 (원근 투영). 펭귄 화면 위치·크기와 수평선에 맞춰 카메라 거리·높이를 자동 계산
   camera: {
-    pitchDeg: 23, pitchMinDeg: 10, pitchMaxDeg: 55,   // 기본 23° (멀리 위에서), 아래로 끌면 최대 55° 까지 내려다봄
+    pitchDeg: 23, pitchMinDeg: -4, pitchMaxDeg: 55,   // 기본 23°. 위로 끌면 -4° 까지 올려다봄(수평선이 내려가 산·하늘이 더 보임), 아래로 끌면 55° 까지 내려다봄
+    minCamHeight: 0.35,       // 낮은 각도에서도 카메라가 수면 아래로 내려가지 않게
     focal: 0.88,              // 초점 거리 (화면 높이 배수). 작을수록 넓게 보이고 원근이 강해짐
     horizonY: 0.35,           // 기본 pitch 일 때 수평선 위치 (위에서부터 비율)
     penguinScreenY: 0.78,     // 펭귄 발 위치 (위에서부터 비율, 기본 각도)

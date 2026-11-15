@@ -301,7 +301,7 @@
     };
     manageField();
     S.p.floe = S.cands[0].floe;
-    S.ripples = []; S.vortex = []; S.prints = []; S.printI = 0; S.icePrints = []; S.icePrintI = 0; S.slideTrail = []; S.washRipples = []; S.wash = null; S.camGroundZ = 0;
+    S.ripples = []; S.softRipples = []; S.vortex = []; S.prints = []; S.printI = 0; S.icePrints = []; S.icePrintI = 0; S.slideTrail = []; S.washRipples = []; S.wash = null; S.camGroundZ = 0;
     S.wake = Array.from({ length: WC().wake.maxParticles }, () => ({ on: false }));
     S.streams = []; S.glints = []; S.swell = null;
     S.lastTapUp = 0; S.tapPulse = 0; S.jumpAt = 0; S.jumpReq = false;
@@ -338,7 +338,8 @@
     // 위에서 내려다볼수록 펭귄이 화면 중앙 쪽으로
     const lift = smooth(deg(K.pitchDeg), deg(K.pitchMaxDeg), phi);
     const V = (rig.cy0 - lerp(K.penguinScreenY, K.penguinScreenYTop, lift) * H) * D / rig.f;
-    const back = D * cp + V * sp, up = D * sp - V * cp;
+    // pitch ≤ 0 이어도 tan·나눗셈은 그대로 성립. 다만 카메라가 수면 아래로 내려가지 않게 최소 높이를 둠
+    const back = D * cp + V * sp, up = Math.max(K.minCamHeight || 0, D * sp - V * cp);
     rig.cx = cam.x - rig.F[0] * back; rig.cy = cam.y - rig.F[1] * back; rig.cz = cam.z + up;
     rig.horizon = rig.cy0 - rig.f * Math.tan(phi);
   }
@@ -391,6 +392,15 @@
     const f = floeAt(x, y, 0.95);
     if (f) return { mode: 'floe', floe: f, z: floeTopAt(f, x - f.x, y - f.y) };
     return { mode: 'water', z: 0 };
+  }
+  // 물 깊이 구분 (임시): 섬 물가에서 shallowBand 안쪽 바다 = 얕은 물, 그 밖 = 깊은 물
+  function waterDepthClass(x, y) {
+    const is = S.islands[0], WP = P.water;
+    if (!is) return 'deep';
+    const ys = (y - is.cy) / is.ry;
+    if (Math.abs(ys) >= 1) return 'deep';
+    const xs = is.cx - is.side * is.rx * Math.sqrt(1 - ys * ys), dist = (x - xs) * -is.side;
+    return dist > 0 && dist < WP.shallowBand ? 'shallow' : 'deep';
   }
   const surfKey = (m) => (m === 'floe' ? 'ice' : m === 'island' ? 'shore' : 'water');
 
@@ -654,13 +664,24 @@
     const [mx, my] = readMove();
     const [wx, wy] = screenDirToWorld(mx, my);
     const mag = Math.hypot(mx, my);
-    const surf = surfKey(p.mode);
+    const surf = surfKey(p.mode), WP = P.water;
+    p.depth = p.mode === 'water' ? waterDepthClass(p.x, p.y) : null;
+    const shallow = p.depth === 'shallow', deep = p.depth === 'deep';
+    // 이번 단계의 최고 속도·미는 힘 (물: 얕은 물 걷기 / 깊은 물 헤엄)
+    const maxSp = shallow ? WP.shallowMaxSpeed : deep ? WP.deepMaxSpeed : pm.maxSpeed[surf];
+    const force = shallow ? WP.shallowForce : pm.moveForce[surf];
 
     if (S.jumpAt && performance.now() >= S.jumpAt) { S.jumpAt = 0; S.jumpReq = 'jump'; }
     if (S.jumpReq) {                                        // 점프: 중력 + 초기 속도의 포물선
       const kind = S.jumpReq; S.jumpReq = false;
       const SJ = P.superJump, h0 = P.jumpVelocity * P.jumpVelocity / (2 * P.gravity);
-      if (kind === 'super') {
+      // 물에서 점프: 깊은 물은 낮게(25%)·슈퍼점프 불가·쿨다운, 얕은 물은 60%. 안 나가면 작은 허우적 파문만
+      const inW = p.mode === 'water' && !p.air;
+      let jumpMul = 1, blocked = false;
+      if (inW && deep) { jumpMul = WP.deepJumpMul; if (kind === 'super' || S.time < (p.waterJumpCD || 0)) blocked = true; }
+      else if (inW && shallow) jumpMul = WP.shallowJumpMul;
+      if (blocked) { if (!p.air) ripple(p.x, p.y, 0.55, 0.9, WC().ripple.alpha * 0.5); log('jumpBlocked'); }
+      else if (kind === 'super') {
         // 슈퍼점프: 높이 ×heightMul, 거리 ×distanceMul, 체공 ≈ airtime. 공중이면 지금 높이에서 이어 붙임
         const Hs = h0 * SJ.heightMul, gS = 8 * Hs / (SJ.airtime * SJ.airtime);
         const base = p.air ? (p.jumpBase || 0) : p.z, dz = Math.max(0, p.z - base);
@@ -677,8 +698,9 @@
       } else if (!p.air) {
         startAir(p, mag, wx, wy);
         const soil = p.mode === 'island', SJm = soil ? P.shoreJump : { velocityMul: 1, forwardMul: 1 };   // 흙: 짧고 무겁게
-        p.g = P.gravity; p.vz = P.jumpVelocity * SJm.velocityMul;
-        if (mag > 0.1) { const s = Math.max(Math.hypot(p.vx, p.vy), P.jumpForwardSpeed * SJm.forwardMul * mag); p.vx = wx / mag * s; p.vy = wy / mag * s; }
+        p.g = P.gravity; p.vz = P.jumpVelocity * SJm.velocityMul * Math.sqrt(jumpMul);   // 높이 배율 = 속도 배율²
+        if (inW && deep) p.waterJumpCD = S.time + WP.deepJumpCooldown;
+        if (mag > 0.1) { const s = Math.max(Math.hypot(p.vx, p.vy), P.jumpForwardSpeed * SJm.forwardMul * Math.sqrt(jumpMul) * mag); p.vx = wx / mag * s; p.vy = wy / mag * s; }
         p.jumpHS = Math.hypot(p.vx, p.vy); p.airCap = p.jumpHS;
         log('jump');
       }
@@ -703,16 +725,16 @@
       let dir = sp0 > 0.01 ? Math.atan2(p.vy, p.vx) : p.face, s = sp0;
       if (mag > 0.01) { dir += angDiff(dir, Math.atan2(wy, wx)) * ease(P.slideTurnRate, dt); s += P.slideForce * mag / pm.mass * dt; }
       s *= Math.exp(-P.slideFriction[surf] * dt);
-      s = Math.min(s, P.slideMaxSpeed);
+      s = Math.min(s, deep ? WP.slideMaxSpeed : shallow ? WP.shallowMaxSpeed * 1.6 : P.slideMaxSpeed);   // 깊은 물 슬라이딩 헤엄이 가장 빠름
       p.vx = Math.cos(dir) * s; p.vy = Math.sin(dir) * s;
       p.face = dir;
     } else {
       // 이동: 입력은 힘. 가속도 = 힘/질량, 지면 마찰로 감쇠, 최고 속도 부드럽게 제한
-      p.vx += wx * pm.moveForce[surf] / pm.mass * dt; p.vy += wy * pm.moveForce[surf] / pm.mass * dt;
+      p.vx += wx * force / pm.mass * dt; p.vy += wy * force / pm.mass * dt;
       const idleFloat = p.mode === 'water' && mag < 0.01 && Math.hypot(p.vx, p.vy) < 0.5;   // 떠다니기는 물 저항에 묻히지 않게
       const k = idleFloat ? 1 : Math.exp(-P.friction[surf] * dt); p.vx *= k; p.vy *= k;
       // 최고 속도: 입력으로는 넘지 않음. 슬라이딩 등으로 이미 빠르면 부드럽게 줄어듦
-      const s = Math.hypot(p.vx, p.vy), mxs = pm.maxSpeed[surf] * (p.inWash ? C.SHORE_WASH.slowMul : 1);
+      const s = Math.hypot(p.vx, p.vy), mxs = maxSp * (p.inWash ? C.SHORE_WASH.slowMul : 1);
       if (s > mxs) { const ns = sp0 > mxs ? Math.max(mxs, Math.min(s, sp0) * Math.exp(-3 * dt)) : mxs; p.vx *= ns / s; p.vy *= ns / s; }
       if (mag > 0.01) { p.sit = false; p.face += angDiff(p.face, Math.atan2(wy, wx)) * ease(P.turnRate, dt); }
       else if (p.sit && S.intro.started && S.intro.t < C.intro.delay + 4) {          // 앉아서 빛을 바라봄
@@ -782,7 +804,7 @@
     const sp = Math.hypot(p.vx, p.vy);
     const inWater = p.mode === 'water' && !p.air;
     spring(p.heave, inWater ? bobTarget([1.3, 4.2], 0.8) : 0, dt);
-    if (!p.air) trackInertia(p, sp, pm.maxSpeed[surf], dt);
+    if (!p.air) trackInertia(p, sp, maxSp, dt);
     // 관성 기울기 (화면에서 보이는 진행 방향 기준)
     const c = Math.cos(cam.yaw), s2 = Math.sin(cam.yaw), vxs = c * p.vx - s2 * p.vy;
     const dirSign = Math.abs(vxs) > 0.05 ? Math.sign(vxs) : (p.leanSign || 1); p.leanSign = dirSign;
@@ -790,15 +812,24 @@
     spring(p.lean, p.air ? 0 : (p.inertia || 0) * dirSign + iceLean, dt);
 
     // 그림용 값
-    p.sink += ((inWater ? (p.sliding ? 0.06 : C.penguin.swimSink) : 0) - p.sink) * ease(8, dt);
+    // 헤엄 자세: 깊은 물에서 나아가면 진행 방향으로 약 60° 눕고(슬라이딩 헤엄은 80°), 멈추면 천천히 일어섬
+    const layT = inWater && deep ? (p.sliding ? WP.slideLayDeg : sp > 0.3 ? WP.layDeg * clamp((sp - 0.3) / 0.9, 0, 1) : 0) : 0;
+    p.lay = (p.lay || 0) + (layT - (p.lay || 0)) * ease(3 / (layT > (p.lay || 0) ? WP.layTime : WP.standTime), dt);
+    const sinkT = !inWater ? 0 : shallow ? WP.shallowSink : p.sliding ? 0.06 : C.penguin.swimSink + 0.2 * (p.lay / 90);   // 누우면 등만 수면 위
+    p.sink += (sinkT - p.sink) * ease(8, dt);
     S.tapPulse = Math.max(0, S.tapPulse - dt * 5);
-    const WK = C.penguin.walk[p.mode === 'island' ? 'shore' : 'ice'];
-    if (!p.air && p.mode !== 'water' && !p.sliding && sp > 0.12) {
+    const WK = shallow ? { ...WP.shallowWalk, stepSinkPx: 0 } : C.penguin.walk[p.mode === 'island' ? 'shore' : 'ice'];
+    if (!p.air && (p.mode !== 'water' || shallow) && !p.sliding && sp > 0.12) {
       p.phase += sp * dt * WK.wobbleFreq;
-      const amt = Math.min(1, sp / pm.maxSpeed[surf]);
+      const amt = Math.min(1, sp / maxSp);
       p.wobble = Math.sin(p.phase) * deg(WK.wobbleDeg) * amt;
       p.stepSink = WK.stepSinkPx * Math.abs(Math.sin(p.phase)) * amt;       // 한 걸음마다 푹
       const stepN = Math.floor(p.phase / Math.PI);
+      if (shallow && stepN !== p.stepN) {                  // 얕은 물: 한 걸음마다 발목 둘레 부드러운 파문 하나
+        p.stepN = stepN;
+        S.softRipples.push({ x: p.x, y: p.y, t: 0 });
+        if (S.softRipples.length > 12) S.softRipples.shift();
+      }
       if (stepN !== p.stepN && (p.mode === 'island' || (p.mode === 'floe' && p.floe))) {   // 발자국: 흙은 눌린 자국, 빙하는 긁힘 자국
         p.stepN = stepN;
         const FP = C.FOOTPRINTS, side = stepN % 2 ? 1 : -1, fx = Math.cos(p.face), fy = Math.sin(p.face), o = penH() * FP.stride / 2;
@@ -811,7 +842,7 @@
           Object.assign(slot, { on: true, cand: p.floe.cand, lx: p.lx + ox, ly: p.ly + oy, ang: p.face, side, t: 0 });
         }
       }
-    } else if (inWater && !p.sliding) {                     // 물에 떠 있을 때 살짝 기우뚱
+    } else if (inWater && !p.sliding && !(shallow && sp > 0.12)) {   // 물에 떠 있을 때 살짝 기우뚱
       p.wobble += (Math.sin(S.time * 2 * Math.PI / P.drift.rockPeriod) * deg(P.drift.rockDeg) - p.wobble) * ease(3, dt);
       p.stepSink = 0;
     } else { p.wobble *= Math.exp(-10 * dt); p.stepSink = (p.stepSink || 0) * Math.exp(-10 * dt); }
@@ -865,6 +896,7 @@
         floe.heave.v -= impulseFor(px);
       }
     } else p.floe = null;
+    if (vz < -1 && mode !== 'water') p.heave.v -= impulseFor(P.landingSquashPx);   // 착지: 몸이 2px 눌렸다 돌아옴
     if (mode === 'water' && prev !== 'water' || (mode === 'water' && vz < -1)) {
       // 입수: 원형 물결 1회 + 낙하 속도에 비례해 가라앉았다 부력으로 떠오름 (물보라 없음)
       ripple(p.x, p.y, W2.splash.ringRadius, W2.splash.ringLife, W2.ripple.alpha * 1.4);
@@ -1050,6 +1082,7 @@
     for (const w of S.wake) if (w.on && (w.t += dt) >= life) w.on = false;
     S.vortex = S.vortex.filter((v) => (v.t += dt) < WC().curve.vortex.life);
     for (const q of S.prints) if (q.on && (q.t += dt) >= C.FOOTPRINTS.life) q.on = false;
+    S.softRipples = S.softRipples.filter((q) => (q.t += dt) < P.water.stepRipple.life);
     for (const q of S.icePrints) if (q.on && (q.t += dt) >= C.FOOTPRINTS.ice.life) q.on = false;
     { // 빙하 위 슬라이딩: 끊기지 않는 가는 활주 자국 (빙하 좌표계)
       const p = S.p, ST = C.FOOTPRINTS.slideTrail;
@@ -1240,7 +1273,7 @@
       const [sx, sy] = toScreen(c), a = q.a * Math.sin(Math.PI * q.t / G.life) * (1 - fogAt(c[1])), s = clamp(pxPerUnit(c[1]) / 110, 0.4, 1.4);
       ctx.strokeStyle = ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`;
       if (q.dash) {
-        const L = 4 * s, dx = Math.cos(q.ang + cam.yaw) * L, dy = Math.sin(q.ang + cam.yaw) * L * rig.sp;
+        const L = 4 * s, dx = Math.cos(q.ang + cam.yaw) * L, dy = Math.sin(q.ang + cam.yaw) * L * Math.max(0.05, rig.sp);
         ctx.lineWidth = 1 * s; ctx.beginPath(); ctx.moveTo(sx - dx, sy - dy); ctx.lineTo(sx + dx, sy + dy); ctx.stroke();
       } else { ctx.beginPath(); ctx.arc(sx, sy, 1.1 * s, 0, Math.PI * 2); ctx.fill(); }
     }
@@ -1256,7 +1289,7 @@
       const d = b.d + (u - 0.5) * SW.travel * 0.6;
       const cx = rig.cx + rig.F[0] * d + rig.R[0] * b.lat * d, cy = rig.cy + rig.F[1] * d + rig.R[1] * b.lat * d;
       const c = camSpace(cx, cy, 0); if (c[1] < rig.near + 1) continue;
-      const halfL = b.w * W / 2, [sx, sy] = toScreen(c), th = clamp(SW.thick * pxPerUnit(c[1]), 2, 40) * rig.sp;
+      const halfL = b.w * W / 2, [sx, sy] = toScreen(c), th = clamp(SW.thick * pxPerUnit(c[1]), 2, 40) * Math.max(0.08, rig.sp);
       const a = b.a * env * (1 - fogAt(c[1]));
       if (a < 0.003) continue;
       const tilt = Math.sin(dir) * 0.15;
@@ -1331,6 +1364,10 @@
   function drawWater() {
     const K = WC().curve;
     ctx.lineCap = 'round';
+    // 얕은 물 걸음 파문: 선이 아닌 부드러운 명암 고리
+    { const SR = P.water.stepRipple, spr = getRingSprite();
+      for (const q of S.softRipples) { const k = q.t / SR.life; groundSprite(spr, q.x, q.y, SR.radius * (0.4 + 0.8 * (1 - Math.pow(1 - k, 2))), SR.alpha * (1 - k) * Math.min(1, k * 10)); }
+      ctx.globalAlpha = 1; }
     // 원형 파문: 가는 선 링 3겹이 0.15초 간격으로 차례로. ease-out 으로 퍼지며 2px→0.5px, 빛 방향 쪽이 더 밝음
     const RP = WC().ripple, L = lightDir(), lh = Math.hypot(L[0], L[1]) || 1, lx = L[0] / lh, ly = L[1] / lh;
     for (const r of S.ripples) {
@@ -1732,7 +1769,7 @@
     const { fvx, fvy } = v;
     const lm = deg(Math.max(WC().inertiaTilt.accelDeg, C.penguin.iceLeanDeg)); g.rotate(clamp(p.lean.h, -lm, lm));
     if (p.sliding) {
-      const ax = Math.abs(fvx), len = 0.45 + 0.55 * ax;
+      const ax = Math.abs(fvx), len = (0.45 + 0.55 * ax) * (p.mode === 'water' && p.depth === 'deep' ? 1.2 : 1);   // 물속 슬라이딩은 길게 늘어남
       g.scale(fvx < 0 ? -1 : 1, 1);
       g.rotate(clamp(Math.atan2(fvy * Math.sin(cam.pitch) * 0.5, ax), -0.35, 0.35));
       g.fillStyle = COL.black; g.beginPath(); g.ellipse(0, -u * 0.15, u * 0.55 * len, u * 0.2, 0, 0, Math.PI * 2); g.fill();
@@ -1741,6 +1778,17 @@
       return;
     }
     g.rotate(p.wobble);
+    if (p.lay > 0.5) {
+      // 헤엄 자세: 화면에서 보이는 진행 방향으로 눕힘. 카메라 쪽/반대쪽으로 갈 때는 짧아 보이게
+      const sp2 = Math.hypot(p.vx, p.vy), c2 = Math.cos(cam.yaw), s2 = Math.sin(cam.yaw);
+      const hx = sp2 > 0.05 ? (c2 * p.vx - s2 * p.vy) / sp2 : (p.layDirX || 0);
+      if (sp2 > 0.05) p.layDirX = hx;
+      const a = deg(p.lay), side = hx >= 0 ? 1 : -1, sideShare = Math.abs(hx);
+      g.translate(0, -u * 0.45);
+      g.rotate(side * a * sideShare);
+      g.scale(1, 1 - (1 - Math.cos(a)) * (1 - sideShare) * 0.75);
+      g.translate(0, u * 0.45);
+    }
     g.scale(1 + v.squash * 0.6, 1 - v.squash);
     g.fillStyle = COL.black;
     g.beginPath(); g.ellipse(0, -u * 0.5, u * 0.3, u * 0.5, 0, 0, Math.PI * 2); g.fill();
