@@ -10,7 +10,7 @@ python3 -m http.server 8000
 
 - 휴대폰: 같은 Wi‑Fi에서 `http://<PC IP>:8000` 접속 후 가로로 돌리기
 - PC: 방향키/WASD 이동, Space 점프(두 번 = 슬라이딩)
-- 수치 임시 비교: `?cfg=move.walkSpeed=3,input.doubleTapMs=180`
+- 수치 임시 비교: `?water=normal&cfg=PHYSICS.gravity=20,ICE_FIELD.seed=7`
 
 ## 조작감 수치
 
