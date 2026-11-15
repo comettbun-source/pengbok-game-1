@@ -103,7 +103,7 @@
       if (prev && Math.hypot(prev.x - st.x, prev.y - st.y) < Math.min(st.rx, st.ry)) sim.bodies.push(key);   // 순간이동은 무시
     };
     function displace(key) {
-      const cur = key._w, prev = key._w2, B = cfg.body, g = B.gain;
+      const cur = key._w, prev = key._w2, B = cfg.body, g = cur.gain === undefined ? B.gain : cur.gain;   // gain 을 물체마다 (속도에 비례) 줄 수 있음
       const disc = cur.draft !== undefined, rmin = Math.min(cur.rx, cur.ry);
       const q0 = disc ? 1 : B.ring[0], q1 = disc ? 1 + B.floeRing / rmin : B.ring[1];   // 밀려난 물이 솟는 고리 (정규화 반지름)
       const ex = cur.rx * q1 + Math.abs(cur.x - prev.x) + dx, ey = cur.ry * q1 + Math.abs(cur.y - prev.y) + dx;
@@ -155,7 +155,7 @@
 
     // ── 적분 ────────────────────────────────────────────────
     sim.step = function (dt) {
-      for (const b of sim.bodies) displace(b);
+      for (const b of sim.bodies) if (b._w.gain !== 0) displace(b);
       const cour = Math.min(cfg.waveSpeed * dt / dx, 0.68);                  // 안정 조건 c·dt/dx < 1/√2
       const c2 = cour * cour / dt;                                           // (c/dx)²·dt
       const tau = Math.min(cfg.viscosity, 0.2 * dt / (cour * cour));         // 양해법 안정 한계

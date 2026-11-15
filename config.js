@@ -41,13 +41,14 @@ const WATER_CALM = {
     depth: [3, 45],           // 생성 거리 (먼 곳은 짧고 촘촘, 가까운 곳은 크고 듬성)
     avoid: 1.5,               // 빙하·펭귄 윤곽 × 이 반경 안에서는 윤곽을 따라 감돌아 흐름
     eddyAlpha: 0.12,          // 빙하 하류의 작은 소용돌이 곡선
+    darkMul: 0.8,             // 어두운 선 진하기 배율
   },
   // 헤엄칠 때: 선 대신 부드러운 명암 면 (앞쪽 밝은 물 덩어리, 양옆·뒤 어두운 골, 뒤로 길쭉한 얼룩)
-  swimShade: { every: 0.12, life: 1.6, scale: [0.4, 1.8], brightAlpha: 0.14, darkAlpha: 0.1, max: 12, length: 2.2 },
+  swimShade: { every: 0.12, life: 1.6, scale: [0.4, 1.8], brightAlpha: 0.14, darkAlpha: 0.07, max: 12, length: 2.2 },
   glints: { max: 20, rate: 14, life: 0.6, alpha: [0.1, 0.2], depth: [2, 22] },   // ③ 미세 반짝 (흰 점·짧은 선)
   tone: { amp: 0.04, period: 24, scale: 0.35 },   // 수면 전체 밝기를 아주 느린 노이즈로 ±4%
   contours: {                 // 빙하·펭귄 둘레의 번지는 등고선 링
-    rings: 3, life: 3.2,      // 동시에 2~3겹, 한 겹 수명 (초)
+    rings: 0, life: 3.2,      // 동시에 몇 겹 (0 = 끔), 한 겹 수명 (초)
     spread: 0.9,              // 바깥으로 퍼지는 거리 (월드)
     alpha: 0.2, width: 1.1,
     noise: 0.1,               // 윤곽이 일렁이는 정도
@@ -317,17 +318,17 @@ const DEPTH = {
 const FOOTPRINTS = {
   size: 0.11,                 // 발자국 크기 (월드)
   stride: 0.5,                // 왼발·오른발 좌우 간격 = 펭귄 키 × 이 값 (몸 폭 정도)
-  pressTime: 0.1,             // 찍힐 때 80% → 100% 로 커지는 시간 (초)
-  pressFrom: 0.8,
-  life: 6,                    // 모래: 서서히 사라지는 시간 (초)
+  pressTime: 0.05,            // 찍힐 때 pressFrom → 100% 로 튕기는 시간 (초)
+  pressFrom: 1.1,             // 찍히는 순간 크기 (110% 에서 100% 로 살짝 튕김)
+  life: 3,                    // 모래: 서서히 사라지는 시간 (초)
   max: 30,                    // 모래 발자국 풀
   alpha: 0.3,                 // 모래 발자국 진하기
   innerAlpha: 0.16,           // 눌린 안쪽이 더 어두운 정도
   toeOutDeg: 20,              // 팔자: 왼발은 왼쪽, 오른발은 오른쪽으로 벌어짐
-  fadeIn: 0.25,               // 찍힐 때 흐림 → 선명 교차 페이드 (초)
+  fadeIn: 0.1,                // 찍힐 때 흐림 → 선명 교차 페이드 (초)
   color: [46, 43, 40],
-  ice: { alpha: 0.14, life: 2.5, max: 30, color: [140, 146, 152] },   // 빙하: 옅은 회색 긁힘 자국 (빙하 좌표계에 저장)
-  slideTrail: { alpha: 0.2, life: 3, width: 0.03, spacing: 0.08, max: 90 },  // 빙하 위 슬라이딩 활주 자국 한 줄
+  ice: { alpha: 0.14, life: 1.4, max: 30, color: [140, 146, 152] },   // 빙하: 옅은 회색 긁힘 자국 (빙하 좌표계에 저장)
+  slideTrail: { alpha: 0.2, life: 1.8, width: 0.03, spacing: 0.08, max: 90 },  // 빙하 위 슬라이딩 활주 자국 한 줄
 };
 
 // ── 명암·그림자 블러 (ctx.filter 없이 스프라이트·겹 그리기·축소 캐시로) ─────────
@@ -358,11 +359,14 @@ const WATER_SIM = {
   edgeDamping: 6,           // 흡수대 감쇠
   body: {
     gain: 0.25,             // 밀어낸 부피 → 수면 높이 배율 (물결 전체 세기)
-    ring: [0.9, 2.4],       // 펭귄이 밀어낸 물이 솟는 고리 (몸 반지름의 배수: 안쪽, 바깥)
+    ring: [0.9, 1.7],       // 펭귄이 밀어낸 물이 솟는 고리 (몸 반지름의 배수: 안쪽, 바깥)
+    speedRef: 1.2,          // 펭귄 이동 속도가 이만큼일 때 gain 최대. 멈춰 있으면 0 (가만히 떠 있을 땐 고리 없음)
+    floeSpeedRef: 0.8,      // 빙하도 같은 방식 (속도가 이만큼일 때 gain 최대)
+    landingImpulse: 0.025,  // 빙하에 착지할 때 빙하 둘레 수면 충격 (높이)
     penguinRadius: 0.3,     // 펭귄 몸 반지름 (× penguin.scale)
     floeDraft: 0.25,        // 빙하가 물에 잠긴 깊이 (월드)
     floeHeavePx: 80,        // 빙하 출렁임 px → 월드 환산 (px / 이 값)
-    floeRing: 0.6,          // 빙하가 밀어낸 물이 솟는 띠 폭 (월드)
+    floeRing: 0.12,         // 빙하가 밀어낸 물이 솟는 띠 폭 (월드)
     solidInset: 0.85,       // 빙하 반지름의 이 비율 안쪽은 물결을 되튕김
     maxStep: 0.05,          // 한 단계에 한 칸이 움직일 수 있는 최대 높이 (튀는 값 방지)
     entryImpulse: 0.012,    // 입수 속도 1 당 추가로 꺼지는 깊이 (찰싹)
@@ -403,6 +407,14 @@ const WATER_SIM = {
       laceScale: 1.6,       // 거품 무늬 크기 (클수록 잘게)
     },
   },
+  // 파도가 칠 때 빙하 옆면·펭귄 아랫몸이 물에 가려졌다 드러남 (수면 높이를 윤곽에서 읽어 수면선을 위아래로)
+  cover: {
+    gain: 1,                // 수면 높이 → 수면선 이동 배율
+    maxPx: 4,               // 가장 크게 움직이는 폭 (펭귄 거리 기준 px, 멀수록 원근만큼 작아짐)
+    sideFrac: 0.2,          // 빙하 옆면 높이의 이 비율을 넘지 않음
+    samples: 10,            // 빙하 윤곽에서 수면 높이를 읽는 점 수
+    alpha: 0.5,             // 가려진 띠의 물색 그라데이션 (수면선 0 → 아래 이 값)
+  },
   drop: { radius: 0.3, amp: 0.05 },   // 기존 파문 호출(점프·둥둥 등) → 물방울 충격으로 바꿀 때 (반지름 배율, 높이)
   feedback: {
     penguin: 1.0,           // 헤엄치는 펭귄이 주변 물결을 타고 오르내리는 정도 (0 = 끔)
@@ -412,7 +424,8 @@ const WATER_SIM = {
     resolution: 0.22,       // 화면 대비 해상도 (낮을수록 가볍고 부드러움)
     slope: [0.003, 0.045],  // [이 기울기부터 보임, 이 기울기에서 진하기 63%] — 그 위로는 완만하게 포화
     light: [255, 255, 255], lightAlpha: 0.75,   // 빛 받는 면
-    dark: [70, 72, 80], darkAlpha: 0.34,        // 그늘진 면
+    floeLightMul: 0.5, floeLightRadius: 1.2,    // 빙하 반지름 × floeLightRadius 안에서는 밝은 면을 이 배율로
+    dark: [100, 103, 112], darkAlpha: 0.24,     // 그늘진 면
   },
 };
 
@@ -485,7 +498,9 @@ window.CONFIG = {
     height: 0.75,
     swimSink: 0.5,            // 수영 시 몸이 잠기는 비율 (그림)
     underwaterAlpha: 0.28,    // 수면 아래 잠긴 몸의 진하기
-    swimRingAlpha: 0.5,       // 수영 중 몸 둘레 물결 고리 진하기
+    swimRingAlpha: 0,         // 수영 중 몸 둘레 물결 고리 진하기 (0 = 끔. 둥근 띠로 보여서 끔, 예전 값 0.5)
+    waterlineAlpha: 0.12,     // 몸을 감싸는 수면선: 선 대신 넓게 번지는 밝은 띠 (0.15 이하)
+    waterlineWidth: 0.09,     // 그 띠의 폭 (펭귄 키 비율)
     // 걸음 흔들림: 빙하 위는 작게, 흙 위는 느리고 크게 (뒤뚱뒤뚱)
     walk: {
       ice: { wobbleDeg: 3, wobbleFreq: 7, stepSinkPx: 0 },
@@ -501,7 +516,7 @@ window.CONFIG = {
     topHeight: 0.05,          // 윗면 높이 (수면 위로 아주 낮게)
     sunkDepth: 0.55,          // 물속으로 내려가며 옅어지는 깊이
     sunkAlpha: 0.32,          // 잠긴 부분 진하기 (반투명 회색, 푸른기 약간)
-    waterlineAlpha: 0.75,     // 수면과 만나는 흰 물결 링
+    waterlineAlpha: 0,        // 수면과 만나는 흰 물결 링 (0 = 끔, 경계는 접촉 그림자 면으로만)
     contactShadowAlpha: 0.14, // 바로 아래 수면의 접촉 그림자
     facetAlpha: 0.09,         // (사용 안 함, relief 로 대체)
     // 윗면 굴곡: 빙하마다 시드로 둔덕·경사·쐐기 모양. 면 정보는 생성 때 한 번만 계산
