@@ -958,12 +958,14 @@
       let jumpMul = 1, blocked = false;
       if (inW && deep) { jumpMul = WP.deepJumpMul; if (kind === 'super' || S.time < (p.waterJumpCD || 0)) blocked = true; }
       else if (inW && shallow) jumpMul = WP.shallowJumpMul;
-      if (blocked) { if (!p.air) ripple(p.x, p.y, 0.55, 0.9, WC().ripple.alpha * 0.5); log('jumpBlocked'); }
+      if (kind === 'super' && p.air && p.superUsed && P.superJump.oncePerAir) { blocked = true; log('superChainBlocked'); }   // 공중에서 슈퍼점프 연속 금지 (둥둥 뜨는 느낌 방지)
+      else if (blocked) { if (!p.air) ripple(p.x, p.y, 0.55, 0.9, WC().ripple.alpha * 0.5); log('jumpBlocked'); }
       else if (kind === 'super') {
         // 슈퍼점프: 높이 ×heightMul, 거리 ×distanceMul, 체공 ≈ airtime. 공중이면 지금 높이에서 이어 붙임
         const Hs = h0 * SJ.heightMul, gS = 8 * Hs / (SJ.airtime * SJ.airtime);
         const base = p.air ? (p.jumpBase || 0) : p.z, dz = Math.max(0, p.z - base);
         if (!p.air) startAir(p, mag, wx, wy);
+        p.superUsed = true;
         p.g = gS; p.vz = Math.sqrt(2 * gS * Math.max(0.05, Hs - dz));
         // 거리 ×distanceMul: 일반 점프의 수평 속도 × 배율 × (일반 체공 / 슈퍼 체공)
         if (!p.jumpHS && mag > 0.1) p.jumpHS = Math.max(Math.hypot(p.vx, p.vy), P.jumpForwardSpeed * mag);
@@ -974,7 +976,7 @@
         p.airCap = hs;
         log('superJump');
       } else if (!p.air) {
-        startAir(p, mag, wx, wy);
+        startAir(p, mag, wx, wy); p.superUsed = false;
         const soil = p.mode === 'island', SJm = soil ? P.shoreJump : { velocityMul: 1, forwardMul: 1 };   // 흙: 짧고 무겁게
         p.g = P.gravity; p.vz = P.jumpVelocity * SJm.velocityMul * Math.sqrt(jumpMul);   // 높이 배율 = 속도 배율²
         if (inW && deep) p.waterJumpCD = S.time + WP.deepJumpCooldown;
@@ -1076,7 +1078,7 @@
     if (p.air) {
       p.vz -= (p.g || P.gravity) * dt; p.z += p.vz * dt; p.airT = (p.airT || 0) + dt;
       const s = surfaceAt(p.x, p.y);
-      if (p.vz < 0 && p.z <= s.z) { const vz = p.vz; p.air = false; p.z = s.z; p.vz = 0; setMode(s.mode, s.floe, vz); }
+      if (p.vz < 0 && p.z <= s.z) { const vz = p.vz; p.air = false; p.superUsed = false; p.z = s.z; p.vz = 0; setMode(s.mode, s.floe, vz); }
     } else if (p.mode === 'floe') {
       if (!onFloe(f, p.x, p.y)) {
         const other = floeAt(p.x, p.y);
