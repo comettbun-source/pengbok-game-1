@@ -24,14 +24,15 @@
   let sim = null;                                            // 물 엔진 (water.js)
   const WC = () => C.water;   // 프리셋 교체를 즉시 반영
 
+  // 색은 모두 CONFIG.palette 에서
+  const PAL = C.palette, rgbS = (a) => a.join(',');
   const COL = {
-    bg: '#f3eee3',
-    floeTop: '#ffffff', floeSide: '#d9d5cc',
-    shoreTop: '#9c9890', shoreSide: '#4a4a4d',
-    mountNear: [38, 38, 42], mountFar: [214, 209, 199], farRidge: '#e4dfd4',
-    black: '#1b1b1d', white: '#ffffff', beak: '#7a7a7a',
-    ink: [40, 40, 44], water: '96, 106, 118',
+    bg: `rgb(${rgbS(PAL.sea)})`,
+    mountNear: PAL.mount.near, mountFar: PAL.mount.far,
+    black: PAL.penguin.black, white: PAL.penguin.white, beak: PAL.penguin.beak,
+    ink: PAL.ui.ink, water: rgbS(PAL.waterLine),
   };
+  const WLA = PAL.waterLineAlpha;                            // 물결선 alpha 배율
 
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
@@ -157,9 +158,9 @@
     return true;
   }
   const shadeBright = makeSprite([[0, 'rgba(255,255,255,1)'], [0.45, 'rgba(255,255,255,0.55)'], [1, 'rgba(255,255,255,0)']]);
-  const shadeDark = makeSprite([[0, 'rgba(84,92,102,1)'], [0.45, 'rgba(84,92,102,0.5)'], [1, 'rgba(84,92,102,0)']]);
+  const shadeDark = makeSprite([[0, 'rgba(0,0,0,1)'], [0.45, 'rgba(0,0,0,0.5)'], [1, 'rgba(0,0,0,0)']]);
   // 명암 고리: 안쪽 밝은 띠 + 바깥 어두운 띠 (선이 아닌 부드러운 면)
-  const shadeRing = makeSprite([[0, 'rgba(255,255,255,0)'], [0.5, 'rgba(255,255,255,0)'], [0.68, 'rgba(255,255,255,0.7)'], [0.82, 'rgba(96,104,114,0.55)'], [1, 'rgba(96,104,114,0)']]);
+  const shadeRing = makeSprite([[0, 'rgba(255,255,255,0)'], [0.5, 'rgba(255,255,255,0)'], [0.68, 'rgba(255,255,255,0.7)'], [0.82, 'rgba(0,0,0,0.55)'], [1, 'rgba(0,0,0,0)']]);
   // 부드러운 그림자 원판: 경계 번짐 폭 = 반지름 × SHADOW_BLUR.ratio
   let softDisc = null, softDiscR = -1;
   function getSoftDisc() {
@@ -194,7 +195,8 @@
     const shape = sea.concat(land);
     const peaks = [];
     const peak = (dist, y, h, rWant) => {
-      const rad = Math.min(rWant, dist - 2.5);
+      let rad = Math.min(rWant, dist - 2.5);
+      const MS = w.mountainScale; h *= MS.height; rad = Math.min(rad * MS.radius, dist - MS.beach);   // 커져도 해변(물이 올라오는 곳)은 덮지 않게
       peaks.push({ x: shoreX + side * dist, y, h, r: rad,
         ax: (r() - 0.5) * rad * 0.5, ay: (r() - 0.5) * rad * 0.5, sh: 0.35 + r() * 0.25, so: (r() - 0.5) * 0.5 });
     };
@@ -457,8 +459,10 @@
   }
   // 안개: 깊이에 따라 미색으로 섞이는 비율
   const fogAt = (d, fg = C.FOG.dist) => fg.max * smooth(fg.start, fg.end, d);
-  const BG = [243, 238, 227];
-  const mixFog = (rgb, t) => `rgb(${rgb.map((v, i) => Math.round(v + (BG[i] - v) * t)).join(',')})`;
+  const BG = PAL.sea, FOGC = PAL.fog;
+  const mixTo = (rgb, t, to) => `rgb(${rgb.map((v, i) => Math.round(v + (to[i] - v) * t)).join(',')})`;
+  const mixSea = (rgb, t) => `rgb(${rgb.map((v, i) => Math.round(v + (BG[i] - v) * t)).join(',')})`;
+  const mixFog = (rgb, t) => mixTo(rgb, t, FOGC);        // 거리 안개: 청흑색으로 수렴
   // 앞쪽 잘림면(near)으로 다각형 자르기 → 화면 좌표
   function projPoly(pts3) {
     const cs = pts3.map(([x, y, z]) => camSpace(x, y, z)), out = [], n = rig.near;
@@ -1178,7 +1182,7 @@
       tgt = { x: pt.x + (is ? is.side : 0) * ff.swayS, y: pt.y };
     } else tgt = { x: pt.x + nx * G.sway * Math.sin(ff.s * 0.8 + S.time * 0.25), y: pt.y + ny * G.sway * Math.sin(ff.s * 0.8 + S.time * 0.25) };
     keepInWater(tgt);
-    const k = snap ? 1 : ease(ff.mode === 'mill' || ff.mode === 'shore' ? 1.2 : 4, dt);
+    const k = snap ? ease(8, dt) : ease(ff.mode === 'shore' ? 1.2 : 2.2, dt);   // 모드가 바뀌어도 같은 빠르기로 따라가 덜컥거리지 않게
     ff.cx += (tgt.x - ff.cx) * k; ff.cy += (tgt.y - ff.cy) * k;
     const c0 = { x: ff.cx, y: ff.cy }; keepInWater(c0); ff.cx = c0.x; ff.cy = c0.y;
     ff.x = ff.cx; ff.y = ff.cy;
@@ -1193,7 +1197,8 @@
       if (ff.mode === 'shore') {
         if (m.orbR == null) { m.orbR = lerp(SH.orbitR[0], SH.orbitR[1], Math.random()); m.orbW = lerp(SH.orbit[0], SH.orbit[1], Math.random()) * (Math.random() < 0.7 ? 1 : -1); m.orb = Math.random() * 6.283; m.wox = 0; m.woy = 0; }
         m.orb += m.orbW * dt;
-        const ca = Math.cos(m.orb) * m.orbR * SH.ellipse, sa = Math.sin(m.orb) * m.orbR;
+        const rr = m.orbR * (1 + 0.35 * noise1(S.time * 0.17 + m.ph * 4.3));   // 반경이 느리게 숨쉬어 똑같은 원이 되지 않게
+        const ca = Math.cos(m.orb) * rr * SH.ellipse, sa = Math.sin(m.orb) * rr;
         // 수면 기울기에 실리고 curl 노이즈로 휨 → 제자리로 서서히 돌아옴
         const WF = SH.waveFollow, gr = simGrad(m.x, m.y), fa = flowAng(m.x, m.y, S.time);
         m.wox = (m.wox + (-gr[0] * WF.slope + Math.cos(fa) * WF.curl) * dt) * Math.exp(-WF.decay * dt);
@@ -1201,9 +1206,9 @@
         tx = ff.cx + stx * ca + sty * sa + m.wox; ty = ff.cy + sty * ca - stx * sa + m.woy;
       } else {
         const back = Math.round(m.delay * P.hz) % 64, hi = ((ff.histI - back) % 64 + 64) % 64;
-        const a = m.ph + S.time * m.w;
-        let along = Math.cos(a) * m.rad; const lat = Math.sin(a) * m.rad * 0.85;
-        along = lerp(along, Math.abs(along), SEP.frontBias) + m.rad * 0.25 * SEP.frontBias;
+        // 원을 그리며 돌지 않고(로딩 표시처럼 보여서) 각자 느리게 떠다님: 축마다 다른 박자의 노이즈
+        const wf = 0.1 + Math.abs(m.w) * 0.35, tt = S.time * wf;
+        const along = noise1(tt + m.ph * 3.1) * m.rad * 1.5 + m.rad * 0.6 * SEP.frontBias, lat = noise1(tt * 0.83 + m.ph * 5.7 + 31) * m.rad * 1.4;
         tx = ff.hist[hi * 2] + pt.tx * along + nx * lat + Math.sin(S.time * 0.3 + m.ph) * m.wob;
         ty = ff.hist[hi * 2 + 1] + pt.ty * along + ny * lat + Math.cos(S.time * 0.27 + m.ph) * m.wob;
       }
@@ -1320,6 +1325,7 @@
         const tg = 1 + TR.tongue * noise1(q.s / w.tl + w.seed);
         reach = Math.max(reach, Math.min(w.big ? bigMax : Infinity, e * w.amp * q.str * tg * max));
       }
+      q.foam = reach > (q.reach || 0) + 1e-4 ? 1 : Math.max(0, (q.foam || 0) - dt / Wsh.foam.life);   // 올라오는 동안 거품, 이후 서서히 사라짐
       q.reach = reach; q.level = r;
       lv = Math.max(lv, r);
       // 젖음 맵: 물이 닿은 칸은 1, 이후 dryTime 동안 옅어짐 (가장 최근이 가장 진함). 물막은 filmTime 동안
@@ -1463,15 +1469,12 @@
 
   // 하늘·수평선: 위는 조금 더 밝은 미색, 수평선 근처는 안개 띠
   function drawSky() {
-    const hz = rig.horizon;
+    const hz = rig.horizon, top = rgbS(PAL.skyTop), hzc = rgbS(PAL.skyHorizon);
     ctx.fillStyle = COL.bg; ctx.fillRect(0, 0, W, H);
-    // 하늘과 먼 수면이 같은 미색 안개로 이어져 수평선이 거의 구분되지 않게
-    const g = ctx.createLinearGradient(0, hz - H * 0.5, 0, hz + H * 0.25);
-    g.addColorStop(0, 'rgba(249,246,239,1)'); g.addColorStop(0.65, 'rgba(246,242,233,1)'); g.addColorStop(1, 'rgba(243,238,227,0)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, Math.max(0, hz + H * 0.25));
-    const g2 = ctx.createLinearGradient(0, hz + H * 0.15, 0, H);
-    g2.addColorStop(0, 'rgba(120,110,95,0)'); g2.addColorStop(1, 'rgba(120,110,95,0.05)');
-    ctx.fillStyle = g2; ctx.fillRect(0, Math.max(0, hz), W, H);
+    // 하늘: 위 → 수평선으로 밝아짐. 수평선 아래로는 먼 수면이 같은 색으로 이어지다 바다색으로
+    const y0 = Math.min(0, hz - H * 0.6), y1 = hz + H * 0.22, g = ctx.createLinearGradient(0, y0, 0, y1), kh = (hz - y0) / (y1 - y0);
+    g.addColorStop(0, `rgba(${top},1)`); g.addColorStop(clamp(kh, 0.01, 0.98), `rgba(${hzc},1)`); g.addColorStop(1, `rgba(${hzc},0)`);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, Math.max(0, y1));
   }
 
   // 1차원 값 노이즈 (부드럽게 보간)
@@ -1570,9 +1573,9 @@
         const u = (pIdx + 0.5) / parts, lw = Math.max(0.25, w * Math.sin(Math.PI * u));
         let nx = -(sp[k1][1] - sp[k0][1]), ny = sp[k1][0] - sp[k0][0]; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
         if (nx + ny > 0) { nx = -nx; ny = -ny; }            // 밝은 선은 왼쪽 위(빛) 쪽에 붙임
-        ctx.lineWidth = lw; ctx.strokeStyle = `rgba(${COL.water},${(a * (K.darkMul ?? 1)).toFixed(3)})`;
+        ctx.lineWidth = lw; ctx.strokeStyle = `rgba(${COL.water},${(((a * (K.darkMul ?? 1))) * WLA).toFixed(3)})`;
         ctx.beginPath(); ctx.moveTo(sp[k0][0], sp[k0][1]); for (let k = k0 + 1; k <= k1; k++) ctx.lineTo(sp[k][0], sp[k][1]); ctx.stroke();
-        ctx.lineWidth = lw * 0.9; ctx.strokeStyle = `rgba(255,255,255,${(a * K.pairAlpha * 1.6).toFixed(3)})`;
+        ctx.lineWidth = lw * 0.9; ctx.strokeStyle = `rgba(${rgbS(PAL.pairDark)},${Math.min(PAL.pairDarkAlpha, a * K.pairAlpha * 3).toFixed(3)})`;   // 밝은 선 옆 어두운 짝
         ctx.beginPath(); ctx.moveTo(sp[k0][0] + nx * gap, sp[k0][1] + ny * gap); for (let k = k0 + 1; k <= k1; k++) ctx.lineTo(sp[k][0] + nx * gap, sp[k][1] + ny * gap); ctx.stroke();
       }
     }
@@ -1590,7 +1593,7 @@
           const c = camSpace(cx + Math.cos(th) * rr, cy + Math.sin(th) * rr, 0); if (c[1] > rig.near) pts.push(toScreen(c));
         }
         if (pts.length < 2) continue;
-        ctx.lineWidth = clamp(pxPerUnit(c0[1]) / 110, 0.4, 1.4); ctx.strokeStyle = `rgba(${COL.water},${a.toFixed(3)})`;
+        ctx.lineWidth = clamp(pxPerUnit(c0[1]) / 110, 0.4, 1.4); ctx.strokeStyle = `rgba(${COL.water},${((a) * WLA).toFixed(3)})`;
         ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
       }
     }
@@ -1621,7 +1624,7 @@
       const a = b.a * env * (1 - fogAt(c[1]));
       if (a < 0.003) continue;
       const tilt = Math.sin(dir) * 0.15;
-      for (const [col, off, k] of [[COL.water, 0, 1], ['255,255,255', -th * 0.6, 1.4]]) {   // 어두운 띠 + 그 위 밝은 띠
+      for (const [col, off, k] of [[rgbS(PAL.pairDark), 0, 2.2], [COL.water, -th * 0.6, 1.1]]) {   // 어두운 띠 + 그 위 밝은 띠
         const gr = ctx.createLinearGradient(sx - halfL, 0, sx + halfL, 0);
         gr.addColorStop(0, `rgba(${col},0)`); gr.addColorStop(0.5, `rgba(${col},${Math.min(1, a * k).toFixed(3)})`); gr.addColorStop(1, `rgba(${col},0)`);
         ctx.strokeStyle = gr; ctx.lineWidth = th; ctx.lineCap = 'round';
@@ -1647,7 +1650,7 @@
     ctx.imageSmoothingEnabled = true; ctx.globalAlpha = 0.85;
     ctx.drawImage(toneCv, 0, hz + H * 0.04, W, H - hz);
     const gr = ctx.createLinearGradient(0, hz, 0, hz + H * 0.1);            // 수평선 쪽은 자연스럽게 이어지게
-    gr.addColorStop(0, 'rgba(246,242,234,1)'); gr.addColorStop(1, 'rgba(246,242,234,0)');
+    gr.addColorStop(0, `rgba(${rgbS(PAL.skyHorizon)},1)`); gr.addColorStop(1, `rgba(${rgbS(PAL.skyHorizon)},0)`);
     ctx.globalAlpha = 1; ctx.fillStyle = gr; ctx.fillRect(0, hz, W, H * 0.1);
   }
 
@@ -1677,10 +1680,12 @@
     const R = SIM.render, L = FIXED_LIGHT, ll = Math.hypot(L[0], L[1]) || 1;
     sim.computeShade(L[0] / ll, L[1] / ll);
     if (sim.maxShade < R.slope[0]) return;
+    const lineOn = R.line.alpha > 0;
     const y0 = Math.max(0, Math.floor(rig.horizon) + 2);
     if (y0 >= H) return;
     const w = Math.max(8, Math.ceil(W * R.resolution)), h = Math.max(4, Math.ceil((H - y0) * R.resolution));
     if (!simImg || simImg.width !== w || simImg.height !== h) { fitCv(simCv, w, h); simImg = simG.createImageData(w, h); }
+    const LN = R.line, cr = sim.crest, lc = LN.color;
     const D = simImg.data, N = sim.N, sh = sim.shade, inv = 1 / sim.dx, lo = R.slope[0], span = 1 / R.slope[1];
     const far = SIM.size * 1.5, FGd = C.FOG.dist;
     // 빙하 둘레 (반지름 × floeLightRadius) 안에서는 밝은 면을 줄임: 격자 좌표의 타원 목록
@@ -1701,12 +1706,16 @@
         const ci = gx | 0, cj = gy | 0, fx = gx - ci, fy = gy - cj, q = cj * N + ci;
         const s = (sh[q] * (1 - fx) + sh[q + 1] * fx) * (1 - fy) + (sh[q + N] * (1 - fx) + sh[q + N + 1] * fx) * fy;
         let k = (s < 0 ? -s : s) - lo;
-        if (k <= 0) { D[o + 3] = 0; continue; }
+        // 물마루 흰 선: 명암 위에 얹음 (더 진한 쪽을 씀)
+        const ln = lineOn ? ((cr[q] * (1 - fx) + cr[q + 1] * fx) * (1 - fy) + (cr[q + N] * (1 - fx) + cr[q + N + 1] * fx) * fy) * LN.alpha * fogK : 0;
+        if (k <= 0) { if (ln > 0.01) { D[o] = lc[0]; D[o + 1] = lc[1]; D[o + 2] = lc[2]; D[o + 3] = 255 * ln; any = true; } else D[o + 3] = 0; continue; }
         k = (1 - Math.exp(-k * span)) * fogK;                                // 잔물결도 보이고 큰 물결은 과하지 않게
         const c = s > 0 ? R.light : R.dark;
         let la = R.lightAlpha;
         if (s > 0) for (const z of fz) { const ux = (gx - z[0]) * z[2], uy = (gy - z[1]) * z[3], q2 = ux * ux + uy * uy; if (q2 < 1.4) { la *= 1 - (1 - R.floeLightMul) * (1 - smooth(0.8, 1.4, q2)); break; } }
-        D[o] = c[0]; D[o + 1] = c[1]; D[o + 2] = c[2]; D[o + 3] = 255 * k * (s > 0 ? la : R.darkAlpha);
+        const ka = k * (s > 0 ? la : R.darkAlpha);
+        if (ln > ka) { D[o] = lc[0]; D[o + 1] = lc[1]; D[o + 2] = lc[2]; D[o + 3] = 255 * ln; }
+        else { D[o] = c[0]; D[o + 1] = c[1]; D[o + 2] = c[2]; D[o + 3] = 255 * ka; }
         any = true;
       }
     }
@@ -1828,7 +1837,7 @@
       }
       if (pts.length < 2) continue;
       ctx.lineWidth = clamp(pxPerUnit(cc[1]) * 0.022, 0.6, 2.2);
-      ctx.strokeStyle = `rgba(${COL.water},${(a * (1 - fogAt(cc[1]))).toFixed(3)})`;
+      ctx.strokeStyle = `rgba(${COL.water},${(((a * (1 - fogAt(cc[1])))) * WLA).toFixed(3)})`;
       ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -1857,7 +1866,7 @@
         if (aa < 0.004) continue;
         // 가까울수록·앞으로 나아갈수록 굵게 (낮은 시점에서 전진이 잘 보이도록)
         ctx.lineWidth = Wk.lineWidth * clamp(pxPerUnit(d) / 45, 0.6, 2.4) * (1 + 0.5 * fw);
-        ctx.strokeStyle = `rgba(${COL.water},${aa.toFixed(3)})`;
+        ctx.strokeStyle = `rgba(${COL.water},${((aa) * WLA).toFixed(3)})`;
         ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
       }
     }
@@ -1882,13 +1891,13 @@
         if (c0[1] < rig.near || c1[1] < rig.near) continue;
         const [x0, y0] = toScreen(c0), [x1, y1] = toScreen(c1);
         ctx.lineWidth = clamp(pxPerUnit(c0[1]) / 60, 0.7, 2) * (1 + 0.4 * fw);
-        ctx.strokeStyle = `rgba(${COL.water},${(F.alpha * (1 + fw) * s * (1 - t0) * (1 - fogAt(c0[1]))).toFixed(3)})`;
+        ctx.strokeStyle = `rgba(${COL.water},${(((F.alpha * (1 + fw) * s * (1 - t0) * (1 - fogAt(c0[1])))) * WLA).toFixed(3)})`;
         ctx.beginPath(); ctx.moveTo(x0, y0 + dy * 0.3); ctx.lineTo(x1, y1 + dy * 0.3); ctx.stroke();
       }
     }
   }
 
-  const FLOE_SIDE_RGB = [214, 214, 210], FLOE_SUNK_RGB = [162, 165, 168], FLOE_SHADOW_RGB = [70, 72, 76];
+  const FLOE_SIDE_RGB = PAL.floe.side, FLOE_SUNK_RGB = PAL.floe.sunk, FLOE_SHADOW_RGB = PAL.floe.glow;   // '그림자' 자리는 옅은 반사광
   // 빛 방향: 화면 왼쪽 위에서 (월드 기준 단위 벡터)
   function lightDir() { return FIXED_LIGHT; }              // 빛은 월드에 고정 (시작 시선의 왼쪽 위)
   // 고정된 빛(시작 시선의 왼쪽 위)으로 윗면 면 음영을 칠하고, 작게 그렸다 키워 경계를 흐린 텍스처 (빙하마다 한 번)
@@ -1923,6 +1932,20 @@
     // 잠긴 몸: 깊을수록 옅게, 경계는 번지게
     ctx.fillStyle = `rgb(${FLOE_SUNK_RGB.join(',')})`;
     for (let k = 3; k >= 1; k--) softPolys((s) => poly((1 + 0.035 * k) * s, (x, y) => -FL.sunkDepth * k / 3 + tilt(x, y)), 1, a * FL.sunkAlpha * (1 - (k - 1) / 3) * 0.55 * (1 - fog));
+    // 검은 물에 비치는 옆면: 수면선에서 아래로 옅어지는 흰 면 (선 없음)
+    if (PAL.floe.reflectAlpha > 0 && f.relief) {
+      const rf0 = f.relief, tz = (i) => (C.floe.topHeight + rf0.rings[0][i][2]) * PAL.floe.reflectLength, nn = shp.length;
+      for (let i = 0; i < nn; i++) {
+        const j = (i + 1) % nn, [x0, y0] = shp[i], [x1, y1] = shp[j];
+        const q = projPoly([[f.x + x0, f.y + y0, 0], [f.x + x1, f.y + y1, 0], [f.x + x1, f.y + y1, -tz(j)], [f.x + x0, f.y + y0, -tz(i)]]).map(([sx, sy]) => [sx, sy + dy * 0.5]);
+        if (q.length < 3) continue;
+        const yT = Math.min(...q.map((v) => v[1])), yB = Math.max(...q.map((v) => v[1]));
+        if (yB - yT < 0.5) continue;
+        const gr = ctx.createLinearGradient(0, yT, 0, yB);
+        gr.addColorStop(0, `rgba(255,255,255,${(PAL.floe.reflectAlpha * 0.5 * (1 - fog)).toFixed(3)})`); gr.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.globalAlpha = a; ctx.fillStyle = gr; fillPoly(q);
+      }
+    }
     // 옆면: 가장자리마다 수면 → 윗면 높이까지. 높은 쪽(쐐기)은 깎아지른 절벽 면으로 어둡게
     const RL = FL.relief, rf = f.relief, n = shp.length;
     const L = lightDir(), shadeOf = (nv, lo, hi) => { const b = smooth(-0.1, 0.85, nv[0] * L[0] + nv[1] * L[1] + nv[2] * L[2]); return mixFog(lo.map((v, i) => v + (hi[i] - v) * b), fog); };
@@ -1939,7 +1962,7 @@
       const tall = (rf.rings[0][i][2] + rf.rings[0][j][2]) / 2 > rf.H * 0.35 * RL.reliefExaggerate;
       if (pts.length < 3) continue;
       // 절벽면: 위에서 아래(수면)로 번지듯 이어지는 음영
-      const topC = shadeOf([ex, ey, 0.15], tall ? RL.cliffDark : FLOE_SIDE_RGB, tall ? FLOE_SIDE_RGB : [236, 237, 238]);
+      const topC = shadeOf([ex, ey, 0.15], tall ? RL.cliffDark : FLOE_SIDE_RGB, tall ? FLOE_SIDE_RGB : PAL.floe.sideLight);
       const yTop = Math.min(pts[0][1], pts[1][1]), yBot = Math.max(...pts.map((q) => q[1]));
       const gr = ctx.createLinearGradient(0, yTop, 0, yBot + 1);
       gr.addColorStop(0, topC); gr.addColorStop(1 - C.SHADOW_BLUR.ratio, topC); gr.addColorStop(1, mixFog(FLOE_SUNK_RGB, fog));
@@ -2135,7 +2158,7 @@
     const res = C.SHADOW_BLUR.wetResolution, w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));
     for (const cv of [wetCv, filmCv]) if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
     for (const g2 of [wetG, filmG]) { g2.setTransform(1, 0, 0, 1, 0, 0); g2.clearRect(0, 0, w, h); g2.setTransform(res, 0, 0, res, 0, 0); }
-    wetG.fillStyle = '#3f3c39'; filmG.fillStyle = '#f4f2ec';
+    wetG.fillStyle = `rgb(${rgbS(PAL.wetSand)})`; filmG.fillStyle = `rgb(${rgbS(PAL.film)})`;
     let anyW = false, anyF = false;
     const at = (q, dep) => camSpace(q.x - q.nx * dep, q.y - q.ny * dep, z);
     for (let i = 0; i < segsV.length - 1; i++) {
@@ -2159,6 +2182,25 @@
     ctx.imageSmoothingEnabled = true;
     if (anyW) { ctx.globalAlpha = Wsh.wetAlpha * (1 - fog); ctx.drawImage(wetCv, 0, 0, W, H); }
     if (anyF) { ctx.globalAlpha = Math.max(Wsh.waterAlpha, Wsh.filmAlpha) * (1 - fog); ctx.drawImage(filmCv, 0, 0, W, H); }
+    // 거품: 물막 앞선의 흰 띠 + 그 뒤 성긴 띠 (노이즈로 끊김). 올라올 때 진하고 빠지면서 사라짐
+    { const FO = Wsh.foam, fr = Wsh.train.resolution, fw = Math.max(8, Math.ceil(W * fr)), fh = Math.max(8, Math.ceil(H * fr));
+      fitCv(crestCv, fw, fh); crestG.setTransform(1, 0, 0, 1, 0, 0); crestG.globalCompositeOperation = 'source-over'; crestG.clearRect(0, 0, fw, fh); crestG.setTransform(fr, 0, 0, fr, 0, 0);
+      crestG.fillStyle = `rgb(${rgbS(FO.color)})`;
+      let anyFo = false;
+      for (let i = 0; i < segsV.length - 1; i++) {
+        const a = segsV[i], b = segsV[i + 1], fo = ((a.foam || 0) + (b.foam || 0)) / 2;
+        if (fo < 0.02 || (a.reach < 0.03 && b.reach < 0.03)) continue;
+        const lace = 0.5 + 0.5 * noise1(a.s / FO.laceLength + S.time * 0.15);
+        for (const [u0, u1, al] of [[-0.15, 1, fo * (1 - FO.lace * (1 - lace))], [1, 1 + FO.trail / FO.width, fo * FO.trailAlpha / FO.alpha * smooth(0.45, 0.75, noise1(a.s / FO.laceLength * 1.7 + 40 - S.time * 0.1) * 0.5 + 0.5)]]) {
+          if (al < 0.02) continue;
+          const pts = [at(a, Math.max(0, a.reach - FO.width * u0)), at(b, Math.max(0, b.reach - FO.width * u0)), at(b, Math.max(0, b.reach - FO.width * u1)), at(a, Math.max(0, a.reach - FO.width * u1))];
+          if (pts.some((c) => c[1] < rig.near)) continue;
+          crestG.globalAlpha = Math.min(1, al);
+          crestG.beginPath(); pts.forEach((c, j) => { const s = toScreen(c); j ? crestG.lineTo(s[0], s[1]) : crestG.moveTo(s[0], s[1]); }); crestG.closePath(); crestG.fill();
+          anyFo = true;
+        }
+      }
+      if (anyFo) { ctx.globalAlpha = FO.alpha * (1 - fog); ctx.drawImage(crestCv, 0, 0, W, H); } }
     // 물 끝선을 따라 반짝이는 푸른 점
     for (const s of S.spark) {
       if (!s.on || !s.z0) continue;
@@ -2203,10 +2245,10 @@
       items.push({ d: cb[1], draw: () => {
         const fog = fogAt(cb[1], C.FOG.mountain);
         const shape = hull(sb.concat([sa, toScreen(camSpace(pk.x + pk.ax * 0.5 - pk.r * 0.35 * pk.so, pk.y, pk.h * pk.sh))]));
-        ctx.fillStyle = mixFog(COL.mountNear, fog); fillPoly(shape);
+        ctx.fillStyle = mixTo(COL.mountNear, fog, COL.mountFar); fillPoly(shape);   // 멀수록 밝은 능선, 가까울수록 순흑
         // 한쪽 면을 살짝 밝게 (양감)
         const right = sb.reduce((m, q) => (q[0] > m[0] ? q : m)), low = sb.reduce((m, q) => (q[1] > m[1] ? q : m));
-        ctx.fillStyle = mixFog(COL.mountNear.map((v) => v + (255 - v) * 0.1), fog);
+        ctx.fillStyle = mixTo(COL.mountNear.map((v) => v + (255 - v) * PAL.mount.faceLift), fog, COL.mountFar.map((v) => v + (255 - v) * PAL.mount.faceLift));
         fillPoly([sa, right, low]);
       } });
     }
@@ -2272,6 +2314,7 @@
     }
   }
 
+  const rimCv = document.createElement('canvas'), rimG = rimCv.getContext('2d');
   const penScale = (d) => penH() * pxPerUnit(d) * rig.cp;   // 펭귄 키 (px)
   function drawPenguin() {
     const p = S.p, v = penguinView(), dy = penOffset();
@@ -2297,6 +2340,23 @@
     ringHalf(false);
     if (p.sink > 0.01 && cut) drawSubmerged(sx, sy, u, v, cut);   // 잠긴 몸: 푸른 회색, 아래로 옅어지고 굴절로 일렁임
     if (cut) waterlineArc(cut, sx, sy, false);
+    // 림 라이트: 물에 있을 때만 몸 윤곽 바깥으로 번지는 얇은 흰 빛 (검은 바다에 묻히지 않게). 빙하·땅 위에선 꺼짐
+    { const PP = PAL.penguin, want = p.mode === 'water' ? 1 : 0;
+      p.rimK = (p.rimK || 0) + (want - (p.rimK || 0)) * 0.12;
+      if (p.rimK > 0.02 && PP.rimAlpha > 0) {
+        const rw = Math.ceil(u * 2.6), rh = Math.ceil(u * 1.9), pw = Math.ceil(rw * DPR), ph = Math.ceil(rh * DPR);
+        if (rimCv.width < pw || rimCv.height < ph) { rimCv.width = Math.max(rimCv.width, pw); rimCv.height = Math.max(rimCv.height, ph); }
+        rimG.setTransform(DPR, 0, 0, DPR, 0, 0); rimG.globalCompositeOperation = 'source-over'; rimG.clearRect(0, 0, rw, rh);
+        rimG.save(); rimG.translate(rw / 2, rh - u * 0.45); drawPenguinFigure(rimG, u, v, 'above', cut); rimG.restore();
+        rimG.globalCompositeOperation = 'source-in'; rimG.fillStyle = '#fff'; rimG.fillRect(0, 0, rw, rh);
+        const bw = Math.max(1, u * PP.rimWidth);
+        ctx.save(); ctx.imageSmoothingEnabled = true;
+        for (const [rad, al] of [[bw, 0.5], [bw * 2, 0.3], [bw * 3.2, 0.2]]) {
+          ctx.globalAlpha = PP.rimAlpha * p.rimK * al / 3;
+          for (let t = 0; t < 8; t++) { const an = t * 0.7854; ctx.drawImage(rimCv, 0, 0, pw, ph, sx - rw / 2 + Math.cos(an) * rad, sy - (rh - u * 0.45) + Math.sin(an) * rad, rw, rh); }
+        }
+        ctx.restore();
+      } }
     ctx.save(); ctx.translate(sx, sy); drawPenguinFigure(ctx, u, v, 'above', cut); ctx.restore();
     if (cut) waterlineArc(cut, sx, sy, true);
     ringHalf(true);
@@ -2510,10 +2570,7 @@
     const hx = Math.cos(m.ang), hy = Math.sin(m.ang), cv = Math.cos(cam.yaw), sv = Math.sin(cam.yaw);
     const ang = Math.atan2((sv * hx + cv * hy) * flat, cv * hx - sv * hy);
     if (!pinsOnly) {
-      if (!big) {                                            // 큰 구름은 multiply 층 없이 (색 번짐이 탁해 보여서)
-        ffEllipse('pool', sx, sy, R * K.pool[2], R * K.pool[2] * flat, 0, K.pool[1] * a, K.pool[3]);
-        ffEllipse('outer', sx, sy, R * K.outer[2] * 1.1, R * K.outer[2] * flat, ang, K.outer[1] * a, K.outer[3]);
-      }
+      if (!big) ffEllipse('outer', sx, sy, R * K.outer[2] * 1.1, R * K.outer[2] * flat, ang, K.outer[1] * a, K.outer[3]);   // 바깥 번짐 (가산)
       // 꼬리: 진행 반대쪽으로 가늘게 늘어남 (길이 ∝ 속도, 최대 크기 × 3)
       if (m.streak > 0.02) {
         const len = R * F.streak.maxLen * m.streak, bx = sx - Math.cos(ang) * len * 0.5, by = sy - Math.sin(ang) * len * 0.5;
@@ -2541,9 +2598,16 @@
       const k = s.t / s.life, env = smooth(0, 0.25, k) * (1 - smooth(0.4, 1, k));
       drawUnderwaterLight(s.x, s.y, s.depth, s.size, 0, s.hue, env);
     }
+    // 군집 근처 물 면에만 옅은 푸른 반사 (빙하는 이 위에 그려져 물들지 않음)
+    { const FP = PAL.firefly, ff = S.ff, vis = introVis() * (ff.vis ?? 1);
+      if (vis > 0.01 && FP.waterGlowAlpha > 0) {
+        const e = groundEllipse(ff.cx, ff.cy, FP.waterGlowRadius);
+        if (e) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = FP.waterGlowAlpha * vis * (1 - fogAt(e.d)); ctx.drawImage(ffGlow, e.x - e.rx, e.y - e.ry, e.rx * 2, e.ry * 2); ctx.restore(); }
+      } }
     for (const m of S.ff.members) drawMember(m);
     ctx.globalAlpha = 1;
   }
+  const ffGlow = (() => { const kk = C.FIREFLY.gauss, e1 = Math.exp(-kk), col = rgbS(PAL.firefly.waterGlow), st = []; for (let i = 0; i <= 8; i++) { const t = i / 8; st.push([t, `rgba(${col},${((Math.exp(-kk * t * t) - e1) / (1 - e1)).toFixed(4)})`]); } return makeSprite(st); })();
   // 안개 위로 한 번 더 비치는 큰 빛 (안개에 묻히지 않게). 빙하 밑이거나 펭귄 몸 뒤면 건너뜀
   function drawPlanktonOverFog() {
     const F = C.FIREFLY, p = S.p, [psx, psy, pd] = project(p.x, p.y, p.z), u = penScale(pd);
@@ -2560,7 +2624,7 @@
   // ── UI ─────────────────────────────────────────────────
   const sampler = document.createElement('canvas'); sampler.width = sampler.height = 6;
   const sg = sampler.getContext('2d', { willReadFrequently: true });
-  const lum = { ring: 0.93, action: 0.93, target: { ring: 0.93, action: 0.93 }, lastSample: 0 };
+  const lum = { ring: 0.06, action: 0.06, target: { ring: 0.06, action: 0.06 }, lastSample: 0 };
   function sampleLum(cx, cy, r) {
     const x = clamp(cx - r, 0, W - 1), y = clamp(cy - r, 0, H - 1), w = Math.min(r * 2, W - x), h = Math.min(r * 2, H - y);
     if (w < 2 || h < 2) return 0.93;
@@ -2703,10 +2767,15 @@
       for (const gdat of grids) { v += sample(gdat, x / N, y / N) * amp; tot += amp; amp *= 0.5; }
       v /= tot;
       const a = smooth(FC.threshold[0], FC.threshold[1], v), k = (y * N + x) * 4;
-      img.data[k] = 247; img.data[k + 1] = 243; img.data[k + 2] = 235; img.data[k + 3] = Math.round(a * 255);
+      img.data[k] = 255; img.data[k + 1] = 255; img.data[k + 2] = 255; img.data[k + 3] = Math.round(a * 255);
     }
     g2.putImageData(img, 0, 0);
-    return cv;
+    // 2톤: 같은 무늬에 색만 입힌 타일 두 장 (층마다 번갈아)
+    return PAL.fogClumps.map((col) => {
+      const c2 = document.createElement('canvas'); c2.width = c2.height = N; const q = c2.getContext('2d');
+      q.drawImage(cv, 0, 0); q.globalCompositeOperation = 'source-in'; q.fillStyle = `rgb(${rgbS(col)})`; q.fillRect(0, 0, N, N);
+      return c2;
+    });
   })();
   const fogCv = document.createElement('canvas'), fogG = fogCv.getContext('2d');
   const layCv = document.createElement('canvas'), layG = layCv.getContext('2d');
@@ -2719,7 +2788,7 @@
     const ox = ((-(S.time * L.speed * w) - cam.yaw / (Math.PI * 2) * w * 2.2 * (1 / L.scale)) % tw + tw) % tw - tw;
     const oy = ((S.time * L.speed * w * 0.15 + li * 37) % th + th) % th - th;
     layG.globalAlpha = L.alpha;
-    for (let x = ox; x < w; x += tw) for (let y = oy; y < h; y += th) layG.drawImage(fogTile, x, y, tw + 0.5, th + 0.5);
+    for (let x = ox; x < w; x += tw) for (let y = oy; y < h; y += th) layG.drawImage(fogTile[li % fogTile.length], x, y, tw + 0.5, th + 0.5);
     layG.globalAlpha = 1; layG.globalCompositeOperation = 'destination-in';
     const cy = (hz + L.y) * h, hh = L.height * h / 2, gr = layG.createLinearGradient(0, cy - hh, 0, cy + hh);
     gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.35, 'rgba(0,0,0,1)'); gr.addColorStop(0.65, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
@@ -2733,7 +2802,8 @@
     fitCv(fogCv, w, h); fitCv(layCv, w, h);
     fogG.setTransform(1, 0, 0, 1, 0, 0); fogG.clearRect(0, 0, w, h);
     const hz = rig.horizon / H, bh = FG.horizonBand.height, gb = fogG.createLinearGradient(0, (hz - bh) * h, 0, (hz + bh) * h);
-    gb.addColorStop(0, 'rgba(246,242,234,0)'); gb.addColorStop(0.5, `rgba(246,242,234,${FG.horizonBand.alpha})`); gb.addColorStop(1, 'rgba(246,242,234,0)');
+    const fb = rgbS(PAL.fogBand);
+    gb.addColorStop(0, `rgba(${fb},0)`); gb.addColorStop(0.5, `rgba(${fb},${FG.horizonBand.alpha})`); gb.addColorStop(1, `rgba(${fb},0)`);
     fogG.fillStyle = gb; fogG.fillRect(0, (hz - bh) * h, w, bh * 2 * h);
     FG.clumps.layers.forEach((L, li) => { if (!L.near) drawClumpLayer(fogG, L, li, w, h); });
     ctx.imageSmoothingEnabled = true; ctx.globalAlpha = 1; ctx.drawImage(fogCv, 0, 0, W, H);
@@ -2825,5 +2895,5 @@
   reset();
   requestAnimationFrame(frame);
 
-  window.__game = { get sim() { return sim; }, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
+  window.__game = { get sim() { return sim; }, step, keys, STEP, penScale, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
 })();

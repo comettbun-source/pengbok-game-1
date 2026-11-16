@@ -20,3 +20,8 @@ python3 -m http.server 8000
 
 `water.js` — 펭귄 주변 수면을 격자(높이장)로 계산. 펭귄·빙하가 밀어낸 물이 파문·항적·되튕김을 만든다.
 수치는 `config.js` 의 `WATER_SIM`. 끄고 비교: `?cfg=WATER_SIM.enabled=false`
+
+## 색 · 물리 스냅샷
+
+- 색은 `config.js` 맨 위 `PALETTE` (`CONFIG.palette`) 한 곳.
+- 그림·색·카메라를 바꾼 뒤 물리가 그대로인지: `node tools/physics-snapshot.js > snap.json` 으로 전후 비교 (서버는 8123 포트).

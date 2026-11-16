@@ -25,12 +25,13 @@
     const solid = new Uint8Array(n);                // 빙하처럼 물결을 되튕기는 칸
     const edge = new Float32Array(n);               // 격자 가장자리 흡수대: 0(끝) → 1(안쪽)
     const shade = new Float32Array(n);              // 그리기용: 빛 방향 기울기 (부호 있음)
+    const crest = new Float32Array(n);              // 그리기용: 물마루 (볼록하고 평평한 곳) 0~1
     const foam = new Float32Array(n), wet = new Float32Array(n), film = new Float32Array(n);   // 거품 · 젖은 모래 · 뭍 위 물막 두께
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
       const d = Math.min(i, j, N - 1 - i, N - 1 - j);
       edge[j * N + i] = smooth(0, cfg.edgeCells, d);
     }
-    const sim = { N, dx, ox: 0, oy: 0, h, v, k, E, sd, solid, edge, shade, foam, wet, film, ready: false, maxShade: 0, hasShore: false, bodies: [] };
+    const sim = { N, dx, ox: 0, oy: 0, h, v, k, E, sd, solid, edge, shade, crest, foam, wet, film, ready: false, maxShade: 0, hasShore: false, bodies: [] };
 
     // new[i,j] = old[i+sx, j+sy]
     function shift(arr, sx, sy, fill) {
@@ -261,17 +262,30 @@
     };
     // 그리기용 명암 필드: 빛(lx, ly) 쪽으로 기운 면은 +, 반대는 −
     sim.computeShade = function (lx, ly) {
-      let mx = 0; const inv = 0.5 / dx;
+      let mx = 0; const inv = 0.5 / dx, inv2 = 1 / (dx * dx), LN = cfg.render.line, c0 = LN.curv[0], c1 = 1 / (LN.curv[1] - LN.curv[0]), fl2 = 1 / (LN.flat * LN.flat);
       for (let j = 1; j < N - 1; j++) {
         const row = j * N;
         for (let i = 1; i < N - 1; i++) {
           const q = row + i;
-          if (solid[q] || k[q] <= 0 || E[q] > 0) { shade[q] = 0; continue; }
-          const s = -((h[q + 1] - h[q - 1]) * lx + (h[q + N] - h[q - N]) * ly) * inv * edge[q];
+          if (solid[q] || k[q] <= 0 || E[q] > 0) { shade[q] = 0; crest[q] = 0; continue; }
+          const gx = (h[q + 1] - h[q - 1]) * inv, gy = (h[q + N] - h[q - N]) * inv;
+          const s = -(gx * lx + gy * ly) * edge[q];
           shade[q] = s; const as = s < 0 ? -s : s; if (as > mx) mx = as;
+          // 물마루: −∇²h 가 크고(볼록) |∇h| 가 작은(꼭대기) 곳
+          // (두 칸 간격으로 재서 격자 크기의 잔 떨림에는 반응하지 않음)
+          if (i < 2 || j < 2 || i >= N - 2 || j >= N - 2) { crest[q] = 0; continue; }
+          const cv = -(h[q + 2] + h[q - 2] + h[q + 2 * N] + h[q - 2 * N] - 4 * h[q]) * inv2 * 0.25;
+          if (cv > c0) { const wx2 = (h[q + 2] - h[q - 2]) * inv * 0.5, wy2 = (h[q + 2 * N] - h[q - 2 * N]) * inv * 0.5, g2 = (wx2 * wx2 + wy2 * wy2) * fl2; let t = (cv - c0) * c1; if (t > 1) t = 1; crest[q] = t * Math.exp(-g2) * edge[q]; }
+          else crest[q] = 0;
         }
       }
       sim.maxShade = mx;
+      // 그리기 전용 거르기: 명암·물마루를 [1 2 1] 로 가로·세로 한 번씩 번지게 → 격자 크기의 거친 무늬가 화면에 안 보임 (계산값 h 는 그대로)
+      for (const arr of [shade, crest]) {
+        tmp.set(arr);
+        for (let j = 1; j < N - 1; j++) for (let i = 1, q = j * N + 1; i < N - 1; i++, q++) a[q] = (tmp[q - 1] + 2 * tmp[q] + tmp[q + 1]) * 0.25;
+        for (let j = 1; j < N - 1; j++) for (let i = 1, q = j * N + 1; i < N - 1; i++, q++) arr[q] = solid[q] ? 0 : (a[q - N] + 2 * a[q] + a[q + N]) * 0.25;
+      }
     };
     sim.shadeAt = (x, y) => bil(shade, x, y);
     sim.reset = function () { h.fill(0); v.fill(0); foam.fill(0); wet.fill(0); sim.ready = false; };
