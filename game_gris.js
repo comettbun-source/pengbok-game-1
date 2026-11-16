@@ -3076,6 +3076,7 @@
       }
     }
     g.scale(1 + v.squash * 0.6, 1 - v.squash);
+    if (C.PENGUIN_RIG && C.PENGUIN_RIG.enabled) { drawPenguinRig(g, u, v, p, swimFeetLater); return; }
     g.fillStyle = COL.black;
     g.beginPath(); g.ellipse(0, -u * 0.5, u * 0.3, u * 0.5, 0, 0, Math.PI * 2); g.fill();
     if (swimFeetLater) drawSwimFeet(g, u, p, ...swimFeetLater);
@@ -3091,6 +3092,86 @@
       const bx = fvx * u * 0.24;
       g.beginPath(); g.moveTo(bx - u * 0.05, -u * 0.74); g.lineTo(bx + fvx * u * 0.12, -u * 0.71); g.lineTo(bx - u * 0.05, -u * 0.68); g.fill();
     }
+  }
+
+  // ── 펭귄 몸 틀 (PENGUIN_RIG): 부위별로 그림. 화면에서 보이는 방향(fvx 옆, fvy 카메라 쪽)에 따라 앞·옆·뒤 모습이 섞임 ──
+  // 걸음 위상 p.phase, 몸 기울기 p.wobble(이미 몸 전체에 적용됨), 공중 p.air/p.vz, 숨쉬기 S.time 을 읽기만 함 (물리 상태는 바꾸지 않음)
+  function drawPenguinRig(g, u, v, p, swimFeetLater) {
+    const R = C.PENGUIN_RIG, K = R.colors, { fvx, fvy } = v;
+    const sideShare = Math.abs(fvx), fs = fvx >= 0 ? 1 : -1, front = clamp(fvy, -1, 1);   // front: +1 정면, −1 뒷모습
+    const sp = Math.hypot(p.vx, p.vy), walking = !p.air && p.lay < 0.5 && !(p.mode === 'water' && p.depth === 'deep') && sp > 0.12;
+    const amt = walking ? clamp(sp / 1.2, 0.25, 1) : 0, ph = p.phase || 0, st = Math.sin(ph);
+    const swim = p.lay > 0.5 || (p.mode === 'water' && p.depth === 'deep' && !p.air);
+    const ell = (x, y, rx, ry, rot = 0) => { g.beginPath(); g.ellipse(x * u, y * u, Math.max(0.01, rx * u), Math.max(0.01, ry * u), rot, 0, Math.PI * 2); g.fill(); };
+    const backX = -fvx;                                                 // 화면에서 등 쪽 방향 (옆모습일수록 큼)
+    // 날개: 어깨 위치. 정면/뒷모습 = 양옆, 옆모습 = 가까운 날개는 몸 가운데 앞에, 먼 날개는 몸 뒤에 가려짐
+    const F = R.flipper, breath = Math.sin(S.time * 2.2) * deg(F.idleBreath);
+    const airK = p.air ? clamp(0.4 + p.vz / 4, 0, 1) : 0;
+    const flipperAng = (e) => {                                        // e = −1 왼쪽, +1 오른쪽 (화면 기준). 0 = 아래로 늘어뜨림, + = 바깥으로 벌림
+      const walkOut = walking ? deg(F.swing) * amt * Math.max(0, -st * e) : 0;   // 몸이 반대쪽으로 기울 때 이쪽 날개가 벌어져 균형
+      return deg(F.out) * (walking ? 0.6 + 0.4 * amt : 0.5) + walkOut + breath + deg(F.airUp) * airK;
+    };
+    const drawFlipper = (e, near) => {
+      const sx = F.shoulderX * Math.max(0, 1 - sideShare * 1.1) * e - fvx * (near ? 0.03 : 0.07), sy = F.shoulderY - (near ? 0 : 0.02 * sideShare);   // 옆으로 돌수록 가까운 날개는 몸 가운데로, 먼 날개는 몸 뒤로
+      let a = flipperAng(e) * e * (1 - sideShare);                      // 정면: 좌우로 벌어짐
+      if (sideShare > 0.01) {                                          // 옆모습: 앞뒤로 흔듦 (걸음과 반대 위상) + 뛰면 뒤로 젖힘
+        const sw = (walking ? Math.sin(ph + (near ? 0 : Math.PI)) * deg(F.sideSwing) * amt : 0) - deg(F.airUp) * 0.6 * airK + breath * 0.5;
+        a += (-fs) * (deg(F.out) * 0.4 + sw) * sideShare * (near ? 1 : 0.8);
+      }
+      g.save(); g.translate(sx * u, sy * u); g.rotate(-a); g.fillStyle = K.flipper;
+      g.beginPath(); g.moveTo(-F.w * 0.5 * u, 0); g.quadraticCurveTo(-F.w * 0.9 * u, F.len * 0.55 * u, 0, F.len * u); g.quadraticCurveTo(F.w * 0.9 * u, F.len * 0.55 * u, F.w * 0.5 * u, 0); g.closePath(); g.fill();
+      g.restore();
+    };
+    // 발: 번갈아 들림. 앞모습 = 좌우로 벌어짐, 옆모습 = 발끝이 앞을 향함
+    const FT = R.feet;
+    const drawFoot = (i) => {
+      if (swim) return;
+      const e = i ? 1 : -1, lift = walking ? Math.max(0, Math.sin(ph + (i ? Math.PI : 0))) * FT.lift * amt : 0;
+      const fwd = walking ? Math.sin(ph + (i ? Math.PI : 0) + Math.PI / 2) * FT.stride * amt : 0;
+      const x = FT.x * e * (1 - sideShare * 0.7) + fvx * (0.06 + fwd), y = -lift + (sideShare * e * 0.012);
+      const L = FT.len * (0.55 + 0.45 * sideShare) + 0.02 * Math.max(0, front), W = FT.w;
+      g.save(); g.translate(x * u, y * u); g.rotate(sideShare > 0.3 ? -fs * lift * 2 : e * deg(FT.toeOut) * (1 - sideShare) * 0.4);
+      g.fillStyle = K.feet; ell(fvx * L * 0.35, 0, L * 0.5, W * 0.5); g.restore();
+    };
+    // 꼬리: 엉덩이 뒤. 정면에선 몸에 가려 안 보이고, 옆·뒷모습에서 보임
+    const TL = R.tail;
+    const drawTail = () => {
+      const wag = walking ? -st * deg(TL.wag) * amt : Math.sin(S.time * 1.3) * deg(3);
+      const tx = backX * TL.back * Math.max(0.35, sideShare) , ty = TL.y;
+      g.save(); g.translate(tx * u, ty * u); g.rotate(wag + (sideShare > 0.2 ? -fs * 0.15 : 0)); g.fillStyle = K.body;
+      g.beginPath(); g.moveTo(-TL.w * 0.5 * u, -TL.w * 0.4 * u); g.lineTo((backX >= 0 ? 1 : -1) * TL.len * u * Math.max(0.4, sideShare), TL.len * 0.35 * u); g.lineTo(TL.w * 0.5 * u, -TL.w * 0.4 * u); g.closePath(); g.fill();
+      g.restore();
+    };
+    const butt = walking ? st * R.buttSway * amt : 0;
+    // 그리는 순서: 먼 날개 → (정면이면 꼬리) → 발 → 엉덩이·몸통 → 배 → 머리·얼굴 → 가까운 날개 → (뒷모습이면 꼬리)
+    const nearE = -fs, farE = fs;   // 오른쪽을 보면 카메라엔 펭귄의 오른쪽 옆구리(화면 왼쪽 날개)가 보임
+    if (sideShare > 0.05) drawFlipper(farE, false);
+    if (front >= 0 && !swim) drawTail();
+    drawFoot(0); drawFoot(1);
+    g.fillStyle = K.body;
+    ell(backX * R.hips.back + butt, R.hips.y, R.hips.rx, R.hips.ry, butt * 2);   // 엉덩이 (걸음마다 실룩)
+    ell(0, R.torso.y, R.torso.rx, R.torso.ry);
+    if (swimFeetLater) drawSwimFeet(g, u, p, ...swimFeetLater);
+    // 배: 카메라 쪽을 볼수록 넓게, 옆모습이면 앞쪽으로
+    const B = R.belly, bw = B.rx * clamp(0.45 + 0.55 * front, 0, 1);
+    if (bw > 0.02) { g.fillStyle = K.belly; ell(fvx * B.side + butt * 0.5, B.y, bw, B.ry); }
+    // 머리: 몸 기울기를 일부 되돌려 수평 유지 + 걸음마다 살짝 끄덕
+    const H = R.head, bob = walking ? Math.abs(st) * H.bob * amt : 0;
+    g.save(); g.translate(fvx * H.front * u, (H.y + H.r * 0.6) * u); g.rotate(-(p.wobble || 0) * H.counter); g.translate(0, -(H.r * 0.6 - bob) * u);
+    g.fillStyle = K.body; ell(0, 0, H.r, H.r * 0.95);
+    if (front > -0.35) {                                                 // 얼굴 흰 가면 + 눈 + 부리 (뒷모습이면 안 보임)
+      const FC = R.face, fx = fvx * FC.front, mw = FC.rx * clamp(0.35 + 0.65 * front + 0.3 * sideShare, 0.3, 1);
+      g.fillStyle = K.face; ell(fx, FC.y - H.y, mw, FC.ry);
+      g.fillStyle = K.eye;
+      for (const e of [-1, 1]) { const ex = fx + e * FC.eyeGap * clamp(front, 0.1, 1) + fvx * 0.02; if (sideShare > 0.75 && e === -fs) continue; ell(ex, FC.y - H.y - 0.01, FC.eyeR, FC.eyeR * 1.15); }
+      const BK = R.beak, bx = fvx * (H.r * 0.85), by = BK.y - H.y;
+      g.fillStyle = K.beak; g.beginPath(); g.moveTo((bx - fvx * 0.02 - BK.w * 0.5 * (1 - sideShare)) * u, (by - BK.w * 0.5) * u); g.lineTo((bx + fvx * BK.len) * u, (by + 0.01 + BK.len * 0.25 * front) * u); g.lineTo((bx - fvx * 0.02 + BK.w * 0.5 * (1 - sideShare)) * u, (by + BK.w * 0.5) * u); g.closePath(); g.fill();
+    }
+    g.restore();
+    // 날개: 정면/뒷모습이면 양쪽, 옆모습이면 가까운 쪽만 몸 위에
+    if (sideShare <= 0.05) { drawFlipper(-1, true); drawFlipper(1, true); }
+    else drawFlipper(nearE, true);
+    if (front < 0 && !swim) drawTail();
   }
 
   // 헤엄 발: (x0, y0)에서 방향 base(라디안, 캔버스 좌표)로 두 발을 뻗고, 번갈아 위아래로 파닥임
@@ -3779,5 +3860,5 @@
   reset();
   requestAnimationFrame(frame);
 
-  window.__game = { get sim() { return sim; }, drawFrame: () => draw(1 / 60), step, keys, STEP, penScale, floeTopAt, terrainHeightAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
+  window.__game = { drawPenguinFigure, penguinView, get sim() { return sim; }, drawFrame: () => draw(1 / 60), step, keys, STEP, penScale, floeTopAt, terrainHeightAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
 })();

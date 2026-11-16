@@ -315,6 +315,28 @@ const SWIM_SPRAY = {
   size: [0.005, 0.013],
 };
 
+// ── 펭귄 몸 틀 (GRIS, 참고 GIF: 황제펭귄 새끼 뒤뚱 걸음) ─────
+// 부위별로 나눈 기본 틀: 엉덩이·몸통·배·머리·얼굴·날개(팔) 2·발 2·꼬리. 나중에 각 부위를 그림으로 바꿀 수 있게 크기·회전축을 여기 모음
+// 단위: 펭귄 키 = 1, 원점 = 발바닥 가운데, y 는 위가 − (캔버스 방향). x 는 펭귄이 화면 오른쪽을 볼 때 앞쪽이 +
+const PENGUIN_RIG = {
+  enabled: true,
+  colors: { body: '#000000', belly: '#ffffff', face: '#ffffff', eye: '#000000', beak: '#7a7a7a', feet: '#5c5c5c', flipper: '#1d1f24' },   // 날개는 몸보다 아주 살짝 밝게 (몸 위에서도 형태가 읽히게)
+  // 몸: 엉덩이(아래 넓게) + 몸통 두 타원을 겹쳐 서양배 모양
+  hips: { y: -0.25, rx: 0.31, ry: 0.25, back: 0.03 },      // 엉덩이는 살짝 뒤로 빠짐
+  torso: { y: -0.52, rx: 0.25, ry: 0.4 },
+  belly: { y: -0.38, rx: 0.21, ry: 0.32, side: 0.12 },       // side: 옆모습일 때 앞쪽으로 치우침
+  head: { y: -0.8, r: 0.19, front: 0.05, counter: 0.55, bob: 0.012 },   // counter: 몸이 기울 때 머리는 이만큼 반대로 버팀 (수평 유지) · bob: 걸음마다 끄덕임
+  face: { y: -0.8, rx: 0.12, ry: 0.1, front: 0.1, eyeR: 0.028, eyeGap: 0.065 },   // 얼굴 흰 가면 + 눈
+  beak: { y: -0.75, len: 0.12, w: 0.05 },
+  // 날개(팔): 어깨에서 매달림. 걸을 땐 살짝 벌리고(균형) 걸음 반대쪽이 더 벌어짐, 뛰면 위로 퍼덕
+  flipper: { shoulderY: -0.6, shoulderX: 0.23, len: 0.36, w: 0.075, out: 16, swing: 14, airUp: 55, idleBreath: 3, sideSwing: 18 },
+  // 발: 짧고 넓적. 한 걸음마다 번갈아 살짝 들고 앞으로
+  feet: { x: 0.1, len: 0.12, w: 0.045, lift: 0.045, stride: 0.05, toeOut: 18 },
+  // 꼬리: 엉덩이 뒤 아래 작은 쐐기. 걸음 반대 방향으로 살랑
+  tail: { y: -0.1, back: 0.27, len: 0.08, w: 0.07, wag: 22 },
+  buttSway: 0.018,             // 걸음마다 엉덩이가 옆으로 실룩 (몸통보다 크게)
+};
+
 // ── 헤엄 발 (GRIS, 임시 도형): 헤엄칠 때 몸 뒤로 뻗은 두 발이 번갈아 파닥임 ─────
 const SWIM_FEET = {
   enabled: true,
@@ -719,7 +741,7 @@ FIREFLY.guide.shoreMinDepth = ISLAND_TERRAIN.sea.fireflyMinDepth;   // 반딧불
 window.CONFIG = {
   ISLAND_TERRAIN,
   LAND_FIREFLY,
-  SNOW_PUFF, INTRO_HINT, SWIM_SPRAY, SWIM_FEET,
+  SNOW_PUFF, INTRO_HINT, SWIM_SPRAY, SWIM_FEET, PENGUIN_RIG,
   SPLASH_DROPS,
   STARS,
   palette: PALETTE,
