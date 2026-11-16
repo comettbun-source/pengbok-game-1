@@ -2182,7 +2182,7 @@
         const d = trainDist(tb, tau), dep = tb.dep(d), lam = TR.speedDeep * Math.sqrt(dep) * TR.gap;
         const sh = Math.min(TR.shoalMax, Math.pow(dep, -TR.shoal));
         const steep = Math.exp(-Math.pow((dep - TR.steepDepth) / 0.09, 2));            // 수심 0.2 부근에서 가팔라짐
-        const fade = smooth(TR.fadeDepth, TR.fadeDepth * 2.5, dep) * (1 - smooth(TR.startDist * 0.7, TR.startDist, d)) * (1 - fogAt(camSpace(q.x, q.y, 0)[1]));
+        const cd = camSpace(q.x + q.nx * d, q.y + q.ny * d, 0)[1], fade = smooth(TR.fadeDepth, TR.fadeDepth * 2.5, dep) * (1 - smooth(TR.startDist * 0.7, TR.startDist, d)) * (1 - fogAt(cd)) * (TR.nearFade ? smooth(TR.nearFade[0], TR.nearFade[1], cd) : 1);
         const al = lerp(a0, a1, clamp((sh - 1) / (TR.shoalMax - 1), 0, 1)) * Math.min(1.2, wv.amp) * (1 + (TR.steepBoost - 1) * steep) * fade;
         return { d, cw: lam * TR.crest * (1 - TR.steepNarrow * steep), tw: lam * TR.trough, al };
       });
@@ -2228,8 +2228,10 @@
     // 파도 젖음 맵 + 물막: 낮은 해상도 오프스크린 두 장에 칸별 면으로 그려 부드럽게 키움 (선 없음)
     const B = Wsh.bins, maxIn = Wsh.shoreWidth * Wsh.reach * Wsh.binReach;
     const res = C.SHADOW_BLUR.wetResolution, w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));
-    for (const cv of [wetCv, filmCv]) if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
-    for (const g2 of [wetG, filmG]) { g2.setTransform(1, 0, 0, 1, 0, 0); g2.clearRect(0, 0, w, h); g2.setTransform(res, 0, 0, res, 0, 0); }
+    const SHT = Wsh.sheet, fres = SHT ? SHT.resolution : res, fw2 = Math.max(8, Math.ceil(W * fres)), fh2 = Math.max(8, Math.ceil(H * fres));
+    fitCv(wetCv, w, h); fitCv(filmCv, fw2, fh2);
+    wetG.setTransform(1, 0, 0, 1, 0, 0); wetG.clearRect(0, 0, w, h); wetG.setTransform(res, 0, 0, res, 0, 0);
+    filmG.setTransform(1, 0, 0, 1, 0, 0); filmG.globalAlpha = 1; filmG.clearRect(0, 0, fw2, fh2); filmG.setTransform(fres, 0, 0, fres, 0, 0);
     wetG.fillStyle = `rgb(${rgbS(PAL.wetSand)})`; filmG.fillStyle = `rgb(${rgbS(PAL.film)})`;
     let anyW = false, anyF = false;
     const at = (q, dep) => camSpace(q.x - q.nx * dep, q.y - q.ny * dep, z);
@@ -2240,22 +2242,64 @@
         const d0 = k / B * maxIn, d1 = (k + 1) / B * maxIn;
         const wv = (a.wet[k] + b.wet[k]) / 2;
         // 올라오는 물 앞쪽 밝은 막(해안 쪽으로 갈수록 투명) + 빠진 뒤 남는 얇은 막
-        const reach = (a.reach + b.reach) / 2, front = reach > d0 ? Wsh.waterAlpha * clamp(d1 / Math.max(reach, 0.01), 0, 1) : 0;
-        const fv = Math.max(front, Wsh.filmAlpha * smooth(0, 1, (a.film[k] + b.film[k]) / 2));
+        const reach = (a.reach + b.reach) / 2, front = SHT ? 0 : reach > d0 ? Wsh.waterAlpha * clamp(d1 / Math.max(reach, 0.01), 0, 1) : 0;
+        const fv = Math.max(front, (SHT ? SHT.residue : Wsh.filmAlpha) * smooth(0, 1, (a.film[k] + b.film[k]) / 2) * (SHT && reach > d1 ? 0 : 1));   // GRIS: 칸 단위 막은 빠진 뒤 남는 얇은 막만
         if (wv < 0.01 && fv < 0.01) continue;
         const pts = [at(a, d0), at(b, d0), at(b, d1), at(a, d1)];
         if (pts.some((c) => c[1] < rig.near)) continue;
         const sp = pts.map(toScreen);
         const path = (g2) => { g2.beginPath(); sp.forEach(([x, y], j) => (j ? g2.lineTo(x, y) : g2.moveTo(x, y))); g2.closePath(); g2.fill(); };
         if (wv >= 0.01) { wetG.globalAlpha = wv * (1 - k / B * 0.5); path(wetG); anyW = true; }   // 가장자리로 갈수록 넓게 옅어짐
-        if (fv >= 0.01) { filmG.globalAlpha = Math.min(1, fv / Math.max(Wsh.waterAlpha, Wsh.filmAlpha)); path(filmG); anyF = true; }
+        if (fv >= 0.01) { filmG.globalAlpha = Math.min(1, fv); path(filmG); anyF = true; }
+      }
+    }
+    // GRIS: 올라온 물막 — 물가(투명) → 앞선(은은하게)으로 이어지는 얇은 면 + 군데군데 끊기는 가는 앞선 테두리
+    if (SHT) {
+      const n = SHT.strips, quad = (a, b, da0, da1, db0, db1) => {
+        const pts = [at(a, da0), at(b, db0), at(b, db1), at(a, da1)];
+        if (pts.some((c) => c[1] < rig.near)) return false;
+        filmG.beginPath(); pts.forEach((c, j) => { const s = toScreen(c); j ? filmG.lineTo(s[0], s[1]) : filmG.moveTo(s[0], s[1]); }); filmG.closePath(); filmG.fill(); return true;
+      };
+      for (let i = 0; i < segsV.length - 1; i++) {
+        const a = segsV[i], b = segsV[i + 1];
+        if (a.reach < 0.03 && b.reach < 0.03) continue;
+        for (let k = 0; k < n; k++) {                          // 물가 → 앞선: 진하기가 서서히 올라감 (겹치지 않는 띠)
+          const u0 = k / n, u1 = (k + 1) / n;
+          filmG.globalAlpha = lerp(SHT.alpha[0], SHT.alpha[1], Math.pow(u1, 1.5));
+          if (quad(a, b, a.reach * u0, a.reach * u1, b.reach * u0, b.reach * u1)) anyF = true;
+        }
+        const brk = smooth(0.25, 0.6, 0.5 + 0.5 * noise1(a.s / 0.6 + S.time * 0.4));   // 앞선 테두리: 군데군데 끊김
+        if (brk > 0.02) { filmG.globalAlpha = SHT.lipAlpha * brk; quad(a, b, a.reach, Math.max(0, a.reach - SHT.lip), b.reach, Math.max(0, b.reach - SHT.lip)); }
       }
     }
     ctx.imageSmoothingEnabled = true;
     if (anyW) { ctx.globalAlpha = Wsh.wetAlpha * (1 - fog); ctx.drawImage(wetCv, 0, 0, W, H); }
-    if (anyF) { ctx.globalAlpha = Math.max(Wsh.waterAlpha, Wsh.filmAlpha) * (1 - fog); ctx.drawImage(filmCv, 0, 0, W, H); }
+    if (anyF) { ctx.globalAlpha = (SHT ? 1 : Math.max(Wsh.waterAlpha, Wsh.filmAlpha)) * (1 - fog); ctx.drawImage(filmCv, 0, 0, W, H); }
     // 거품: 물막 앞선의 흰 띠 + 그 뒤 성긴 띠 (노이즈로 끊김). 올라올 때 진하고 빠지면서 사라짐
-    { const FO = Wsh.foam, fr = Wsh.train.resolution, fw = Math.max(8, Math.ceil(W * fr)), fh = Math.max(8, Math.ceil(H * fr));
+    if (SHT) {                                                 // GRIS: 거품 = 앞선을 따라 가늘게 끊기는 레이스 조각 (구간을 쪼개 무늬를 잘게)
+      const FO = Wsh.foam, L = SHT.lace, fr = SHT.resolution, fw = Math.max(8, Math.ceil(W * fr)), fh = Math.max(8, Math.ceil(H * fr));
+      fitCv(crestCv, fw, fh); crestG.setTransform(1, 0, 0, 1, 0, 0); crestG.globalCompositeOperation = 'source-over'; crestG.clearRect(0, 0, fw, fh); crestG.setTransform(fr, 0, 0, fr, 0, 0);
+      crestG.fillStyle = `rgb(${rgbS(FO.color)})`;
+      let anyFo = false;
+      for (let i = 0; i < segsV.length - 1; i++) {
+        const a = segsV[i], b = segsV[i + 1], fo = ((a.foam || 0) + (b.foam || 0)) / 2;
+        if (fo < 0.03 || (a.reach < 0.03 && b.reach < 0.03)) continue;
+        for (let m = 0; m < L.sub; m++) {
+          const t0 = m / L.sub, t1 = (m + 1) / L.sub, s = lerp(a.s, b.s, (t0 + t1) / 2);
+          const nz = 0.5 + 0.5 * noise1(s / lerp(L.length[0], L.length[1], 0.5) + 13.7), nz2 = 0.5 + 0.5 * noise1(s * 2.3 - S.time * 0.25 + 71);
+          if (nz < L.gap) continue;                            // 끊긴 자리
+          const wdt = lerp(L.width[0], L.width[1], nz2) * fo, off = (nz2 - 0.5) * 0.08;
+          const P = (q0, q1, t) => ({ x: lerp(q0.x, q1.x, t), y: lerp(q0.y, q1.y, t), nx: lerp(q0.nx, q1.nx, t), ny: lerp(q0.ny, q1.ny, t), reach: lerp(q0.reach, q1.reach, t) });
+          const A = P(a, b, t0), Bq = P(a, b, t1);
+          const pts = [at(A, Math.max(0, A.reach + off)), at(Bq, Math.max(0, Bq.reach + off)), at(Bq, Math.max(0, Bq.reach + off - wdt)), at(A, Math.max(0, A.reach + off - wdt))];
+          if (pts.some((c) => c[1] < rig.near)) continue;
+          crestG.globalAlpha = Math.min(1, fo * smooth(L.gap, L.gap + 0.2, nz));
+          crestG.beginPath(); pts.forEach((c, j) => { const sp = toScreen(c); j ? crestG.lineTo(sp[0], sp[1]) : crestG.moveTo(sp[0], sp[1]); }); crestG.closePath(); crestG.fill();
+          anyFo = true;
+        }
+      }
+      if (anyFo) { ctx.globalAlpha = L.alpha * (1 - fog); ctx.drawImage(crestCv, 0, 0, W, H); }
+    } else { const FO = Wsh.foam, fr = Wsh.train.resolution, fw = Math.max(8, Math.ceil(W * fr)), fh = Math.max(8, Math.ceil(H * fr));
       fitCv(crestCv, fw, fh); crestG.setTransform(1, 0, 0, 1, 0, 0); crestG.globalCompositeOperation = 'source-over'; crestG.clearRect(0, 0, fw, fh); crestG.setTransform(fr, 0, 0, fr, 0, 0);
       crestG.fillStyle = `rgb(${rgbS(FO.color)})`;
       let anyFo = false;
