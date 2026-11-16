@@ -453,6 +453,7 @@ const QUALITY = {
   downFps: 45, downAfter: 2,
   upFps: 57, upAfter: 6,
   dither: 1,                  // 화면 전체에 ±1 레벨 디더 노이즈 (어두운 그라데이션 띠 숨김, 0 = 끔)
+  smoothHigh: true,           // 저해상도 그림을 키울 때 고품질 보간 (품질 1단계에서만. 소프트웨어 렌더링에선 프레임당 약 16ms 들어서)
   toneSize: [96, 48],         // 수면 밝기 노이즈 해상도 (24×12 → 96×48)
 };
 

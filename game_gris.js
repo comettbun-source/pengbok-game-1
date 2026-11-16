@@ -3050,7 +3050,7 @@
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = Math.min(1, Q.dither); ctx.fillStyle = ditherFill; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.restore();
   }
   function draw(dt) {
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.imageSmoothingQuality = 'high';   // (캔버스 크기가 바뀌면 초기화되므로 매 프레임)
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.imageSmoothingQuality = C.quality && C.quality.smoothHigh && !(S.qTier > 0) ? 'high' : 'low';   // 고품질 보간은 최고 단계에서만 (느린 기기에선 비쌈). 캔버스 크기가 바뀌면 초기화되므로 매 프레임
     ctx.globalAlpha = 1;
     updateRig();
     drawSky();
