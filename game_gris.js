@@ -1952,6 +1952,7 @@
 
   // 빙하: 물에 반쯤 잠긴 덩어리. 접촉 그림자 → 잠긴 몸(아래로 옅어짐) → 수면 위 옆면 → 수면 흰 링 → 윗면(그라데이션·면 분할선)
   const floeHalo = (() => { const FF = C.FOG.floe, col = (FF ? FF.color : [28, 35, 45]).join(','); return makeSprite([[0, `rgba(${col},0.9)`], [0.4, `rgba(${col},0.6)`], [0.7, `rgba(${col},0.22)`], [1, `rgba(${col},0)`]]); })();
+  const maskCv = document.createElement('canvas'), maskG = maskCv.getContext('2d');
   function drawFloe(f, d) {
     const a = floeAlpha(f);
     if (a <= 0.01) return;
@@ -2027,26 +2028,21 @@
       const j = (i + 1) % n2, q = projPoly([rf.rings[k][i], rf.rings[k][j], rf.rings[k + 1][j], rf.rings[k + 1][i]].map(([x, y, z]) => [f.x + x, f.y + y, C.floe.topHeight + z + tilt(x, y)])).map(([sx, sy]) => [sx, sy + dy]);
       if (q.length > 2) topPolys.push(q);
     }
-    const unionPath = (g2) => {                               // 모든 다각형을 같은 감김 방향으로 → nonzero 채우기 = 합집합
-      g2.beginPath();
-      for (const q of topPolys) {
-        let s = 0; for (let m = 0; m < q.length; m++) { const u = q[m], v = q[(m + 1) % q.length]; s += u[0] * v[1] - v[0] * u[1]; }
-        const pts = s < 0 ? q.slice().reverse() : q;
-        pts.forEach(([x, y], m) => (m ? g2.lineTo(x, y) : g2.moveTo(x, y))); g2.closePath();
-      }
-    };
+    // 합집합 채우기: 다각형을 하나씩 따로 채움. (한 경로로 묶어 nonzero 로 채우면, 낮은 각도에서 뒤집혀 꼬인
+    // 사각형이 다른 면을 상쇄해 검은 구멍이 뚫려 보였음)
+    const fillUnion = (g2) => { for (const q of topPolys) { g2.beginPath(); q.forEach(([x, y], m) => (m ? g2.lineTo(x, y) : g2.moveTo(x, y))); g2.closePath(); g2.fill(); } };
     if (outline.length > 2) {
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       for (const qq of topPolys) for (const q of qq) { minX = Math.min(minX, q[0]); maxX = Math.max(maxX, q[0]); minY = Math.min(minY, q[1]); maxY = Math.max(maxY, q[1]); }
       ctx.globalAlpha = a;
-      if (maxX - minX < 18) { ctx.fillStyle = mixFog(RL.shadeMid, fog); unionPath(ctx); ctx.fill('nonzero'); }
+      if (maxX - minX < 18) { ctx.fillStyle = mixFog(RL.shadeMid, fog); fillUnion(ctx); }
       else {
         const res = RL.shadeResolution, w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));
         if (topCv.width !== w || topCv.height !== h) { topCv.width = w; topCv.height = h; }
         // 화면에 보이는 윤곽 범위만 지우고 그려서 옮김 (전체 화면 복사 대신)
         const bx0 = clamp(Math.floor(minX * res) - 2, 0, w), by0 = clamp(Math.floor(minY * res) - 2, 0, h), bx1 = clamp(Math.ceil(maxX * res) + 2, 0, w), by1 = clamp(Math.ceil(maxY * res) + 2, 0, h);
         topG.setTransform(1, 0, 0, 1, 0, 0); topG.clearRect(bx0, by0, bx1 - bx0, by1 - by0); topG.setTransform(res, 0, 0, res, 0, 0);
-        topG.fillStyle = `rgb(${RL.shadeMid.join(',')})`; unionPath(topG); topG.fill('nonzero');
+        topG.fillStyle = `rgb(${RL.shadeMid.join(',')})`; fillUnion(topG);
         const n2 = shp.length, order = [];
         // 먼 사각형부터 그림 (낮은 각도에서 둔덕 너머 면이 앞면 위에 덮여 검은 조각처럼 보이지 않게)
         for (let k = 0; k < rf.K; k++) for (let i = 0; i < n2; i++) { const j = (i + 1) % n2, c0 = rf.rings[k][i], c1 = rf.rings[k + 1][j]; order.push([camSpace(f.x + (c0[0] + c1[0]) / 2, f.y + (c0[1] + c1[1]) / 2, (c0[2] + c1[2]) / 2)[1], k, i]); }
@@ -2058,11 +2054,19 @@
           topG.fillStyle = `rgb(${rf.cols[k * n2 + i].join(',')})`; topG.strokeStyle = topG.fillStyle; topG.lineWidth = 1.5;
           topG.beginPath(); pts.forEach(([x, y], m) => (m ? topG.lineTo(x, y + dy) : topG.moveTo(x, y + dy))); topG.closePath(); topG.fill(); topG.stroke();
         }
-        ctx.save(); unionPath(ctx); ctx.clip('nonzero');
-        ctx.imageSmoothingEnabled = true;
-        if (bx1 > bx0 && by1 > by0) ctx.drawImage(topCv, bx0, by0, bx1 - bx0, by1 - by0, bx0 / res, by0 / res, (bx1 - bx0) / res, (by1 - by0) / res);
-        ctx.restore();
-        if (fog > 0.01) { ctx.globalAlpha = a * fog; ctx.fillStyle = mixFog([255, 255, 255], 1); unionPath(ctx); ctx.fill('nonzero'); }
+        // 또렷한 가장자리: 실해상도 마스크 캔버스에 합집합을 불투명하게 채운 뒤 그 안에만 명암 캔버스를 얹음
+        const mx0 = Math.floor(minX) - 1, my0 = Math.floor(minY) - 1, mw = Math.ceil(maxX) + 1 - mx0, mh = Math.ceil(maxY) + 1 - my0;
+        if (mw > 0 && mh > 0 && bx1 > bx0 && by1 > by0) {
+          const pw = Math.ceil(mw * DPR), ph = Math.ceil(mh * DPR);
+          if (maskCv.width < pw || maskCv.height < ph) { maskCv.width = Math.max(maskCv.width, pw); maskCv.height = Math.max(maskCv.height, ph); }
+          maskG.setTransform(1, 0, 0, 1, 0, 0); maskG.globalCompositeOperation = 'source-over'; maskG.clearRect(0, 0, pw, ph);
+          maskG.setTransform(DPR, 0, 0, DPR, -mx0 * DPR, -my0 * DPR); maskG.fillStyle = '#000'; fillUnion(maskG);
+          maskG.globalCompositeOperation = 'source-in'; maskG.imageSmoothingEnabled = true;
+          maskG.drawImage(topCv, bx0, by0, bx1 - bx0, by1 - by0, bx0 / res, by0 / res, (bx1 - bx0) / res, (by1 - by0) / res);
+          if (fog > 0.01) { maskG.globalCompositeOperation = 'source-atop'; maskG.globalAlpha = fog; maskG.fillStyle = mixFog([255, 255, 255], 1); maskG.fillRect(mx0, my0, mw, mh); maskG.globalAlpha = 1; }
+          maskG.globalCompositeOperation = 'source-over';
+          ctx.drawImage(maskCv, 0, 0, pw, ph, mx0, my0, mw, mh);
+        }
       }
     }
     // GRIS: 먼 빙하는 안개색(수평선 안개)으로 녹아 흐려지고, 둘레를 부드러운 안개가 감쌈
