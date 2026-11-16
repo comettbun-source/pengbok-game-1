@@ -253,6 +253,33 @@ const FIREFLY = {
 
 
 // ── 경량 물리 ──────────────────────────────────────────────
+// ── 땅 반딧불이 (GRIS): 해안 바위에 앉아 깜빡이다, 펭귄이 다가오면 숲으로 날아감. 바다반딧불이(FIREFLY)와 별개 ─────
+const LAND_FIREFLY = {
+  perRock: [3, 5], max: 12,            // 바위당 수 · 전체 상한
+  arriveGap: [0.6, 1.5], arriveDelay: 1.2, arriveSpeed: 3.2,   // 하나둘씩 날아와 앉음 (간격 · 첫 도착 지연 · 날아오는 속도)
+  blink: { on: 0.25, off: [2, 4], syncShare: 0.5, nudge: 0.07, periodPull: 0.03 },   // 0.25초 켜짐 → 2~4초 꺼짐. 일부는 이웃이 켜질 때 박자를 조금씩 당겨 서서히 맞춤
+  trigger: 3.0, delay: [0, 0.4],       // 펭귄이 바위에서 이 반경 안으로 오면, 가까운 것부터 0~0.4초 지연 뒤 날아오름
+  burst: { time: 0.15, rise: 0.6 },    // 처음 0.15초 급상승
+  speed: [2, 5], zigzag: { amp: 0.35, freq: [5, 9] },   // 불규칙한 속도 · 지그재그
+  forest: { d: [8, 12], yBack: [2.5, 6] },   // 날아가는 숲 가장자리 (해안선에서 안쪽 거리 · 이동 선 뒤쪽 거리)
+  forestPins: [4, 6], pinBlink: { on: 0.6, off: [2.5, 4.5] }, pinDrift: 0.25,   // 숲에 남아 느리게 깜빡이는 수
+  size: [0.03, 0.08], tail: { time: 0.08, alpha: 0.25 },   // 점 크기 · 아주 짧은 꼬리
+  rockGlow: 0.1,                       // 바위 윗면에 비치는 아주 옅은 빛
+  preset: 'amber',                     // 색 프리셋 (URL ?lf=blue 로 비교)
+  presets: {
+    amber: { core: '#fff2b0', mid: ['#ffd24d', 0.4], outer: ['#ff9a2e', 0.12] },
+    blue: { core: PALETTE.firefly.core, mid: [PALETTE.firefly.body, 0.4], outer: [PALETTE.firefly.outer, 0.12] },
+  },
+};
+
+// ── 눈가루 (GRIS): 빙하에 오르내릴 때 발밑에서 흩날림 ─────
+const SNOW_PUFF = {
+  count: [10, 16], landCount: [16, 24],   // 오르내릴 때 · 높은 곳에서 착지할 때
+  speed: [0.6, 1.8], up: [1.3, 2.8],      // 옆으로 · 위로 튀는 속도 (위로 솟아 어두운 바다·하늘 앞에서 보이게)
+  life: [0.6, 1.1], size: [0.02, 0.05],
+  gravity: 3.5, drag: 2.2, alpha: 0.85, max: 70, color: [196, 210, 230],   // 흰 빙하 위에서도 보이게 살짝 푸른 회색
+};
+
 const PHYSICS = {
   hz: 60,                     // 고정 시간 단계
   gravity: 22.7,              // 일반 점프: 높이 0.5 · 체공 0.42초 → g = 8h/T²
@@ -346,20 +373,32 @@ const ISLAND_TERRAIN = {
   // 구역: 이동 속도 배율 · 나무 밀도(단위 넓이당 그루) · 지면 색
   zones: [
     { name: 'sand', to: 6, speed: 0.5, trees: 0, color: [58, 60, 64] },
-    { name: 'forestEdge', to: 14, speed: 0.8, trees: [0.01, 0.05], color: [36, 40, 40] },
-    { name: 'forestDeep', to: 34, speed: 0.85, trees: [0.06, 0.16], color: [24, 28, 29] },
-    { name: 'hills', to: 999, speed: 0.9, trees: 0.04, color: [31, 34, 38] },
+    { name: 'forestEdge', to: 14, speed: 1.15, trees: [0.12, 0.2], color: [36, 40, 40] },   // 속도 0.8 → 1.15 (모래만 그대로)
+    { name: 'forestDeep', to: 34, speed: 1.25, trees: [0.14, 0.24], color: [24, 28, 29] },   // 0.85 → 1.25
+    { name: 'hills', to: 999, speed: 1.3, trees: 0.06, color: [31, 34, 38] },   // 0.9 → 1.3
   ],
   zoneBlend: 1.2,             // 구역 경계에서 속도·색이 이어지는 폭
-  trees: { seed: 314, height: [2.4, 4.6], width: [0.9, 1.5], laneGap: 1.8, back: 26, color: [10, 13, 15], trunk: [8, 10, 12] },   // 이동 선 뒤쪽(화면 안쪽)에만
+  // 나무: 해변 바로 뒤 키 큰 야자수 줄 → 덤불 → 빽빽한 정글 (임시 도형). 뭉쳐서 자람(cluster)
+  trees: {
+    seed: 314, laneGap: 1.4, back: 26,
+    cluster: { scale: 0.22, low: 0.35, high: 0.75, gain: 1.4 },   // 군락 노이즈: 이 범위에서 밀도가 확 올라감
+    palm: { d: [4.6, 13], peak: 6.8, density: 0.32, height: [3.6, 5.4], lean: 0.9, fronds: 9, frondLen: [1.5, 2.3] },   // 해변 가장자리 야자수 (가까이·크게, 잎이 화면 안에 보이는 높이)
+    bush: { d: [5.2, 9], density: 0.9, size: [0.9, 2.0], height: [0.6, 1.3] },        // 숲 입구 덤불
+    jungle: { height: [6, 11], width: [2.6, 4.6] },                                     // 정글 나무 (둥근 잎 뭉치)
+    front: { density: 0.05, y: [2.6, 5.5], d: [14, 60], alpha: 0.9 },                  // 이동 선 앞쪽 실루엣 (드물게)
+    color: [11, 19, 16], frond: [22, 36, 30], trunk: [16, 20, 19], palmTrunk: [34, 40, 40], bushColor: [9, 16, 13],
+  },
   ground: { dStep: 1, yStep: 4, yRange: [-40, 40], maxDist: 76, view: 70, crack: 0.35, crackColor: [10, 12, 14], light: 0.18 },   // 지면 칸 그리기
   mountains: { offset: 78, nearPeaks: false },   // 산은 원경으로만: 해안에서 이만큼 더 안쪽 (해안 바로 뒤 작은 봉우리 없음)
   // 해안 바위 (하와이 현무암처럼 낮고 둥근 검은 바위). d = 해안선에서 안쪽 거리, y = 화면 안쪽 위치
   rocks: {
-    list: [{ d: 2.0, y: 0.3, h: 0.55 }, { d: 4.2, y: -0.4, h: 0.7 }],
+    list: [{ d: 2.0, y: 0.3, h: 0.55, seed: 11 }, { d: 4.2, y: -0.4, h: 0.7, seed: 23 }],
     width: 1.4,               // 폭 (지름)
     depthScale: 0.8,          // 안쪽 방향 폭 비율
-    color: [16, 16, 18], light: [44, 46, 50],
+    // 모양 (사진처럼 모난 바위): 바닥 꼭짓점 7~9개(반지름 들쭉날쭉) · 꼭대기는 한쪽으로 치우침 · 중간 고리 높이 들쭉날쭉 → 납작한 면들
+    shape: { verts: [7, 9], radiusVar: 0.25, apexOffset: 0.3, midAt: 0.5, midHeight: [0.55, 0.85] },
+    pebbles: { count: [2, 3], size: [0.14, 0.3], height: [0.08, 0.22], spread: [1.0, 1.6] },   // 둘레 작은 돌 (그림만)
+    color: [16, 16, 18], light: [52, 54, 58],
     washRing: 0.4,            // 파도가 닿으면 바위 둘레로 갈라지는 흰 물결 진하기
   },
   sea: { slope: 7, fireflyMinDepth: 0.15 },   // 바다 쪽: 수심 경사 거리(DEPTH.slope) · 반딧불이가 머무는 최소 수심
@@ -597,6 +636,8 @@ FIREFLY.guide.shoreMinDepth = ISLAND_TERRAIN.sea.fireflyMinDepth;   // 반딧불
 
 window.CONFIG = {
   ISLAND_TERRAIN,
+  LAND_FIREFLY,
+  SNOW_PUFF,
   palette: PALETTE,
   WATER_PRESETS: { calm: WATER_CALM, normal: WATER_NORMAL },
   water: WATER_CALM,          // ← WATER_NORMAL 로 바꿔 끼우면 보통 물결 (URL ?water=normal 도 가능)
