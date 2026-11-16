@@ -603,6 +603,7 @@
     ptr.x = e.clientX; ptr.y = e.clientY;
     if (ptr.role === 'camera') {
       S.lastCamTouch = S.time;
+      if (C.camera.lockRotation) return;                       // GRIS: 각도 고정
       cam.yawT = clamp(cam.yawT + dx * C.camera.rotateSensX, -deg(C.camera.yawLockDeg), deg(C.camera.yawLockDeg));   // GRIS: 좌우 ±yawLockDeg 안에서만
       cam.pitchT = clamp(cam.pitchT + dy * C.camera.rotateSensY, deg(C.camera.pitchMinDeg), deg(C.camera.pitchMaxDeg));
     } else if (ptr.role === 'drag' && ptr.floe && ptr.floe.grab) {
@@ -630,7 +631,9 @@
     const k = KEYMAP[e.key.toLowerCase()]; if (k) keys.delete(k);
   });
 
-  function readMove() {
+  // GRIS: 좌우만 — 위아래 입력은 버림 (화면 기준 → yaw 0 이라 월드 ±x)
+  function readMove() { const m = readMove2D(); return C.lane ? [m[0], 0] : m; }
+  function readMove2D() {
     const R = C.ui.ring;
     for (const ptr of pointers.values()) {
       if (ptr.role !== 'ring') continue;
@@ -892,6 +895,11 @@
       p.x += (p.vx + (p.air ? p.cvx : 0)) * dt; p.y += (p.vy + (p.air ? p.cvy : 0)) * dt;
     }
 
+    // GRIS: 이동 선(lane) 근처로 부드럽게 되밀기 (공중 제외, 빙하 위에서도)
+    if (C.lane && !p.air) {
+      const LN = C.lane, off = p.y - LN.y, ex = Math.abs(off) - LN.halfWidth;
+      if (ex > 0) p.vy -= Math.sign(off) * ex * LN.push * dt;
+    }
     // 바다 이동 한계: 밖으로 나가면 부드럽게 되밀기
     const B = C.bounds;
     if (!(p.mode === 'floe' && !p.air)) {
@@ -1168,7 +1176,7 @@
       if (ff.mode === 'flee') {
         const rem = ff.sTarget - ff.s;
         let v = Math.min(Math.max(ff.speed, spd), Math.max(0.3, rem * 2.5));
-        if (ff.s < sMin) v = Math.max(v, spd * SEP.retreatMul + (sMin - ff.s) * 1.5);   // lead 보다 가까우면 펭귄보다 빠르게 따라잡아 앞섬
+        if (ff.s < sMin) v = Math.max(v, spd * SEP.retreatMul + (sMin - ff.s) * (LD.catchUp ?? 1.5));   // GRIS: 점프로 확 앞질러도 바로 따라잡게   // lead 보다 가까우면 펭귄보다 빠르게 따라잡아 앞섬
         ff.s = Math.min(ff.sTarget, ff.s + v * dt);           // 단조 증가
         if (ff.sTarget - ff.s < 0.02) ff.mode = ff.s >= ff.L - 0.05 ? 'shore' : 'mill';
       }
