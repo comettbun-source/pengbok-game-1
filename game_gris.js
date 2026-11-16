@@ -2472,9 +2472,12 @@
       const toR = Math.atan2(rock.y - p.y, rock.x - p.x), facing = Math.abs(angDiff(p.face, toR)) < deg(LF.facing);   // 바위 쪽을 바라볼 때만
       if (!rock.fled && facing && Math.hypot(p.x - rock.x, p.y - rock.y) < LF.trigger) {
         rock.fled = true;
-        const fl = lf.flies.filter((f) => f.rock === rock && (f.state === 'sit' || f.state === 'arrive'));
+        const PG = LF.pop ? LF.pop.group : 0;   // 퐁: 근처 바위들도 다 같이
+        if (PG) for (const r2 of S.rocks) if (Math.hypot(r2.x - p.x, r2.y - p.y) < PG) r2.fled = true;
+        const fl = lf.flies.filter((f) => (f.rock === rock || (PG && f.rock && f.rock.fled && Math.hypot(f.rock.x - p.x, f.rock.y - p.y) < PG)) && (f.state === 'sit' || f.state === 'arrive' || f.state === 'wait'));
         fl.sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y));
-        fl.forEach((f, i) => { f.state = 'pre'; f.wait = lerp(LF.delay[0], LF.delay[1], fl.length > 1 ? i / (fl.length - 1) : 0);
+        const DL = LF.pop ? LF.pop.stagger : LF.delay;
+        fl.forEach((f, i) => { if (f.state === 'wait') { f.x = f.sx; f.y = f.sy; f.z = terrainHeightAt(f.sx, f.sy) + 0.02; f.vis = 0.6; } f.state = 'pre'; f.wait = lerp(DL[0], DL[1], fl.length > 1 ? i / (fl.length - 1) : 0) + Math.random() * 0.04;
           const fd = lerp(LF.forest.d[0], LF.forest.d[1], Math.random()), fy = laneY - lerp(LF.forest.yBack[0], LF.forest.yBack[1], Math.random());
           f.tx = is.shoreAt(fy) + is.side * fd; f.ty = fy; f.tz = terrainHeightAt(f.tx, fy) + 1 + Math.random() * 2; f.ft = 0; f.bend = (Math.random() - 0.5) * 3; });
         log('landFireflyFlee');
@@ -2494,10 +2497,18 @@
         const prev = f.ph; f.ph += dt / f.per;
         if (f.ph >= 1) { f.ph -= 1; flashed.set(f, true); }
         f.rock.glow = Math.max(f.rock.glow, lfBright(f));
-      } else if (f.state === 'pre') { f.wait -= dt; if (f.wait <= 0) {
+      } else if (f.state === 'pre' || f.state === 'pop') {
+        if (f.state === 'pre') { f.wait -= dt; if (f.wait > 0) continue;
+          if (LF.pop) { const PP = LF.pop, a = Math.random() * Math.PI * 2;   // 퐁: 하늘로 솟으며 살짝 흩어짐
+            f.state = 'pop'; f.popT = 0; f.z0 = f.z; f.rise = lerp(PP.rise[0], PP.rise[1], Math.random()); f.svx = Math.cos(a) * PP.scatter; f.svy = Math.sin(a) * PP.scatter * 0.6; continue; } }
+        if (f.state === 'pop') { const PP = LF.pop; f.popT += dt; const u = Math.min(1, f.popT / PP.time), e = 1 - (1 - u) * (1 - u) * (1 - u);
+          f.z = f.z0 + f.rise * e; const dk = (1 - u) * (1 - u); f.x += f.svx * dk * dt * 2; f.y += f.svy * dk * dt * 2;
+          if (u < 1) continue; }
+        {
           const DR = LF.drift;                                 // 살짝 떠오른 뒤 펭귄 속도에 맞춰 옆(안쪽)으로 앞서감 → 그대로 숲 안내
           f.state = 'pin'; f.px = f.x; f.py = f.y; f.pz = f.z + DR.lift; f.ft = 0; f.lead = lerp(DR.ahead[0], DR.ahead[1], Math.random()); f.gy = lerp(LF.guide.yBack[0], LF.guide.yBack[1], Math.random()); f.gd = inlandDist(f.x, f.y);
           f.per = LF.pinBlink.on + lerp(LF.pinBlink.off[0], LF.pinBlink.off[1], Math.random()); f.ph = Math.random();
+          if (f.popT != null) { f.pz = f.z; f.swarmUntil = S.time + LF.pop.swarmGlow; }   // 퐁 다음엔 솟은 높이에서 그대로 무리 지어 감 (한동안 계속 반짝이며)
           if (lf.pins < lf.pinMax) lf.pins++; else f.fadeAt = S.time + lerp(DR.fadeAfter[0], DR.fadeAfter[1], Math.random());
         } }
       else if (f.state === 'flee') {                           // 퍄다닷: 0.15초 급상승 → 지그재그, 들쭉날쭉한 속도로 숲까지 곡선
@@ -2519,7 +2530,7 @@
         const pd = Math.max(0, inlandDist(p.x, p.y));
         f.gd = Math.min(GD.endD, Math.max(f.gd, pd + f.lead));   // 뒤로 물러나지 않고 앞으로만
         const tx = is.shoreAt(laneY - f.gy) + is.side * f.gd, ty = laneY - f.gy + Math.sin(S.time * 0.4 + f.seed) * GD.wander;
-        const tz = terrainHeightAt(tx, ty) + 0.9 + Math.sin(S.time * 0.7 + f.seed * 2) * GD.wander;
+        const tz = terrainHeightAt(tx, ty) + (GD.height || 0.9) + Math.sin(S.time * 0.7 + f.seed * 2) * GD.wander;
         const DR = LF.drift, ps = Math.hypot(p.vx, p.vy);    // 펭귄 속도에 맞춰 (확 가버리지 않게)
         const dx = tx - f.px, dy = ty - f.py, dz = tz - f.pz, dd = Math.hypot(dx, dy, dz), v = Math.min(dd, clamp(Math.max(ps * DR.speedMul, dd * 0.6), DR.minSpeed, DR.maxSpeed) * dt);
         if (f.fadeAt && S.time > f.fadeAt) { f.state = 'fade'; continue; }
@@ -2535,9 +2546,15 @@
   }
   function lfBright(f) {                                       // 깜빡임 밝기 (부드러운 켜짐·꺼짐)
     const LF = C.LAND_FIREFLY, on = (f.state === 'pin' ? LF.pinBlink.on : LF.blink.on) / f.per, x = f.ph;
+    if (f.state === 'pop') return (C.LAND_FIREFLY.pop.flash || 1) * Math.max(0.6, f.vis);
     if (f.state === 'arrive' || f.state === 'flee' || f.state === 'pre') return 0.75 * f.vis;
     if (f.state === 'fade') return 0.6 * f.vis;
-    return x < on ? Math.sin(Math.PI * x / on) : 0.04;        // 꺼진 동안도 아주 희미하게
+    const bl = x < on ? Math.sin(Math.PI * x / on) : 0.04;        // 꺼진 동안도 아주 희미하게
+    if (f.swarmUntil && S.time < f.swarmUntil + 1.5) {          // 우르르르 무리: 한동안 켜진 채 일렁이다 서서히 깜빡임으로
+      const k = 1 - smooth(f.swarmUntil - 1.5, f.swarmUntil + 1.5, S.time);
+      return Math.max(bl, k * (0.62 + 0.25 * Math.sin(S.time * 7 + f.seed * 5)));
+    }
+    return bl;
   }
   function landFireflyItems(items) {
     const LF = C.LAND_FIREFLY, lf = S.lf; if (!LF || !lf) return;
@@ -2554,7 +2571,7 @@
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
     // 아주 짧은 꼬리 (움직일 때만)
     const t0 = f.trail[0];
-    if (t0 && (f.state === 'flee' || f.state === 'arrive')) { const q = project(t0[0], t0[1], t0[2]); ctx.globalAlpha = LF.tail.alpha * b; ctx.strokeStyle = sp.P.mid[0]; ctx.lineWidth = Math.max(0.8, R * 0.6); ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(sx, sy); ctx.stroke(); }
+    if (t0 && (f.state === 'flee' || f.state === 'arrive' || f.state === 'pop')) { const q = project(t0[0], t0[1], t0[2]); ctx.globalAlpha = LF.tail.alpha * b; ctx.strokeStyle = sp.P.mid[0]; ctx.lineWidth = Math.max(0.8, R * 0.6); ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(sx, sy); ctx.stroke(); }
     const go = R * LF.glowScale[0] * 2, gm = R * LF.glowScale[1] * 2;
     ctx.globalAlpha = sp.P.outer[1] * b; ctx.drawImage(sp.outer, sx - go, sy - go, go * 2, go * 2);
     ctx.globalAlpha = sp.P.mid[1] * b; ctx.drawImage(sp.mid, sx - gm, sy - gm, gm * 2, gm * 2);
@@ -2614,7 +2631,8 @@
   function stepSnow(dt) {
     const SP = C.SNOW_PUFF; if (!SP || !S.snow) return;
     const k = Math.exp(-SP.drag * dt);
-    for (const q of S.snow) { q.t += dt; q.vx *= k; q.vy *= k; q.vz = q.vz * k - SP.gravity * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt; }
+    const sw = SP.swirl || 0;
+    for (const q of S.snow) { q.t += dt; if (sw && !q.col) { q.vx += (Math.random() - 0.5) * sw * 6 * dt; q.vy += (Math.random() - 0.5) * sw * 6 * dt; q.vz += (Math.random() - 0.5) * sw * 4 * dt; } q.vx *= k; q.vy *= k; q.vz = q.vz * k - (q.col ? 3.5 : SP.gravity) * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt; }
     S.snow = S.snow.filter((q) => q.t < q.life);
   }
   function dropItems(items) {
@@ -2649,7 +2667,7 @@
     items.push({ d: camSpace(S.p.x, S.p.y, S.p.z)[1] - 0.05, draw: () => {
       ctx.fillStyle = `rgb(${SP.color.join(',')})`;
       const base = `rgb(${SP.color.join(',')})`;
-      for (const q of S.snow) { const c = camSpace(q.x, q.y, q.z); if (c[1] < rig.near) continue; const [sx, sy] = toScreen(c), r = Math.max(0.7, q.size * pxPerUnit(c[1]));
+      for (const q of S.snow) { const c = camSpace(q.x, q.y, q.z); if (c[1] < rig.near) continue; const [sx, sy] = toScreen(c), r = Math.max(q.col ? 0.7 : (SP.minPx || 0.7), q.size * pxPerUnit(c[1]) * (q.col ? 1 : 1 + ((SP.grow || 1) - 1) * q.t / q.life));
         ctx.fillStyle = q.col ? `rgb(${q.col.join(',')})` : base;
         ctx.globalAlpha = SP.alpha * (1 - q.t / q.life) * Math.min(1, q.t * 12); ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.fill(); }
       ctx.globalAlpha = 1;
@@ -2993,10 +3011,19 @@
       g.fillStyle = COL.black; g.beginPath(); g.ellipse(0, -u * 0.15, u * 0.55 * len, u * 0.2, 0, 0, Math.PI * 2); g.fill();
       g.fillStyle = COL.white; g.beginPath(); g.ellipse(-u * 0.02 * len, -u * 0.07, u * 0.42 * len, u * 0.1, 0, 0, Math.PI * 2); g.fill();
       if (fvy > -0.5) { g.beginPath(); g.arc(u * 0.38 * len, -u * 0.21, u * 0.035, 0, Math.PI * 2); g.fill(); }
-      if (p.mode === 'island' && C.PHYSICS.toboggan) {   // 터보건: 뒤로 뻗은 두 발이 차는 동작
-        const kk = p.tobKick || 0, ka = deg(C.PHYSICS.toboggan.feetKickDeg) * kk;
+      if (p.mode === 'island' && C.PHYSICS.toboggan) {   // 터보건: 발가락 끝을 바닥에 딛고(준비) → 뒤로 빵! 차고 → 제자리
+        const TB = C.PHYSICS.toboggan, FT = TB.feet, kk = p.tobKick || 0, ph = clamp((p.tobT || 0) / TB.kick.period, 0, 1);
+        const snap = kk > 0 ? Math.pow(kk, 0.6) : 0;           // 차는 순간 확 → 천천히 돌아옴
+        const ang = deg(snap > 0 ? lerp(FT.rest, FT.kick, snap) : lerp(FT.rest, FT.plant, smooth(0.5, 1, ph)));   // + = 아래(바닥 쪽)
+        const reach = u * (FT.reach * snap - FT.tuck * smooth(0.5, 1, ph) * (snap > 0 ? 0 : 1));
         g.fillStyle = COL.black;
-        for (const o of [0, 0.05]) { g.save(); g.translate(-u * 0.5 * len, -u * (0.1 + o)); g.rotate(-ka - o * 3); g.beginPath(); g.ellipse(-u * 0.08, 0, u * 0.09, u * 0.035, 0, 0, Math.PI * 2); g.fill(); g.restore(); }
+        for (const o of [0, 1]) {
+          const a2 = ang + (o ? deg(8) : 0), dx = -Math.cos(a2), dy = Math.sin(a2), L = u * FT.length;
+          g.save(); g.translate(-u * 0.46 * len - reach * (o ? 0.8 : 1), -u * (0.09 + o * 0.035)); g.rotate(Math.atan2(dy, dx));
+          g.beginPath(); g.ellipse(L * 0.5, 0, L * 0.55, u * 0.03, 0, 0, Math.PI * 2); g.fill();   // 다리
+          g.beginPath(); g.ellipse(L * 1.0, 0, u * 0.05, u * 0.032, 0, 0, Math.PI * 2); g.fill();   // 발 (끝이 바닥을 짚음)
+          g.restore();
+        }
       }
       return;
     }
@@ -3446,17 +3473,31 @@
   function drawIslandPrints() {
     const FP = C.FOOTPRINTS; if (!IT || !FP.sand) return;
     const GR = C.PHYSICS.toboggan && C.PHYSICS.toboggan.groove;
-    if (GR && S.grooves && S.grooves.length) {   // 터보건 홈: 이어진 점들을 굵은 선으로
-      ctx.strokeStyle = `rgb(${GR.color.join(',')})`; ctx.lineCap = 'butt';
-      for (let i = 1; i < S.grooves.length; i++) {
-        const a = S.grooves[i - 1], b = S.grooves[i]; if (!b.cont) continue;
-        const ca = camSpace(a.x, a.y, terrainHeightAt(a.x, a.y) + 0.004), cb = camSpace(b.x, b.y, terrainHeightAt(b.x, b.y) + 0.004);
-        if (ca[1] < rig.near + 0.3 || cb[1] < rig.near + 0.3) continue;
-        const pa = toScreen(ca), pb = toScreen(cb), fade = 1 - smooth(0.5, 1, b.t / GR.life), kin = smooth(0, 0.15, b.t);
-        ctx.globalAlpha = GR.alpha * b.k * fade * kin * (1 - fogAt(cb[1])); ctx.lineWidth = Math.max(1, GR.width * pxPerUnit(cb[1]));
-        ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+    if (GR && S.grooves && S.grooves.length > 1) {   // 터보건 홈: 끊김 없는 띠 하나로. 배 가까이(최근) 진하고 넓게 → 멀어질수록 연하고 가늘게, 양끝은 뾰족하게 모음
+      const runs = []; let run = null;
+      for (const q of S.grooves) { if (!q.cont || !run) { run = []; runs.push(run); } run.push(q); }
+      const col = GR.color.join(',');
+      for (const rn of runs) {
+        if (rn.length < 2) continue;
+        const P2 = [];
+        for (let i = 0; i < rn.length; i++) { const q = rn[i], c = camSpace(q.x, q.y, terrainHeightAt(q.x, q.y) + 0.004); if (c[1] < rig.near + 0.3) { P2.length = 0; break; }
+          const sp = toScreen(c), age = q.t, endK = Math.min(1, (i + 0.5) / GR.taper, (rn.length - 1 - i + 0.5) / GR.taper);
+          P2.push({ x: sp[0], y: sp[1], w: GR.width * pxPerUnit(c[1]) * 0.5 * Math.sqrt(Math.max(0, endK)) * (0.55 + 0.45 * Math.exp(-age / GR.fadeTime)) * (0.6 + 0.4 * q.k),
+            a: GR.alpha * q.k * (0.2 + 0.8 * Math.exp(-age / GR.fadeTime)) * (1 - smooth(0.6, 1, age / GR.life)) * smooth(0, 0.1, age) * (1 - fogAt(c[1])) }); }
+        if (P2.length < 2) continue;
+        const L2 = [], R2 = [];
+        for (let i = 0; i < P2.length; i++) { const a = P2[Math.max(0, i - 1)], b = P2[Math.min(P2.length - 1, i + 1)]; let nx = -(b.y - a.y), ny = b.x - a.x; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+          L2.push([P2[i].x + nx * P2[i].w, P2[i].y + ny * P2[i].w]); R2.push([P2[i].x - nx * P2[i].w, P2[i].y - ny * P2[i].w]); }
+        const h = P2[P2.length - 1], t0 = P2[0], gx = h.x - t0.x, gy = h.y - t0.y, gl2 = gx * gx + gy * gy || 1;
+        const grd = ctx.createLinearGradient(t0.x, t0.y, h.x, h.y);   // 오래된 끝(연함) → 배 쪽(진함)
+        const step = Math.max(1, Math.floor(P2.length / 12)); let last = -1;
+        for (let i = 0; i < P2.length; i += step) { const u = clamp(((P2[i].x - t0.x) * gx + (P2[i].y - t0.y) * gy) / gl2, 0, 1); if (u <= last) continue; last = u; grd.addColorStop(u, `rgba(${col},${P2[i].a.toFixed(3)})`); }
+        grd.addColorStop(1, `rgba(${col},${h.a.toFixed(3)})`);
+        ctx.fillStyle = grd; ctx.beginPath(); ctx.moveTo(L2[0][0], L2[0][1]);
+        for (let i = 1; i < L2.length; i++) ctx.lineTo(L2[i][0], L2[i][1]);
+        for (let i = R2.length - 1; i >= 0; i--) ctx.lineTo(R2[i][0], R2[i][1]);
+        ctx.closePath(); ctx.fill();
       }
-      ctx.globalAlpha = 1;
     }
     const SDp = FP.sand, FR = FP.forest, sandSet = pawPrints(SDp.color), forSet = pawPrints(FR.color), rimSet = pawPrints(SDp.rim), L = FIXED_LIGHT;
     for (const q of S.prints) {
