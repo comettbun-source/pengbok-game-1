@@ -479,7 +479,23 @@
   }
 
   // ── 지형 판정 (빙하 = 그림과 같은 다각형, 충돌 = 원·타원) ──────
-  const floeTopAt = (f, lx, ly) => C.floe.topHeight + (f.relief ? f.relief.fn(lx, ly) * C.floe.relief.reliefExaggerate : 0) + f.tilt.x * lx + f.tilt.y * ly;
+  // 윗면 높이: 화면에 그린 메시(고리 × 꼭짓점 사각형)를 그대로 보간. 높이 함수(fn)를 직접 쓰면
+  // 메시보다 가는 능선·어깨에서 펭귄이 그려진 면보다 최대 0.5 떠 보였음 (공중 부양 버그)
+  function meshTopAt(f, lx, ly) {
+    const rf = f.relief, shp = f.shape, n = shp.length, K = rf.K, R = rf.rings;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n, A = shp[i], B = shp[j];
+      const cAB = A[0] * B[1] - A[1] * B[0], cAp = A[0] * ly - A[1] * lx, cpB = lx * B[1] - ly * B[0];
+      if (cAB > 0 ? (cAp < -1e-9 || cpB < -1e-9) : (cAp > 1e-9 || cpB > 1e-9)) continue;   // 이 쐐기(중심·A·B) 밖
+      const ex = B[0] - A[0], ey = B[1] - A[1], den = ex * ly - ey * lx;
+      const t = Math.abs(den) < 1e-9 ? 0 : clamp(-cAp / den, 0, 1);
+      const qx = A[0] + ex * t, qy = A[1] + ey * t, s = clamp(Math.hypot(lx, ly) / (Math.hypot(qx, qy) || 1), 0, 1);
+      const u = (1 - s) * K, k0 = Math.min(K - 1, Math.floor(u)), fr = u - k0;
+      return lerp(lerp(R[k0][i][2], R[k0][j][2], t), lerp(R[k0 + 1][i][2], R[k0 + 1][j][2], t), fr);
+    }
+    return R[0][0][2];
+  }
+  const floeTopAt = (f, lx, ly) => C.floe.topHeight + (f.relief ? meshTopAt(f, lx, ly) : 0) + f.tilt.x * lx + f.tilt.y * ly;
   const onFloe = (f, x, y, scale = 1) => f && f.active && inPoly(f.shape, (x - f.x) / scale, (y - f.y) / scale);
   const floeAt = (x, y, scale = 1) => S.floePool.find((f) => f.active && onFloe(f, x, y, scale)) || null;
   const islandAt = (x, y) => S.islands.find((is) => inPoly(is.shape, x, y));
@@ -2895,5 +2911,5 @@
   reset();
   requestAnimationFrame(frame);
 
-  window.__game = { get sim() { return sim; }, step, keys, STEP, penScale, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
+  window.__game = { get sim() { return sim; }, step, keys, STEP, penScale, floeTopAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
 })();
