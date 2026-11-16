@@ -294,13 +294,23 @@ const SPLASH_DROPS = {
   highlight: 0.6,                      // 큰 방울 가운데 밝은 점
 };
 
+// ── 시작 안내 문구 (GRIS): '빛을 따라가세요' 페이드인 → 화면을 터치(또는 키 입력)할 때까지 유지 → 페이드아웃 ─────
+const INTRO_HINT = {
+  enabled: true,
+  text: '빛을 따라가세요',
+  delay: 1.2,       // 시작 후 나타나기까지 (초)
+  fadeIn: 1.8,      // 페이드인 (초)
+  fadeOut: 1.2,     // 터치 후 페이드아웃 (초)
+  showOnReset: true // '처음으로' 누르면 다시 보여줌
+};
+
 // ── 눈가루 (GRIS): 빙하에 오르내릴 때 발밑에서 흩날림 ─────
 const SNOW_PUFF = {
   // (미스트) 굵은 알갱이 대신 아주 작은 점을 많이, 공기 저항 크게 → 퍼지며 천천히 흩어짐
-  count: [36, 50], landCount: [55, 75],   // 오르내릴 때 · 높은 곳에서 착지할 때
+  count: [80, 105], landCount: [120, 150],   // (36~50 · 55~75 → 80~105 · 120~150) 미스트 양 많이   // 오르내릴 때 · 높은 곳에서 착지할 때
   speed: [0.5, 1.5], up: [0.5, 1.3],      // 옆으로 · 위로 (이전 0.6~1.8 · 1.3~2.8): 낮게 퍼짐
   life: [0.9, 1.7], size: [0.0018, 0.005],  // (0.02~0.05 → 0.0018~0.005) 아주 작은 입자 미세하게, 조금 더 오래 떠 있음
-  gravity: 0.5, drag: 3.4, alpha: 0.55, max: 220, color: [196, 210, 230],   // 거의 안 떨어지고 공기에 멈춤
+  gravity: 0.5, drag: 3.4, alpha: 0.55, max: 420, color: [196, 210, 230],   // 거의 안 떨어지고 공기에 멈춤
   swirl: 0.6, grow: 1.15, minPx: 0.3,      // 공기에 일렁임 · 사라지며 커지는 배율(번지는 느낌) · 화면 최소 반지름 px   // 흰 빙하 위에서도 보이게 살짝 푸른 회색
 };
 
@@ -686,7 +696,7 @@ FIREFLY.guide.shoreMinDepth = ISLAND_TERRAIN.sea.fireflyMinDepth;   // 반딧불
 window.CONFIG = {
   ISLAND_TERRAIN,
   LAND_FIREFLY,
-  SNOW_PUFF,
+  SNOW_PUFF, INTRO_HINT,
   SPLASH_DROPS,
   STARS,
   palette: PALETTE,

@@ -743,7 +743,22 @@
   document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
   window.addEventListener('pagehide', releaseAll);
   ['contextmenu', 'gesturestart', 'dblclick'].forEach((t) => document.addEventListener(t, (e) => e.preventDefault()));
-  document.getElementById('reset').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); releaseAll(); reset(); });
+  document.getElementById('reset').addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); releaseAll(); reset(); if (C.INTRO_HINT && C.INTRO_HINT.showOnReset) showHint(); });
+  // 시작 안내 문구: 페이드인 → 첫 터치(키 입력)까지 유지 → 페이드아웃
+  const hintEl = document.getElementById('hint'); let hintTimer = 0, hintShown = false;
+  function showHint() {
+    const H = C.INTRO_HINT; if (!hintEl || !H || !H.enabled) return;
+    hintEl.textContent = H.text; hintEl.style.transition = 'none'; hintEl.classList.remove('on'); void hintEl.offsetWidth;
+    hintEl.style.transition = `opacity ${H.fadeIn}s ease`; hintShown = true;
+    clearTimeout(hintTimer); hintTimer = setTimeout(() => { if (hintShown) hintEl.classList.add('on'); }, H.delay * 1000);
+  }
+  function hideHint() {
+    if (!hintShown || !hintEl) return; hintShown = false; clearTimeout(hintTimer);
+    hintEl.style.transition = `opacity ${C.INTRO_HINT.fadeOut}s ease`; hintEl.classList.remove('on');
+  }
+  canvas.addEventListener('pointerdown', hideHint);
+  window.addEventListener('keydown', hideHint);
+  showHint();
 
   const KEYMAP = { arrowleft: 'l', a: 'l', arrowright: 'r', d: 'r', arrowup: 'u', w: 'u', arrowdown: 'dn', s: 'dn' };
   window.addEventListener('keydown', (e) => {
