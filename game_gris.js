@@ -3070,9 +3070,9 @@
       g.scale(1, 1 - (1 - Math.cos(a)) * (1 - sideShare) * 0.75);
       g.translate(0, u * 0.45);
       if (p.mode === 'water') {   // 몸 뒤쪽에서 거의 수평(살짝 위)으로 뻗은 발 — 물 위로 보이게 (몸을 그린 뒤 그림)
-        const up = deg(C.SWIM_FEET ? C.SWIM_FEET.liftDeg : 12), tgt = side > 0 ? Math.PI + up : -up;
-        const rot = side * a * sideShare, ru = u * (C.SWIM_FEET ? C.SWIM_FEET.rootUp : 0);   // 화면 위쪽으로 발 뿌리를 올림 (물 위로)
-        swimFeetLater = [-Math.sin(rot) * ru, -u * (C.SWIM_FEET ? C.SWIM_FEET.rootY : 0.06) - Math.cos(rot) * ru, tgt - rot];
+        // 엉덩이 끝(몸 아래)에서 몸 축을 따라 뒤로 쭉 뻗음. liftDeg 만큼 등 쪽으로 살짝 들림
+        const SF = C.SWIM_FEET, up = deg(SF ? SF.liftDeg : 0);
+        swimFeetLater = [0, -u * (SF ? SF.rootY : 0.04), Math.PI / 2 + side * up];
       }
     }
     g.scale(1 + v.squash * 0.6, 1 - v.squash);

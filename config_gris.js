@@ -320,14 +320,14 @@ const SWIM_SPRAY = {
 // 단위: 펭귄 키 = 1, 원점 = 발바닥 가운데, y 는 위가 − (캔버스 방향). x 는 펭귄이 화면 오른쪽을 볼 때 앞쪽이 +
 const PENGUIN_RIG = {
   enabled: true,
-  colors: { body: '#000000', belly: '#ffffff', face: '#ffffff', eye: '#000000', beak: '#7a7a7a', feet: '#5c5c5c', flipper: '#1d1f24' },   // 날개는 몸보다 아주 살짝 밝게 (몸 위에서도 형태가 읽히게)
+  colors: { body: '#000000', belly: '#ffffff', face: '#ffffff', eye: '#000000', beak: '#2a2a2e', feet: '#5c5c5c', flipper: '#1d1f24' },   // 날개는 몸보다 아주 살짝 밝게 (몸 위에서도 형태가 읽히게)
   // 몸: 엉덩이(아래 넓게) + 몸통 두 타원을 겹쳐 서양배 모양
   hips: { y: -0.25, rx: 0.31, ry: 0.25, back: 0.03 },      // 엉덩이는 살짝 뒤로 빠짐
   torso: { y: -0.52, rx: 0.25, ry: 0.4 },
   belly: { y: -0.38, rx: 0.21, ry: 0.32, side: 0.12 },       // side: 옆모습일 때 앞쪽으로 치우침
   head: { y: -0.8, r: 0.19, front: 0.05, counter: 0.55, bob: 0.012 },   // counter: 몸이 기울 때 머리는 이만큼 반대로 버팀 (수평 유지) · bob: 걸음마다 끄덕임
-  face: { y: -0.8, rx: 0.12, ry: 0.1, front: 0.1, eyeR: 0.028, eyeGap: 0.065 },   // 얼굴 흰 가면 + 눈
-  beak: { y: -0.75, len: 0.12, w: 0.05 },
+  face: { y: -0.8, rx: 0.12, ry: 0.1, front: 0.1, eyeR: 0.014, eyeGap: 0.058 },   // 얼굴 흰 가면 + 눈 (아기 황제펭귄처럼 작은 눈)
+  beak: { y: -0.755, len: 0.07, w: 0.035 },
   // 날개(팔): 어깨에서 매달림. 걸을 땐 살짝 벌리고(균형) 걸음 반대쪽이 더 벌어짐, 뛰면 위로 퍼덕
   flipper: { shoulderY: -0.6, shoulderX: 0.23, len: 0.36, w: 0.075, out: 16, swing: 14, airUp: 55, idleBreath: 3, sideSwing: 18 },
   // 발: 짧고 넓적. 한 걸음마다 번갈아 살짝 들고 앞으로
@@ -340,13 +340,12 @@ const PENGUIN_RIG = {
 // ── 헤엄 발 (GRIS, 임시 도형): 헤엄칠 때 몸 뒤로 뻗은 두 발이 번갈아 파닥임 ─────
 const SWIM_FEET = {
   enabled: true,
-  length: 0.24, width: 0.05,    // 다리+발 길이 · 굵기 (펭귄 키 대비)
-  spread: 0.07,                 // 두 발 사이 간격
-  flutterDeg: 22, flutterHz: 4.5,   // 번갈아 차는 각도 · 빠르기 (헤엄 속도에 비례해 빨라짐)
-  idleFlutter: 0.3,             // 거의 멈춰 있을 때 남는 움직임 비율
+  length: 0.22, width: 0.05,    // 다리+발 길이 · 굵기 (펭귄 키 대비)
+  spread: 0.08,                 // 두 발 사이 간격
+  flutterDeg: 2.5, flutterHz: 1.6,  // 뻗은 채 아주 살짝만 흔들림 (파닥이지 않음)
+  idleFlutter: 0.5,
   slide: true,                  // 슬라이딩 헤엄(엎드려 쭉)에도 뒤로 뻗은 발 표시
-  liftDeg: 4, rootY: 0.06, rootUp: 0.3,    // rootUp: 화면 위쪽으로 발 뿌리를 올리는 정도 (몸이 잠겨도 물 위로 보이게)
-       // 헤엄칠 때 발이 수평보다 위로 드는 각도 · 몸에서 발이 시작하는 높이 (물 위로 보이게)
+  liftDeg: 12, rootY: 0.03,     // 몸 축에서 등 쪽으로 드는 각도 · 엉덩이 끝에서 발이 시작하는 위치
 };
 
 // ── 눈가루 (GRIS): 빙하에 오르내릴 때 발밑에서 흩날림 ─────
