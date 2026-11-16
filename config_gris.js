@@ -315,6 +315,18 @@ const SWIM_SPRAY = {
   size: [0.005, 0.013],
 };
 
+// ── 헤엄 발 (GRIS, 임시 도형): 헤엄칠 때 몸 뒤로 뻗은 두 발이 번갈아 파닥임 ─────
+const SWIM_FEET = {
+  enabled: true,
+  length: 0.24, width: 0.05,    // 다리+발 길이 · 굵기 (펭귄 키 대비)
+  spread: 0.07,                 // 두 발 사이 간격
+  flutterDeg: 22, flutterHz: 4.5,   // 번갈아 차는 각도 · 빠르기 (헤엄 속도에 비례해 빨라짐)
+  idleFlutter: 0.3,             // 거의 멈춰 있을 때 남는 움직임 비율
+  slide: true,                  // 슬라이딩 헤엄(엎드려 쭉)에도 뒤로 뻗은 발 표시
+  liftDeg: 4, rootY: 0.06, rootUp: 0.3,    // rootUp: 화면 위쪽으로 발 뿌리를 올리는 정도 (몸이 잠겨도 물 위로 보이게)
+       // 헤엄칠 때 발이 수평보다 위로 드는 각도 · 몸에서 발이 시작하는 높이 (물 위로 보이게)
+};
+
 // ── 눈가루 (GRIS): 빙하에 오르내릴 때 발밑에서 흩날림 ─────
 const SNOW_PUFF = {
   // (미스트) 굵은 알갱이 대신 아주 작은 점을 많이, 공기 저항 크게 → 퍼지며 천천히 흩어짐
@@ -707,7 +719,7 @@ FIREFLY.guide.shoreMinDepth = ISLAND_TERRAIN.sea.fireflyMinDepth;   // 반딧불
 window.CONFIG = {
   ISLAND_TERRAIN,
   LAND_FIREFLY,
-  SNOW_PUFF, INTRO_HINT, SWIM_SPRAY,
+  SNOW_PUFF, INTRO_HINT, SWIM_SPRAY, SWIM_FEET,
   SPLASH_DROPS,
   STARS,
   palette: PALETTE,

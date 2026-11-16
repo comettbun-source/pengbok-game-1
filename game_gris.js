@@ -3040,6 +3040,7 @@
       g.fillStyle = COL.black; g.beginPath(); g.ellipse(0, -u * 0.15, u * 0.55 * len, u * 0.2, 0, 0, Math.PI * 2); g.fill();
       g.fillStyle = COL.white; g.beginPath(); g.ellipse(-u * 0.02 * len, -u * 0.07, u * 0.42 * len, u * 0.1, 0, 0, Math.PI * 2); g.fill();
       if (fvy > -0.5) { g.beginPath(); g.arc(u * 0.38 * len, -u * 0.21, u * 0.035, 0, Math.PI * 2); g.fill(); }
+      if (p.mode === 'water' && C.SWIM_FEET && C.SWIM_FEET.slide) drawSwimFeet(g, u, p, -u * 0.5 * len, -u * 0.13, Math.PI);   // 슬라이딩 헤엄: 뒤로 쭉 뻗은 발
       if (p.mode === 'island' && C.PHYSICS.toboggan) {   // 터보건: 발가락 끝을 바닥에 딛고(준비) → 뒤로 빵! 차고 → 제자리
         const TB = C.PHYSICS.toboggan, FT = TB.feet, kk = p.tobKick || 0, ph = clamp((p.tobT || 0) / TB.kick.period, 0, 1);
         const snap = kk > 0 ? Math.pow(kk, 0.6) : 0;           // 차는 순간 확 → 천천히 돌아옴
@@ -3057,6 +3058,7 @@
       return;
     }
     g.rotate(p.wobble);
+    let swimFeetLater = null;
     if (p.lay > 0.5) {
       // 헤엄 자세: 화면에서 보이는 진행 방향으로 눕힘. 카메라 쪽/반대쪽으로 갈 때는 짧아 보이게
       const sp2 = Math.hypot(p.vx, p.vy), c2 = Math.cos(cam.yaw), s2 = Math.sin(cam.yaw);
@@ -3067,10 +3069,16 @@
       g.rotate(side * a * sideShare);
       g.scale(1, 1 - (1 - Math.cos(a)) * (1 - sideShare) * 0.75);
       g.translate(0, u * 0.45);
+      if (p.mode === 'water') {   // 몸 뒤쪽에서 거의 수평(살짝 위)으로 뻗은 발 — 물 위로 보이게 (몸을 그린 뒤 그림)
+        const up = deg(C.SWIM_FEET ? C.SWIM_FEET.liftDeg : 12), tgt = side > 0 ? Math.PI + up : -up;
+        const rot = side * a * sideShare, ru = u * (C.SWIM_FEET ? C.SWIM_FEET.rootUp : 0);   // 화면 위쪽으로 발 뿌리를 올림 (물 위로)
+        swimFeetLater = [-Math.sin(rot) * ru, -u * (C.SWIM_FEET ? C.SWIM_FEET.rootY : 0.06) - Math.cos(rot) * ru, tgt - rot];
+      }
     }
     g.scale(1 + v.squash * 0.6, 1 - v.squash);
     g.fillStyle = COL.black;
     g.beginPath(); g.ellipse(0, -u * 0.5, u * 0.3, u * 0.5, 0, 0, Math.PI * 2); g.fill();
+    if (swimFeetLater) drawSwimFeet(g, u, p, ...swimFeetLater);
     const bw = u * 0.22 * clamp(0.3 + 0.7 * fvy, 0, 1);
     if (bw > 0.5) { g.fillStyle = COL.white; g.beginPath(); g.ellipse(fvx * u * 0.1, -u * 0.4, bw, u * 0.34, 0, 0, Math.PI * 2); g.fill(); }
     if (fvy > -0.35) {
@@ -3083,6 +3091,23 @@
       const bx = fvx * u * 0.24;
       g.beginPath(); g.moveTo(bx - u * 0.05, -u * 0.74); g.lineTo(bx + fvx * u * 0.12, -u * 0.71); g.lineTo(bx - u * 0.05, -u * 0.68); g.fill();
     }
+  }
+
+  // 헤엄 발: (x0, y0)에서 방향 base(라디안, 캔버스 좌표)로 두 발을 뻗고, 번갈아 위아래로 파닥임
+  function drawSwimFeet(g, u, p, x0, y0, base) {
+    const F = C.SWIM_FEET; if (!F || !F.enabled) return;
+    const sp = Math.hypot(p.vx, p.vy), k = clamp(sp / 1.5, F.idleFlutter, 1.3);
+    const ph = S.time * F.flutterHz * Math.PI * 2 * (0.5 + 0.5 * k), L = u * F.length, W = u * F.width;
+    g.save(); g.fillStyle = COL.black;
+    for (const e of [-1, 1]) {
+      const a = base + e * 0.08 + Math.sin(ph + (e > 0 ? Math.PI : 0)) * deg(F.flutterDeg) * k;
+      const ox = x0 + Math.cos(base + Math.PI / 2) * e * u * F.spread * 0.5, oy = y0 + Math.sin(base + Math.PI / 2) * e * u * F.spread * 0.5;
+      g.save(); g.translate(ox, oy); g.rotate(a);
+      g.beginPath(); g.ellipse(L * 0.45, 0, L * 0.5, W * 0.55, 0, 0, Math.PI * 2); g.fill();            // 다리
+      g.beginPath(); g.moveTo(L * 0.75, -W * 0.6); g.lineTo(L * 1.15, -W * 1.1); g.lineTo(L * 1.15, W * 1.1); g.lineTo(L * 0.75, W * 0.6); g.closePath(); g.fill();   // 물갈퀴 발 (끝이 넓게)
+      g.restore();
+    }
+    g.restore();
   }
 
   const rimCv = document.createElement('canvas'), rimG = rimCv.getContext('2d');
