@@ -399,7 +399,7 @@
     };
     manageField();
     S.p.floe = S.cands[0].floe;
-    S.ripples = []; S.swimShade = []; S.softRipples = []; S.vortex = []; S.prints = []; S.printI = 0; S.icePrints = []; S.icePrintI = 0; S.slideTrail = []; S.washRipples = []; S.wash = null; S.camGroundZ = 0;
+    S.ripples = []; S.swimShade = []; S.softRipples = []; S.vortex = []; S.prints = []; S.printI = 0; S.icePrints = []; S.icePrintI = 0; S.slideTrail = []; S.grooves = []; S.washRipples = []; S.wash = null; S.camGroundZ = 0;
     S.wake = Array.from({ length: WC().wake.maxParticles }, () => ({ on: false }));
     S.streams = []; S.glints = []; S.swell = null;
     S.lastTapUp = 0; S.tapPulse = 0; S.jumpAt = 0; S.jumpReq = false;
@@ -976,6 +976,8 @@
       log('slideStart'); p.slideStroke = (S.strokeN = (S.strokeN || 0) + 1);
     }
     if (!held && p.sliding) { p.sliding = false; log('slideEnd'); }
+    if (p.sliding && p.mode === 'island') {} else { p.tobT = 0; }
+    p.tobKick = Math.max(0, (p.tobKick || 0) - dt / 0.25);
 
     const sp0 = Math.hypot(p.vx, p.vy);
     if (p.air) {
@@ -987,8 +989,21 @@
       // 슬라이딩: 지면 마찰로 감속. 링을 밀면 그 방향으로 힘 + 방향이 부드럽게 따라감
       let dir = sp0 > 0.01 ? Math.atan2(p.vy, p.vx) : p.face, s = sp0;
       if (mag > 0.01) { dir += angDiff(dir, Math.atan2(wy, wx)) * ease(P.slideTurnRate, dt); s += P.slideForce * mag / pm.mass * dt; }
+      const TB = P.toboggan && P.toboggan.enabled && p.mode === 'island' ? P.toboggan : null;
+      if (TB) {   // 육지 터보건: 배로 미끄러지며 주기적으로 발로 차서 밀고 나감
+        const inl = IT ? inlandDist(p.x, p.y) : 0, onSand = !IT || inl < IT.zones[0].to;
+        p.tobT = (p.tobT || 0) + dt;
+        if (p.tobT >= TB.kick.period && (!TB.kick.needInput || mag > 0.1)) { p.tobT = 0; p.tobKick = 1; s += TB.kick.impulse; tobPuff(p.x - Math.cos(dir) * 0.25, p.y - Math.sin(dir) * 0.25, p.z); }
+        s *= Math.exp(-(onSand ? TB.friction.sand : TB.friction.forest) * dt);
+        s = Math.min(s, TB.maxSpeed);
+        const GR = TB.groove; p.grT = (p.grT || 0) + dt;   // 배가 지나간 홈
+        if (GR && p.grT >= GR.every && s > 0.15) { p.grT = 0; S.grooves = S.grooves || []; const g0 = S.grooves[S.grooves.length - 1];
+          S.grooves.push({ x: p.x, y: p.y, t: 0, k: Math.min(1, s / 1.5), cont: !!(g0 && g0.t < GR.every * 2.5 && Math.hypot(g0.x - p.x, g0.y - p.y) < 0.6) });
+          if (S.grooves.length > GR.max) S.grooves.shift(); }
+      } else {
       s *= Math.exp(-P.slideFriction[surf] * dt);
       s = Math.min(s, deep ? WP.slideMaxSpeed : shallow ? WP.shallowMaxSpeed * 1.6 : P.slideMaxSpeed);   // 깊은 물 슬라이딩 헤엄이 가장 빠름
+      }
       p.vx = Math.cos(dir) * s; p.vy = Math.sin(dir) * s;
       p.face = dir;
     } else {
@@ -1610,6 +1625,7 @@
     const life = WC().wake.life;
     for (const w of S.wake) if (w.on && (w.t += dt) >= life) w.on = false;
     S.vortex = S.vortex.filter((v) => (v.t += dt) < WC().curve.vortex.life);
+    if (S.grooves) { for (const q of S.grooves) q.t += dt; while (S.grooves.length && S.grooves[0].t >= C.PHYSICS.toboggan.groove.life) S.grooves.shift(); }
     for (const q of S.prints) if (q.on && (q.t += dt) >= (C.FOOTPRINTS.sand ? Math.max(C.FOOTPRINTS.sand.life, C.FOOTPRINTS.forest.life) : C.FOOTPRINTS.life)) q.on = false;
     S.softRipples = S.softRipples.filter((q) => (q.t += dt) < P.water.stepRipple.life);
     S.swimShade = S.swimShade.filter((q) => (q.t += dt) < WC().swimShade.life);
@@ -2547,6 +2563,17 @@
   }
 
   // ── 눈가루: 빙하에 오르내릴 때 발밑에서 흩날림 ───────────
+  // 터보건: 발로 찰 때 모래 알갱이 (눈가루 입자 재사용, 색만 다르게)
+  function tobPuff(x, y, z) {
+    const TB = C.PHYSICS.toboggan, SP = C.SNOW_PUFF; if (!SP || !TB) return;
+    S.snow = S.snow || [];
+    const n = Math.round(lerp(TB.puff.count[0], TB.puff.count[1], Math.random()));
+    for (let i = 0; i < n; i++) {
+      if (S.snow.length >= SP.max) S.snow.shift();
+      const a = Math.random() * Math.PI * 2, sp = lerp(0.3, 1.0, Math.random());
+      S.snow.push({ x, y, z: z + 0.02, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.6, vz: lerp(0.8, 1.6, Math.random()), t: 0, life: lerp(0.35, 0.6, Math.random()), size: lerp(0.012, 0.026, Math.random()), col: TB.puff.color });
+    }
+  }
   function snowPuff(x, y, z, big) {
     const SP = C.SNOW_PUFF; if (!SP) return;
     S.snow = S.snow || [];
@@ -2604,14 +2631,14 @@
           base.push(camSpace(bx, by, 0)); top.push(camSpace(s.x + Math.cos(a) * ro, s.y + Math.sin(a) * ro * 0.8, hgt * j));
         }
         if (base.some((c2) => c2[1] < rig.near) || top.some((c2) => c2[1] < rig.near)) continue;
-        const B = base.map(toScreen), T = top.map(toScreen), fade = 1 - u;
+        const B = base.map(toScreen), T = top.map(toScreen), fade = (1 - u) * (1 - u);   // 빠르게 사라짐
         ctx.fillStyle = `rgb(${col})`; ctx.globalAlpha = SH.alpha * fade;
         for (let i = 0; i < n; i++) { ctx.beginPath(); ctx.moveTo(B[i][0], B[i][1]); ctx.lineTo(B[i + 1][0], B[i + 1][1]); ctx.lineTo(T[i + 1][0], T[i + 1][1]); ctx.lineTo(T[i][0], T[i][1]); ctx.closePath(); ctx.fill(); }
         ctx.strokeStyle = `rgb(${col})`; ctx.globalAlpha = SH.rimAlpha * fade; ctx.lineWidth = Math.max(0.7, SH.width * pxPerUnit(base[0][1])); ctx.lineJoin = 'round';
         ctx.beginPath(); T.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
       }
       ctx.fillStyle = `rgb(${col})`;
-      for (const q of S.drops || []) { const c = camSpace(q.x, q.y, q.z); if (c[1] < rig.near) continue; const [sx, sy] = toScreen(c), r = Math.max(0.6, q.size * pxPerUnit(c[1]));
+      for (const q of S.drops || []) { const c = camSpace(q.x, q.y, q.z); if (c[1] < rig.near) continue; const [sx, sy] = toScreen(c), r = Math.max(SD.minPx || 0.6, q.size * pxPerUnit(c[1]));
         ctx.globalAlpha = SD.alpha * Math.min(1, q.t * 20); ctx.beginPath(); ctx.ellipse(sx, sy, r, r * (1 + Math.min(1.2, Math.abs(q.vz) * 0.15)), 0, 0, Math.PI * 2); ctx.fill();   // 빠를수록 세로로 살짝 늘어남
         if (q.big && SD.highlight && r > 1.4) { ctx.fillStyle = '#ffffff'; ctx.globalAlpha = SD.highlight * SD.alpha * Math.min(1, q.t * 20); ctx.beginPath(); ctx.arc(sx - r * 0.3, sy - r * 0.3, r * 0.35, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = `rgb(${col})`; } }
       ctx.globalAlpha = 1;
@@ -2621,7 +2648,9 @@
     const SP = C.SNOW_PUFF; if (!SP || !S.snow || !S.snow.length) return;
     items.push({ d: camSpace(S.p.x, S.p.y, S.p.z)[1] - 0.05, draw: () => {
       ctx.fillStyle = `rgb(${SP.color.join(',')})`;
+      const base = `rgb(${SP.color.join(',')})`;
       for (const q of S.snow) { const c = camSpace(q.x, q.y, q.z); if (c[1] < rig.near) continue; const [sx, sy] = toScreen(c), r = Math.max(0.7, q.size * pxPerUnit(c[1]));
+        ctx.fillStyle = q.col ? `rgb(${q.col.join(',')})` : base;
         ctx.globalAlpha = SP.alpha * (1 - q.t / q.life) * Math.min(1, q.t * 12); ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.fill(); }
       ctx.globalAlpha = 1;
     } });
@@ -2964,6 +2993,11 @@
       g.fillStyle = COL.black; g.beginPath(); g.ellipse(0, -u * 0.15, u * 0.55 * len, u * 0.2, 0, 0, Math.PI * 2); g.fill();
       g.fillStyle = COL.white; g.beginPath(); g.ellipse(-u * 0.02 * len, -u * 0.07, u * 0.42 * len, u * 0.1, 0, 0, Math.PI * 2); g.fill();
       if (fvy > -0.5) { g.beginPath(); g.arc(u * 0.38 * len, -u * 0.21, u * 0.035, 0, Math.PI * 2); g.fill(); }
+      if (p.mode === 'island' && C.PHYSICS.toboggan) {   // 터보건: 뒤로 뻗은 두 발이 차는 동작
+        const kk = p.tobKick || 0, ka = deg(C.PHYSICS.toboggan.feetKickDeg) * kk;
+        g.fillStyle = COL.black;
+        for (const o of [0, 0.05]) { g.save(); g.translate(-u * 0.5 * len, -u * (0.1 + o)); g.rotate(-ka - o * 3); g.beginPath(); g.ellipse(-u * 0.08, 0, u * 0.09, u * 0.035, 0, 0, Math.PI * 2); g.fill(); g.restore(); }
+      }
       return;
     }
     g.rotate(p.wobble);
@@ -3411,6 +3445,19 @@
   // GRIS 섬 발자국: 모래는 깊게 (진한 안쪽 + 빛 쪽으로 살짝 밀려난 밝은 테), 숲·언덕은 옅게. 해안 그림과 따로 그려 숲에서도 보임
   function drawIslandPrints() {
     const FP = C.FOOTPRINTS; if (!IT || !FP.sand) return;
+    const GR = C.PHYSICS.toboggan && C.PHYSICS.toboggan.groove;
+    if (GR && S.grooves && S.grooves.length) {   // 터보건 홈: 이어진 점들을 굵은 선으로
+      ctx.strokeStyle = `rgb(${GR.color.join(',')})`; ctx.lineCap = 'butt';
+      for (let i = 1; i < S.grooves.length; i++) {
+        const a = S.grooves[i - 1], b = S.grooves[i]; if (!b.cont) continue;
+        const ca = camSpace(a.x, a.y, terrainHeightAt(a.x, a.y) + 0.004), cb = camSpace(b.x, b.y, terrainHeightAt(b.x, b.y) + 0.004);
+        if (ca[1] < rig.near + 0.3 || cb[1] < rig.near + 0.3) continue;
+        const pa = toScreen(ca), pb = toScreen(cb), fade = 1 - smooth(0.5, 1, b.t / GR.life), kin = smooth(0, 0.15, b.t);
+        ctx.globalAlpha = GR.alpha * b.k * fade * kin * (1 - fogAt(cb[1])); ctx.lineWidth = Math.max(1, GR.width * pxPerUnit(cb[1]));
+        ctx.beginPath(); ctx.moveTo(pa[0], pa[1]); ctx.lineTo(pb[0], pb[1]); ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
     const SDp = FP.sand, FR = FP.forest, sandSet = pawPrints(SDp.color), forSet = pawPrints(FR.color), rimSet = pawPrints(SDp.rim), L = FIXED_LIGHT;
     for (const q of S.prints) {
       if (!q.on) continue;

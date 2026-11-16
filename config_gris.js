@@ -255,7 +255,7 @@ const FIREFLY = {
 // ── 경량 물리 ──────────────────────────────────────────────
 // ── 땅 반딧불이 (GRIS): 해안 바위에 앉아 깜빡이다, 펭귄이 다가오면 숲으로 날아감. 바다반딧불이(FIREFLY)와 별개 ─────
 const LAND_FIREFLY = {
-  perRock: [3, 5], max: 12,            // 바위당 수 · 전체 상한
+  perRock: [6, 9], max: 22,            // (3~5·12 → 6~9·22) 바위당 수 · 전체 상한
   arriveGap: [0.6, 1.5], arriveDelay: 1.2, arriveSpeed: 3.2,   // 하나둘씩 날아와 앉음 (간격 · 첫 도착 지연 · 날아오는 속도)
   blink: { on: 0.25, off: [2, 4], syncShare: 0.5, nudge: 0.07, periodPull: 0.03 },   // 0.25초 켜짐 → 2~4초 꺼짐. 일부는 이웃이 켜질 때 박자를 조금씩 당겨 서서히 맞춤
   trigger: 1.3, delay: [0, 0.3],       // (3.0 → 1.3) 펭귄이 만질 수 있을 만큼 다가오면, 가까운 것부터 0~0.3초 지연 뒤 날아오름
@@ -281,13 +281,14 @@ const LAND_FIREFLY = {
 const SPLASH_DROPS = {
   count: [10, 24], perSpeed: 3,        // 방울 수 = 기본 + 떨어지는 속도 × perSpeed
   speed: [0.5, 1.9], up: [1.2, 3.6],   // 옆으로 · 위로 튀는 속도 (빠르게 떨어질수록 큼)
-  size: [0.008, 0.03], gravity: 13, alpha: 0.85, color: [190, 206, 228],   // 빨리 떨어져 퍄샤샥
+  size: [0.004, 0.013], gravity: 13, alpha: 0.85, color: [190, 206, 228],   // 빨리 떨어져 퍄샤샥
   ring: 0.6,                           // 떨어진 자리 수면에 아주 작은 파문 (물 엔진 충격 세기 배율, 0 = 끔)
   max: 140,
   // 퍄샤샥: 사진처럼 빠진 자리 둘레로 물 왕관이 솟고, 큰 방울·잔 물보라가 사방으로 흩어짐
-  crown: { count: [28, 42], radius: [0.22, 0.38], up: [2.0, 3.6], out: [0.7, 1.7], size: [0.012, 0.045] },
-  spray: { count: [20, 32], up: [2.4, 4.2], out: [1.6, 3.6], size: [0.005, 0.013] },
-  sheet: { life: 0.42, height: 0.42, radius: [0.28, 0.75], points: 30, alpha: 0.22, rimAlpha: 0.55, width: 0.025, lean: 0.25 },   // 솟았다 무너지는 얇은 물 왕관 (들쭉날쭉한 윗선 + 옅은 막)   // 솟았다 무너지는 얇은 물 벽 (세로 줄무늬로 표현)
+  crown: { count: [28, 42], radius: [0.22, 0.38], up: [2.0, 3.6], out: [0.7, 1.7], size: [0.005, 0.016] },   // (0.012~0.045 → 0.005~0.016) 방울 작게
+  spray: { count: [20, 32], up: [2.4, 4.2], out: [1.6, 3.6], size: [0.003, 0.008] },
+  minPx: 0.35,                         // 화면에서 방울 최소 반지름 (px). 이전 0.6
+  sheet: { life: 0.16, height: 0.36, radius: [0.28, 0.6], points: 30, alpha: 0.16, rimAlpha: 0.3, width: 0.025, lean: 0.25 },   // 솟았다 무너지는 얇은 물 왕관 (들쭉날쭉한 윗선 + 옅은 막)   // 솟았다 무너지는 얇은 물 벽 (세로 줄무늬로 표현)
   highlight: 0.6,                      // 큰 방울 가운데 밝은 점
 };
 
@@ -319,6 +320,17 @@ const PHYSICS = {
   slideInitialSpeed: 4.6,     // 슬라이딩 시작 속도
   slideForce: 6,              // 링을 민 채 슬라이딩할 때 미는 힘
   slideMaxSpeed: 5.2,
+  // 육지 터보건 (GRIS, 참고 GIF): 섬에서 슬라이딩하면 배로 엎드려 미끄러지고, 발로 주기적으로 차서 밀고 나감.
+  // 빙하·물 슬라이딩은 그대로. island 모드에서만 slideFriction.shore 대신 아래 값 사용
+  toboggan: {
+    enabled: true,
+    friction: { sand: 2.4, forest: 3.0 },  // 감쇠 (1/초). 이전 흙 6 → 금방 멈추지 않고 쭉 미끄러짐
+    kick: { period: 0.42, impulse: 0.9, needInput: false },   // 0.42초마다 발로 차서 +0.9 속도 (링을 안 밀어도 누르고 있으면 참)
+    maxSpeed: 2.6,                         // 섬 슬라이딩 최고 속도
+    groove: { every: 0.06, life: 7, alpha: 0.22, width: 0.17, color: [6, 7, 9], max: 160 },   // 모래에 배가 지나간 홈 (간격 초 · 수명 · 진하기 · 폭)
+    puff: { count: [4, 7], color: [128, 130, 136] },   // 발로 찰 때마다 튀는 모래 알갱이 (SNOW_PUFF 재사용, 색만 모래 회색)
+    feetKickDeg: 35,                       // 그림: 뒷발이 차는 각도
+  },
   // 물 속 이동 (걷기·허우적·헤엄 구분은 DEPTH 수심으로)
   water: {
     shallowMaxSpeed: 0.9, shallowForce: 5.5,      // 얕은 물 걷기: 미는 힘은 흙과 같게 (속도가 끊기지 않게)
