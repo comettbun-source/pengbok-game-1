@@ -2020,31 +2020,49 @@
     }
     // 윗면: 높이장 메시의 칸별 명암을 저해상도 캔버스에 그려 키움 (면 경계가 부드럽게 번짐), 윤곽으로 잘라 얹음
     const outline = projPoly(shp.map(([x, y], i) => [f.x + x, f.y + y, topZ(i)])).map(([sx, sy]) => [sx, sy + dy]);
+    // 윗면 실루엣 = 가장자리 윤곽 ∪ 메시 사각형 전부. 가장자리 윤곽으로만 자르면 가운데 둔덕·능선이 잘려
+    // 옆에서 볼 때 윗면이 평평해 보이고 펭귄만 떠 보였음 (낮은 각도에서 특히)
+    const topPolys = [outline];
+    if (rf) for (let k = 0; k < rf.K; k++) for (let i = 0, n2 = shp.length; i < n2; i++) {
+      const j = (i + 1) % n2, q = projPoly([rf.rings[k][i], rf.rings[k][j], rf.rings[k + 1][j], rf.rings[k + 1][i]].map(([x, y, z]) => [f.x + x, f.y + y, C.floe.topHeight + z + tilt(x, y)])).map(([sx, sy]) => [sx, sy + dy]);
+      if (q.length > 2) topPolys.push(q);
+    }
+    const unionPath = (g2) => {                               // 모든 다각형을 같은 감김 방향으로 → nonzero 채우기 = 합집합
+      g2.beginPath();
+      for (const q of topPolys) {
+        let s = 0; for (let m = 0; m < q.length; m++) { const u = q[m], v = q[(m + 1) % q.length]; s += u[0] * v[1] - v[0] * u[1]; }
+        const pts = s < 0 ? q.slice().reverse() : q;
+        pts.forEach(([x, y], m) => (m ? g2.lineTo(x, y) : g2.moveTo(x, y))); g2.closePath();
+      }
+    };
     if (outline.length > 2) {
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const q of outline) { minX = Math.min(minX, q[0]); maxX = Math.max(maxX, q[0]); minY = Math.min(minY, q[1]); maxY = Math.max(maxY, q[1]); }
+      for (const qq of topPolys) for (const q of qq) { minX = Math.min(minX, q[0]); maxX = Math.max(maxX, q[0]); minY = Math.min(minY, q[1]); maxY = Math.max(maxY, q[1]); }
       ctx.globalAlpha = a;
-      if (maxX - minX < 18) { ctx.fillStyle = mixFog(RL.shadeMid, fog); fillPoly(outline); }
+      if (maxX - minX < 18) { ctx.fillStyle = mixFog(RL.shadeMid, fog); unionPath(ctx); ctx.fill('nonzero'); }
       else {
         const res = RL.shadeResolution, w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));
         if (topCv.width !== w || topCv.height !== h) { topCv.width = w; topCv.height = h; }
         // 화면에 보이는 윤곽 범위만 지우고 그려서 옮김 (전체 화면 복사 대신)
         const bx0 = clamp(Math.floor(minX * res) - 2, 0, w), by0 = clamp(Math.floor(minY * res) - 2, 0, h), bx1 = clamp(Math.ceil(maxX * res) + 2, 0, w), by1 = clamp(Math.ceil(maxY * res) + 2, 0, h);
         topG.setTransform(1, 0, 0, 1, 0, 0); topG.clearRect(bx0, by0, bx1 - bx0, by1 - by0); topG.setTransform(res, 0, 0, res, 0, 0);
-        topG.fillStyle = `rgb(${RL.shadeMid.join(',')})`; topG.beginPath(); outline.forEach(([x, y], i) => (i ? topG.lineTo(x, y) : topG.moveTo(x, y))); topG.closePath(); topG.fill();
-        const n2 = shp.length;
-        for (let k = 0; k < rf.K; k++) for (let i = 0; i < n2; i++) {
+        topG.fillStyle = `rgb(${RL.shadeMid.join(',')})`; unionPath(topG); topG.fill('nonzero');
+        const n2 = shp.length, order = [];
+        // 먼 사각형부터 그림 (낮은 각도에서 둔덕 너머 면이 앞면 위에 덮여 검은 조각처럼 보이지 않게)
+        for (let k = 0; k < rf.K; k++) for (let i = 0; i < n2; i++) { const j = (i + 1) % n2, c0 = rf.rings[k][i], c1 = rf.rings[k + 1][j]; order.push([camSpace(f.x + (c0[0] + c1[0]) / 2, f.y + (c0[1] + c1[1]) / 2, (c0[2] + c1[2]) / 2)[1], k, i]); }
+        order.sort((u, v) => v[0] - u[0]);
+        for (const [, k, i] of order) {
           const j = (i + 1) % n2, q = [rf.rings[k][i], rf.rings[k][j], rf.rings[k + 1][j], rf.rings[k + 1][i]];
           const pts = projPoly(q.map(([x, y, z]) => [f.x + x, f.y + y, C.floe.topHeight + z + tilt(x, y)]));
           if (pts.length < 3) continue;
           topG.fillStyle = `rgb(${rf.cols[k * n2 + i].join(',')})`; topG.strokeStyle = topG.fillStyle; topG.lineWidth = 1.5;
           topG.beginPath(); pts.forEach(([x, y], m) => (m ? topG.lineTo(x, y + dy) : topG.moveTo(x, y + dy))); topG.closePath(); topG.fill(); topG.stroke();
         }
-        ctx.save(); ctx.beginPath(); outline.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.clip();
+        ctx.save(); unionPath(ctx); ctx.clip('nonzero');
         ctx.imageSmoothingEnabled = true;
         if (bx1 > bx0 && by1 > by0) ctx.drawImage(topCv, bx0, by0, bx1 - bx0, by1 - by0, bx0 / res, by0 / res, (bx1 - bx0) / res, (by1 - by0) / res);
         ctx.restore();
-        if (fog > 0.01) { ctx.globalAlpha = a * fog; ctx.fillStyle = mixFog([255, 255, 255], 1); fillPoly(outline); }
+        if (fog > 0.01) { ctx.globalAlpha = a * fog; ctx.fillStyle = mixFog([255, 255, 255], 1); unionPath(ctx); ctx.fill('nonzero'); }
       }
     }
     // GRIS: 먼 빙하는 안개색(수평선 안개)으로 녹아 흐려지고, 둘레를 부드러운 안개가 감쌈
@@ -2055,7 +2073,7 @@
         for (const q of outline2) { x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }
         const top = outline.length > 2 ? Math.min(...outline.map((q) => q[1])) : y0;
         ctx.save(); ctx.globalAlpha = a * fog; ctx.fillStyle = `rgb(${FF.color.join(',')})`;
-        fillPoly(hull(outline2.concat(outline).map((q) => [q[0], q[1]])));   // 옆면·윗면을 안개색으로 덮음 (윤곽의 볼록 껍질)
+        fillPoly(hull(outline2.concat(...topPolys).map((q) => [q[0], q[1]])));   // 옆면·윗면을 안개색으로 덮음 (윤곽의 볼록 껍질)
         const cx = (x0 + x1) / 2, cy = (top + y1) / 2, rx = (x1 - x0) / 2 * FF.haloSize, ry = Math.max(6, (y1 - top) / 2 * FF.haloSize * 1.6);
         ctx.globalAlpha = a * fog * FF.halo; ctx.drawImage(floeHalo, cx - rx, cy - ry, rx * 2, ry * 2);   // 둘레를 감싸는 안개
         ctx.restore();
