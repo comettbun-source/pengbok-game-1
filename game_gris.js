@@ -1146,6 +1146,7 @@
   // 경로 진행도 s 의 군집 중심이 화면에서 펭귄 머리보다 minScreen 이상 위에 보이는 최소 lead
   function screenLead(sPen, lead) {
     const ff = S.ff, p = S.p, LD = C.FIREFLY.guide.lead, [, py, pd] = project(p.x, p.y, p.z), head = py + penOffset() - penScale(pd) - LD.minScreen * H;
+    if (!(LD.minScreen > 0)) return lead;                    // 화면 간격 조건 끔 (GRIS: 앞쪽 바다라 늘 머리보다 아래에 보임)
     let l = lead;
     while (l < LD.screenMaxLead && sPen + l < ff.L) {
       const q = pathAt(sPen + l), c = camSpace(q.x, q.y, -0.15);
@@ -1950,10 +1951,11 @@
   const coverCapW = () => SIM.cover.maxPx / pxPerUnit(Math.max(rig.near, camSpace(S.p.x, S.p.y, 0)[1]));
 
   // 빙하: 물에 반쯤 잠긴 덩어리. 접촉 그림자 → 잠긴 몸(아래로 옅어짐) → 수면 위 옆면 → 수면 흰 링 → 윗면(그라데이션·면 분할선)
+  const floeHalo = (() => { const FF = C.FOG.floe, col = (FF ? FF.color : [28, 35, 45]).join(','); return makeSprite([[0, `rgba(${col},0.9)`], [0.4, `rgba(${col},0.6)`], [0.7, `rgba(${col},0.22)`], [1, `rgba(${col},0)`]]); })();
   function drawFloe(f, d) {
     const a = floeAlpha(f);
     if (a <= 0.01) return;
-    const FL = C.floe, dy = floeOffset(f), fog = fogAt(d), shp = f.shape;
+    const FF = C.FOG.floe, FL = C.floe, dy = floeOffset(f), fog = FF ? FF.max * smooth(FF.start, FF.end, d) : fogAt(d), shp = f.shape;   // GRIS: 빙하 전용 안개
     const tilt = (x, y) => f.tilt.x * x + f.tilt.y * y;
     const poly = (scale, zf, shift = dy) => projPoly(shp.map(([x, y]) => [f.x + x * scale, f.y + y * scale, zf(x * scale, y * scale)])).map(([sx, sy]) => [sx, sy + shift]);
     // 접촉 그림자 (수면, 출렁임에 반만 따라감)
@@ -2043,6 +2045,20 @@
         if (bx1 > bx0 && by1 > by0) ctx.drawImage(topCv, bx0, by0, bx1 - bx0, by1 - by0, bx0 / res, by0 / res, (bx1 - bx0) / res, (by1 - by0) / res);
         ctx.restore();
         if (fog > 0.01) { ctx.globalAlpha = a * fog; ctx.fillStyle = mixFog([255, 255, 255], 1); fillPoly(outline); }
+      }
+    }
+    // GRIS: 먼 빙하는 안개색(수평선 안개)으로 녹아 흐려지고, 둘레를 부드러운 안개가 감쌈
+    if (FF && fog > 0.02) {
+      const outline2 = projPoly(shp.map(([x, y]) => [f.x + x, f.y + y, 0])).map(([sx, sy]) => [sx, sy + dy]);
+      if (outline2.length > 2) {
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (const q of outline2) { x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }
+        const top = outline.length > 2 ? Math.min(...outline.map((q) => q[1])) : y0;
+        ctx.save(); ctx.globalAlpha = a * fog; ctx.fillStyle = `rgb(${FF.color.join(',')})`;
+        fillPoly(hull(outline2.concat(outline).map((q) => [q[0], q[1]])));   // 옆면·윗면을 안개색으로 덮음 (윤곽의 볼록 껍질)
+        const cx = (x0 + x1) / 2, cy = (top + y1) / 2, rx = (x1 - x0) / 2 * FF.haloSize, ry = Math.max(6, (y1 - top) / 2 * FF.haloSize * 1.6);
+        ctx.globalAlpha = a * fog * FF.halo; ctx.drawImage(floeHalo, cx - rx, cy - ry, rx * 2, ry * 2);   // 둘레를 감싸는 안개
+        ctx.restore();
       }
     }
     // 빙하 위 긁힘 발자국과 활주 자국 (빙하 좌표계)
