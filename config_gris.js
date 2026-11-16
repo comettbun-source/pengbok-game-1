@@ -259,17 +259,30 @@ const LAND_FIREFLY = {
   arriveGap: [0.6, 1.5], arriveDelay: 1.2, arriveSpeed: 3.2,   // 하나둘씩 날아와 앉음 (간격 · 첫 도착 지연 · 날아오는 속도)
   blink: { on: 0.25, off: [2, 4], syncShare: 0.5, nudge: 0.07, periodPull: 0.03 },   // 0.25초 켜짐 → 2~4초 꺼짐. 일부는 이웃이 켜질 때 박자를 조금씩 당겨 서서히 맞춤
   trigger: 3.0, delay: [0, 0.4],       // 펭귄이 바위에서 이 반경 안으로 오면, 가까운 것부터 0~0.4초 지연 뒤 날아오름
+  facing: 55,                          // 그리고 펭귄이 바위 쪽을 바라볼 때만 (바라보는 방향 ± 이 각도 안에 바위)
   burst: { time: 0.15, rise: 0.6 },    // 처음 0.15초 급상승
   speed: [2, 5], zigzag: { amp: 0.35, freq: [5, 9] },   // 불규칙한 속도 · 지그재그
   forest: { d: [8, 12], yBack: [2.5, 6] },   // 날아가는 숲 가장자리 (해안선에서 안쪽 거리 · 이동 선 뒤쪽 거리)
   forestPins: [4, 6], pinBlink: { on: 0.6, off: [2.5, 4.5] }, pinDrift: 0.25,   // 숲에 남아 느리게 깜빡이는 수
-  size: [0.03, 0.08], tail: { time: 0.08, alpha: 0.25 },   // 점 크기 · 아주 짧은 꼬리
+  // 숲 안으로 길 안내: 남은 반딧불이들이 펭귄보다 앞(섬 안쪽)에서 맴돌다, 다가오면 더 안쪽으로 나아감
+  guide: { lead: [3.5, 7], yBack: [0.8, 2.6], speed: 2.6, catchUp: 1.6, wander: 0.35, endD: 70 },
+  size: [0.012, 0.028], tail: { time: 0.08, alpha: 0.18 },   // (0.03~0.08 → 0.012~0.028) 바다반딧불이처럼 작고 섬세하게 · 아주 짧은 꼬리
+  glowScale: [3.2, 1.8],               // 번짐 크기 배율 (바깥 · 중간). 점이 작아도 은은하게 보이게
   rockGlow: 0.1,                       // 바위 윗면에 비치는 아주 옅은 빛
   preset: 'amber',                     // 색 프리셋 (URL ?lf=blue 로 비교)
   presets: {
     amber: { core: '#fff2b0', mid: ['#ffd24d', 0.4], outer: ['#ff9a2e', 0.12] },
     blue: { core: PALETTE.firefly.core, mid: [PALETTE.firefly.body, 0.4], outer: [PALETTE.firefly.outer, 0.12] },
   },
+};
+
+// ── 물방울 (GRIS): 물에 빠질 때 둘레로 튀는 작은 방울들 ─────
+const SPLASH_DROPS = {
+  count: [10, 24], perSpeed: 3,        // 방울 수 = 기본 + 떨어지는 속도 × perSpeed
+  speed: [0.5, 1.9], up: [1.2, 3.6],   // 옆으로 · 위로 튀는 속도 (빠르게 떨어질수록 큼)
+  size: [0.008, 0.03], gravity: 11, alpha: 0.75, color: [190, 206, 228],
+  ring: 0.6,                           // 떨어진 자리 수면에 아주 작은 파문 (물 엔진 충격 세기 배율, 0 = 끔)
+  max: 80,
 };
 
 // ── 눈가루 (GRIS): 빙하에 오르내릴 때 발밑에서 흩날림 ─────
@@ -373,9 +386,9 @@ const ISLAND_TERRAIN = {
   // 구역: 이동 속도 배율 · 나무 밀도(단위 넓이당 그루) · 지면 색
   zones: [
     { name: 'sand', to: 6, speed: 0.5, trees: 0, color: [58, 60, 64] },
-    { name: 'forestEdge', to: 14, speed: 1.15, trees: [0.12, 0.2], color: [36, 40, 40] },   // 속도 0.8 → 1.15 (모래만 그대로)
-    { name: 'forestDeep', to: 34, speed: 1.25, trees: [0.14, 0.24], color: [24, 28, 29] },   // 0.85 → 1.25
-    { name: 'hills', to: 999, speed: 1.3, trees: 0.06, color: [31, 34, 38] },   // 0.9 → 1.3
+    { name: 'forestEdge', to: 14, speed: 1.45, trees: [0.12, 0.2], color: [36, 40, 40] },   // 속도 0.8 → 1.15 (모래만 그대로)
+    { name: 'forestDeep', to: 34, speed: 1.65, trees: [0.14, 0.24], color: [24, 28, 29] },   // 0.85 → 1.25
+    { name: 'hills', to: 999, speed: 1.6, trees: 0.06, color: [31, 34, 38] },   // 0.9 → 1.3
   ],
   zoneBlend: 1.2,             // 구역 경계에서 속도·색이 이어지는 폭
   // 나무: 해변 바로 뒤 키 큰 야자수 줄 → 덤불 → 빽빽한 정글 (임시 도형). 뭉쳐서 자람(cluster)
@@ -392,7 +405,7 @@ const ISLAND_TERRAIN = {
   mountains: { offset: 78, nearPeaks: false },   // 산은 원경으로만: 해안에서 이만큼 더 안쪽 (해안 바로 뒤 작은 봉우리 없음)
   // 해안 바위 (하와이 현무암처럼 낮고 둥근 검은 바위). d = 해안선에서 안쪽 거리, y = 화면 안쪽 위치
   rocks: {
-    list: [{ d: 2.0, y: 0.3, h: 0.55, seed: 11 }, { d: 4.2, y: -0.4, h: 0.7, seed: 23 }],
+    list: [{ d: 2.0, y: 0.3, h: 0.55, seed: 11 }, { d: 4.2, y: -1.55, h: 0.7, seed: 23 }],   // 왼쪽(안쪽) 바위는 이동 선 뒤로 비켜 둠 → 올라가지 않고 지나감
     width: 1.4,               // 폭 (지름)
     depthScale: 0.8,          // 안쪽 방향 폭 비율
     // 모양 (사진처럼 모난 바위): 바닥 꼭짓점 7~9개(반지름 들쭉날쭉) · 꼭대기는 한쪽으로 치우침 · 중간 고리 높이 들쭉날쭉 → 납작한 면들
@@ -509,7 +522,7 @@ const FOOTPRINTS = {
   pressTime: 0.05,            // 찍힐 때 pressFrom → 100% 로 튕기는 시간 (초)
   pressFrom: 1.1,             // 찍히는 순간 크기 (110% 에서 100% 로 살짝 튕김)
   life: 3,                    // 모래: 서서히 사라지는 시간 (초)
-  max: 30,                    // 모래 발자국 풀
+  max: 40,                    // 모래 발자국 풀
   alpha: 0.3,                 // 모래 발자국 진하기
   innerAlpha: 0.16,           // 눌린 안쪽이 더 어두운 정도
   toeOutDeg: 20,              // 팔자: 왼발은 왼쪽, 오른발은 오른쪽으로 벌어짐
@@ -517,11 +530,23 @@ const FOOTPRINTS = {
   color: [46, 43, 40],
   ice: { alpha: 0.14, life: 1.4, max: 30, color: [140, 146, 152] },   // 빙하: 옅은 회색 긁힘 자국 (빙하 좌표계에 저장)
   slideTrail: { alpha: 0.2, life: 1.8, width: 0.03, spacing: 0.08, max: 90 },  // 빙하 위 슬라이딩 활주 자국 한 줄
+  // GRIS 섬 발자국: 모래는 깊게(진하고 오래, 가장자리에 밀려 올라온 밝은 테), 숲·언덕은 옅게
+  sand: { alpha: 0.75, life: 5, size: 1.15, color: [6, 7, 9], rim: [120, 122, 128], rimAlpha: 0.16, rimOffset: 0.025 },
+  forest: { alpha: 0.5, life: 4, size: 1, color: [4, 6, 6] },
 };
 
 // ── 명암·그림자 블러 (ctx.filter 없이 스프라이트·겹 그리기·축소 캐시로) ─────────
 // ── 그리기 품질 (GRIS): 오프스크린 해상도 = 기본값 × 기기 픽셀비(최대 dprMax) × 품질 단계 ─────
 // 프레임이 떨어지면(downFps 아래로 downAfter 초) 한 단계 낮추고, 넉넉하면(upFps 위로 upAfter 초) 올림
+// ── 별 (GRIS): 하늘에 아주 작은 별이 반짝임 ─────
+const STARS = {
+  count: 160, seed: 5,
+  size: [0.3, 1.0],            // 반지름 (px)
+  alpha: [0.12, 0.7], twinkle: [0.3, 1.8], depth: 0.6,   // 진하기 · 반짝이는 빠르기(Hz) · 반짝임 깊이
+  minElev: 0.04, maxElev: 0.9, // 수평선 위 높이 범위 (화면 높이 비율로 근사)
+  color: [214, 226, 255], spread: 3.2,   // 좌우로 펼친 폭 (화면 폭 배수, 카메라가 돌면 같이 흐름)
+};
+
 const QUALITY = {
   tiers: [1, 0.75, 0.55],     // 품질 단계 3개 (해상도 배율)
   dprMax: 2,
@@ -638,6 +663,8 @@ window.CONFIG = {
   ISLAND_TERRAIN,
   LAND_FIREFLY,
   SNOW_PUFF,
+  SPLASH_DROPS,
+  STARS,
   palette: PALETTE,
   WATER_PRESETS: { calm: WATER_CALM, normal: WATER_NORMAL },
   water: WATER_CALM,          // ← WATER_NORMAL 로 바꿔 끼우면 보통 물결 (URL ?water=normal 도 가능)

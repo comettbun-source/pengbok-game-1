@@ -574,7 +574,7 @@
   function terrainGrad(x, y) { const e = 0.15; return { gx: (terrainHeightAt(x + e, y) - terrainHeightAt(x - e, y)) / (2 * e), gy: (terrainHeightAt(x, y + e) - terrainHeightAt(x, y - e)) / (2 * e) }; }
   // 바위·나무 배치 (리셋 때 한 번)
   function buildTerrainProps() {
-    S.rocks = []; S.trees = []; S.snow = [];
+    S.rocks = []; S.trees = []; S.snow = []; S.drops = [];
     const is = S.islands[0]; if (!IT || !is) return;
     const RK = IT.rocks;
     for (const r of RK.list) {
@@ -1192,6 +1192,7 @@
       const WE = P.waterEntry, depth = Math.min(WE.maxSinkBody * penH(), WE.minSink + WE.sinkPerSpeed * Math.abs(vz));
       p.dive.h = 0; p.dive.v = -impulseW(depth, 2 * Math.PI / WE.period, WE.dampingRatio);
       if (sim) sim.drop(p.x, p.y, SIM.body.penguinRadius * C.penguin.scale * 1.6, -SIM.body.entryImpulse * Math.abs(vz));
+      splashDrops(p.x, p.y, Math.abs(vz));               // 둘레로 튀는 작은 물방울
       log('splash');
     }
     if (mode !== 'water' && prev === 'water') ripple(p.x, p.y, 1.2, 1.2, W2.ripple.alpha * 0.5);
@@ -1592,6 +1593,7 @@
     stepSim(dt);
     stepFirefly(dt);
     if (IT) { stepLandFireflies(dt); stepSnow(dt); }
+    stepDrops(dt);
     if (S.stepN % 12 === 0) manageField();
     { const RP = WC().ripple, SPK = C.FIREFLY.sparkle;
       S.ripples = S.ripples.filter((r) => (r.t += dt) < r.life + (RP.rings - 1) * RP.ringGap);
@@ -1604,7 +1606,7 @@
     const life = WC().wake.life;
     for (const w of S.wake) if (w.on && (w.t += dt) >= life) w.on = false;
     S.vortex = S.vortex.filter((v) => (v.t += dt) < WC().curve.vortex.life);
-    for (const q of S.prints) if (q.on && (q.t += dt) >= C.FOOTPRINTS.life) q.on = false;
+    for (const q of S.prints) if (q.on && (q.t += dt) >= (C.FOOTPRINTS.sand ? Math.max(C.FOOTPRINTS.sand.life, C.FOOTPRINTS.forest.life) : C.FOOTPRINTS.life)) q.on = false;
     S.softRipples = S.softRipples.filter((q) => (q.t += dt) < P.water.stepRipple.life);
     S.swimShade = S.swimShade.filter((q) => (q.t += dt) < WC().swimShade.life);
     for (const q of S.icePrints) if (q.on && (q.t += dt) >= C.FOOTPRINTS.ice.life) q.on = false;
@@ -1666,6 +1668,22 @@
     const y0 = Math.min(0, hz - H * 0.6), y1 = hz + H * 0.22, g = ctx.createLinearGradient(0, y0, 0, y1), kh = (hz - y0) / (y1 - y0);
     g.addColorStop(0, `rgba(${top},1)`); g.addColorStop(clamp(kh, 0.01, 0.98), `rgba(${hzc},1)`); g.addColorStop(1, `rgba(${hzc},0)`);
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, Math.max(0, y1));
+  }
+
+  // 별: 하늘에 아주 작은 점이 반짝임 (카메라가 좌우로 돌면 같이 흐름, 수평선 위에만)
+  const starList = (() => { const ST = C.STARS; if (!ST) return []; const r = rng(ST.seed); return Array.from({ length: ST.count }, () => ({ u: r(), e: Math.pow(r(), 1.6), s: lerp(ST.size[0], ST.size[1], Math.pow(r(), 2)), a: lerp(ST.alpha[0], ST.alpha[1], r()), f: lerp(ST.twinkle[0], ST.twinkle[1], r()), ph: r() * 6.283 })); })();
+  function drawStars() {
+    const ST = C.STARS; if (!ST) return;
+    const hz = rig.horizon, span = W * ST.spread, shift = (cam.yaw / (Math.PI * 2)) * span * 2;
+    ctx.fillStyle = `rgb(${ST.color.join(',')})`;
+    for (const s of starList) {
+      const y = hz - lerp(ST.minElev, ST.maxElev, s.e) * H; if (y < -2 || y > hz - 2) continue;
+      const x = ((s.u * span - shift) % span + span) % span - (span - W) / 2; if (x < -2 || x > W + 2) continue;
+      const tw = 1 - ST.depth * (0.5 + 0.5 * Math.sin(S.time * s.f * 6.283 + s.ph));
+      ctx.globalAlpha = s.a * tw * smooth(0, 0.08, (hz - y) / H);   // 수평선 근처는 안개에 묻힘
+      ctx.beginPath(); ctx.arc(x, y, s.s, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 
   // 1차원 값 노이즈 (부드럽게 보간)
@@ -2431,7 +2449,8 @@
     const p = S.p, is = S.islands[0], laneY = C.lane ? C.lane.y : 0;
     for (const rock of S.rocks) {
       // 트리거: 펭귄이 반경 안으로 → 가까운 것부터 0~0.4초 지연 두고 날아오름 (한 번만)
-      if (!rock.fled && Math.hypot(p.x - rock.x, p.y - rock.y) < LF.trigger) {
+      const toR = Math.atan2(rock.y - p.y, rock.x - p.x), facing = Math.abs(angDiff(p.face, toR)) < deg(LF.facing);   // 바위 쪽을 바라볼 때만
+      if (!rock.fled && facing && Math.hypot(p.x - rock.x, p.y - rock.y) < LF.trigger) {
         rock.fled = true;
         const fl = lf.flies.filter((f) => f.rock === rock && (f.state === 'sit' || f.state === 'arrive'));
         fl.sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y));
@@ -2468,9 +2487,17 @@
           const ux = dx / dd, uy = dy / dd, side = Math.sin(f.ft * f.zf * Math.PI * 2) * LF.zigzag.amp;   // 지그재그: 진행 방향 옆으로
           f.x += (ux * spd + -uy * f.bend * 0.3) * dt; f.y += (uy * spd + ux * f.bend * 0.3) * dt + (-ux) * side * dt * 4; f.z += dz / dd * spd * dt;
         }
-      } else if (f.state === 'pin') {                          // 숲에 남아 느리게 깜빡이며 떠 있음
+      } else if (f.state === 'pin') {                          // 숲 안으로 길 안내: 펭귄보다 앞(안쪽)에서 맴돌다 다가오면 더 안쪽으로
         f.ph += dt / f.per; if (f.ph >= 1) f.ph -= 1;
-        f.x = f.px + Math.sin(S.time * 0.5 + f.seed) * LF.pinDrift; f.z = f.pz + Math.sin(S.time * 0.7 + f.seed * 2) * LF.pinDrift * 0.6;
+        const GD = LF.guide;
+        if (f.lead == null) { f.lead = lerp(GD.lead[0], GD.lead[1], Math.random()); f.gy = lerp(GD.yBack[0], GD.yBack[1], Math.random()); f.gd = inlandDist(f.px, f.py); }
+        const pd = Math.max(0, inlandDist(p.x, p.y));
+        f.gd = Math.min(GD.endD, Math.max(f.gd, pd + f.lead));   // 뒤로 물러나지 않고 앞으로만
+        const tx = is.shoreAt(laneY - f.gy) + is.side * f.gd, ty = laneY - f.gy + Math.sin(S.time * 0.4 + f.seed) * GD.wander;
+        const tz = terrainHeightAt(tx, ty) + 0.9 + Math.sin(S.time * 0.7 + f.seed * 2) * GD.wander;
+        const dx = tx - f.px, dy = ty - f.py, dz = tz - f.pz, dd = Math.hypot(dx, dy, dz), v = Math.min(dd, (GD.speed + dd * GD.catchUp) * dt);
+        if (dd > 1e-4) { f.px += dx / dd * v; f.py += dy / dd * v; f.pz += dz / dd * v; }
+        f.x = f.px + Math.sin(S.time * 0.5 + f.seed) * LF.pinDrift; f.y = f.py; f.z = f.pz;
       } else if (f.state === 'fade') { f.vis = Math.max(0, f.vis - dt * 2); }
     }
     // 서서히 박자 맞추기: 같은 바위에서 누가 켜지면, sync 인 이웃의 위상을 조금 앞당기고 주기도 평균 쪽으로
@@ -2496,13 +2523,14 @@
   function drawLandFirefly(f, c) {
     const LF = C.LAND_FIREFLY, sp = lfSprites(), b = lfBright(f) * (1 - fogAt(c[1]) * 0.7);
     if (b < 0.01) return;
-    const [sx, sy] = toScreen(c), ppu = pxPerUnit(c[1]), R = Math.max(1.2, f.size * ppu);
+    const [sx, sy] = toScreen(c), ppu = pxPerUnit(c[1]), R = Math.max(0.7, f.size * ppu);
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
     // 아주 짧은 꼬리 (움직일 때만)
     const t0 = f.trail[0];
     if (t0 && (f.state === 'flee' || f.state === 'arrive')) { const q = project(t0[0], t0[1], t0[2]); ctx.globalAlpha = LF.tail.alpha * b; ctx.strokeStyle = sp.P.mid[0]; ctx.lineWidth = Math.max(0.8, R * 0.6); ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(sx, sy); ctx.stroke(); }
-    ctx.globalAlpha = sp.P.outer[1] * b; ctx.drawImage(sp.outer, sx - R * 6, sy - R * 6, R * 12, R * 12);
-    ctx.globalAlpha = sp.P.mid[1] * b; ctx.drawImage(sp.mid, sx - R * 2.5, sy - R * 2.5, R * 5, R * 5);
+    const go = R * LF.glowScale[0] * 2, gm = R * LF.glowScale[1] * 2;
+    ctx.globalAlpha = sp.P.outer[1] * b; ctx.drawImage(sp.outer, sx - go, sy - go, go * 2, go * 2);
+    ctx.globalAlpha = sp.P.mid[1] * b; ctx.drawImage(sp.mid, sx - gm, sy - gm, gm * 2, gm * 2);
     ctx.globalAlpha = Math.min(1, b); ctx.drawImage(sp.core, sx - R, sy - R, R * 2, R * 2);
     ctx.restore();
   }
@@ -2518,11 +2546,37 @@
       S.snow.push({ x: x + Math.cos(a) * 0.15, y: y + Math.sin(a) * 0.12, z: z + 0.03, vx: Math.cos(a) * s, vy: Math.sin(a) * s * 0.6, vz: lerp(SP.up[0], SP.up[1], Math.random()), t: 0, life: lerp(SP.life[0], SP.life[1], Math.random()), size: lerp(SP.size[0], SP.size[1], Math.random()) });
     }
   }
+  // 물방울: 빠진 자리 둘레로 튀었다 떨어짐. 수면에 닿으면 아주 작은 파문
+  function splashDrops(x, y, vz) {
+    const SD = C.SPLASH_DROPS; if (!SD) return;
+    S.drops = S.drops || [];
+    const k = clamp(vz / 5, 0.3, 1.4), n = Math.round(lerp(SD.count[0], SD.count[1], Math.random()) + vz * SD.perSpeed);
+    for (let i = 0; i < n; i++) {
+      if (S.drops.length >= SD.max) S.drops.shift();
+      const a = Math.random() * Math.PI * 2, s = lerp(SD.speed[0], SD.speed[1], Math.random()) * k, r0 = 0.2 + Math.random() * 0.2;
+      S.drops.push({ x: x + Math.cos(a) * r0, y: y + Math.sin(a) * r0 * 0.8, z: 0.05, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: lerp(SD.up[0], SD.up[1], Math.random()) * k * (1 - 0.5 * Math.random()), size: lerp(SD.size[0], SD.size[1], Math.pow(Math.random(), 2)), t: 0 });
+    }
+  }
+  function stepDrops(dt) {
+    const SD = C.SPLASH_DROPS; if (!SD || !S.drops || !S.drops.length) return;
+    for (const q of S.drops) { q.t += dt; q.vz -= SD.gravity * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt;
+      if (q.z <= 0 && q.vz < 0) { q.dead = true; if (sim && SD.ring > 0 && q.size > 0.012) sim.drop(q.x, q.y, 0.12, -0.004 * SD.ring); } }
+    S.drops = S.drops.filter((q) => !q.dead && q.t < 2);
+  }
   function stepSnow(dt) {
     const SP = C.SNOW_PUFF; if (!SP || !S.snow) return;
     const k = Math.exp(-SP.drag * dt);
     for (const q of S.snow) { q.t += dt; q.vx *= k; q.vy *= k; q.vz = q.vz * k - SP.gravity * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt; }
     S.snow = S.snow.filter((q) => q.t < q.life);
+  }
+  function dropItems(items) {
+    const SD = C.SPLASH_DROPS; if (!SD || !S.drops || !S.drops.length) return;
+    items.push({ d: camSpace(S.p.x, S.p.y, 0)[1] - 0.06, draw: () => {
+      ctx.fillStyle = `rgb(${SD.color.join(',')})`;
+      for (const q of S.drops) { const c = camSpace(q.x, q.y, q.z); if (c[1] < rig.near) continue; const [sx, sy] = toScreen(c), r = Math.max(0.6, q.size * pxPerUnit(c[1]));
+        ctx.globalAlpha = SD.alpha * Math.min(1, q.t * 20); ctx.beginPath(); ctx.ellipse(sx, sy, r, r * (1 + Math.min(1.2, Math.abs(q.vz) * 0.15)), 0, 0, Math.PI * 2); ctx.fill(); }   // 빠를수록 세로로 살짝 늘어남
+      ctx.globalAlpha = 1;
+    } });
   }
   function snowItems(items) {
     const SP = C.SNOW_PUFF; if (!SP || !S.snow || !S.snow.length) return;
@@ -2805,11 +2859,8 @@
       ctx.globalAlpha = 0.3 * (1 - k); ctx.drawImage(shadeRing, e.x - e.rx, e.y - e.ry, e.rx * 2, e.ry * 2);
     }
     // 모래 발자국: 버튼과 같은 발바닥 모양, 팔자로 벌어지고 부드럽게 번짐
-    const FP = C.FOOTPRINTS, sand = pawPrints(FP.color);
-    for (const q of S.prints) {
-      if (!q.on) continue;
-      drawPawPrint(sand, q.x, q.y, q.ang, q.side, FP.size, q.t, FP.life, FP.alpha * (1 - fog), terrainHeightAt(q.x, q.y) + 0.004);
-    }
+    if (!IT) { const FP = C.FOOTPRINTS, sand = pawPrints(FP.color);
+      for (const q of S.prints) { if (!q.on) continue; drawPawPrint(sand, q.x, q.y, q.ang, q.side, FP.size, q.t, FP.life, FP.alpha * (1 - fog), terrainHeightAt(q.x, q.y) + 0.004); } }
     ctx.globalAlpha = 1;
   }
 
@@ -3318,6 +3369,21 @@
     return set;
   }
   // 발자국 하나: 찍힐 때 흐림 → 선명, 사라질 때 선명 → 흐림으로 교차 페이드
+  // GRIS 섬 발자국: 모래는 깊게 (진한 안쪽 + 빛 쪽으로 살짝 밀려난 밝은 테), 숲·언덕은 옅게. 해안 그림과 따로 그려 숲에서도 보임
+  function drawIslandPrints() {
+    const FP = C.FOOTPRINTS; if (!IT || !FP.sand) return;
+    const SDp = FP.sand, FR = FP.forest, sandSet = pawPrints(SDp.color), forSet = pawPrints(FR.color), rimSet = pawPrints(SDp.rim), L = FIXED_LIGHT;
+    for (const q of S.prints) {
+      if (!q.on) continue;
+      const c = camSpace(q.x, q.y, 0); if (c[1] < rig.near + 0.3) continue;
+      const fog = fogAt(c[1]), z = terrainHeightAt(q.x, q.y) + 0.004, onSand = inlandDist(q.x, q.y) < IT.zones[0].to;
+      const Z = onSand ? SDp : FR, life = Z.life;
+      if (q.t >= life) { q.on = false; continue; }
+      if (onSand) drawPawPrint(rimSet, q.x + L[0] * SDp.rimOffset, q.y + L[1] * SDp.rimOffset, q.ang, q.side, FP.size * Z.size * 1.12, q.t, life, SDp.rimAlpha * (1 - fog), z);
+      drawPawPrint(onSand ? sandSet : forSet, q.x, q.y, q.ang, q.side, FP.size * Z.size, q.t, life, Z.alpha * (1 - fog), z);
+    }
+    ctx.globalAlpha = 1;
+  }
   function drawPawPrint(set, x, y, ang, side, size, t, life, alpha, z, oy = 0) {
     const FP = C.FOOTPRINTS, a = ang + side * deg(FP.toeOutDeg), rx = Math.sin(a), ry = -Math.cos(a);
     size *= 1 + (FP.pressFrom - 1) * (1 - smooth(0, FP.pressTime, t));   // 찍히는 순간 110% → 100%
@@ -3454,6 +3520,7 @@
     ctx.globalAlpha = 1;
     updateRig();
     drawSky();
+    drawStars();
     // 수면에 붙은 것: 잔물결 → 파문·항적 → 흐름선 → 반영
     drawWaterTone();
     drawShallows();
@@ -3473,6 +3540,7 @@
     drawReflection();
     drawIslandGround();
     if (sim && SIM.shore.draw) drawSimShore(); else drawShoreWash();
+    drawIslandPrints();
     // 서 있는 것: 깊이 순서대로 먼 것부터
     const items = [];
     const pd = camSpace(p.x, p.y, p.z)[1];
@@ -3485,6 +3553,7 @@
     mountainItems(items);
     terrainItems(items);
     snowItems(items);
+    dropItems(items);
     items.push({ d: pd, draw: drawPenguin });
     items.sort((a, b) => b.d - a.d);
     // 먼 것 → 안개 층 → 가까운 것 (펭귄·가까운 빙하는 선명하게)
