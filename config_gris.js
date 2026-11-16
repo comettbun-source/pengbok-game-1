@@ -331,12 +331,48 @@ const ICE_FIELD = {
 };
 
 // ── 해안 물결 (섬 위로 물이 쏴아 들어왔다 나감) ─────────────────────
+// ── 섬 지형 (GRIS): 해안선에서 안쪽으로 [거리, 높이] 단면 → 해안 → 숲 → 오르락내리락 언덕 ─────────
+// 높이는 terrainHeightAt(x, y) 하나로 읽음 (펭귄·발자국·그림자·나무·바위·해안 물막). 그림은 임시 도형(단색 면 + 가는 균열선)
+const ISLAND_TERRAIN = {
+  shoreX: -40,                // 해안선 위치 (월드 x). world.islandDistance 가 이 값을 읽음
+  profile: [                  // [해안선에서 안쪽 거리, 높이]. 사이는 부드럽게(캣멀롬) 이음
+    [0, 0], [3, 0.06], [6, 0.15],                       // 모래 해변: 아주 완만
+    [10, 0.45], [14, 0.9],                              // 숲 입구: 완만한 오르막
+    [17.5, 1.12], [21, 0.86], [24.5, 1.1], [28, 0.88], [31, 1.12], [34, 1.2],   // 깊은 숲: 작은 기복 ±0.25 (파장 약 7)
+    [40, 2.4], [47, 1.0], [55, 2.8], [62, 1.3], [70, 2.6],   // 언덕: 진폭 0.7~1.4, 파장 14~16 (평균 경사 약 11°)
+  ],
+  walkableMaxSlope: 25,       // 걸을 수 있는 경사 (도). 오르막 감속의 기준
+  slope: { uphillSlow: 0.25, slideSlope: 0.08, slideAccel: 1.6 },   // 오르막 최대 −25%, 이보다 가파른 내리막은 살짝 미끄러짐
+  // 구역: 이동 속도 배율 · 나무 밀도(단위 넓이당 그루) · 지면 색
+  zones: [
+    { name: 'sand', to: 6, speed: 0.5, trees: 0, color: [58, 60, 64] },
+    { name: 'forestEdge', to: 14, speed: 0.8, trees: [0.01, 0.05], color: [36, 40, 40] },
+    { name: 'forestDeep', to: 34, speed: 0.85, trees: [0.06, 0.16], color: [24, 28, 29] },
+    { name: 'hills', to: 999, speed: 0.9, trees: 0.04, color: [31, 34, 38] },
+  ],
+  zoneBlend: 1.2,             // 구역 경계에서 속도·색이 이어지는 폭
+  trees: { seed: 314, height: [2.4, 4.6], width: [0.9, 1.5], laneGap: 1.8, back: 26, color: [10, 13, 15], trunk: [8, 10, 12] },   // 이동 선 뒤쪽(화면 안쪽)에만
+  ground: { dStep: 1, yStep: 4, yRange: [-40, 40], maxDist: 76, view: 70, crack: 0.35, crackColor: [10, 12, 14], light: 0.18 },   // 지면 칸 그리기
+  mountains: { offset: 78, nearPeaks: false },   // 산은 원경으로만: 해안에서 이만큼 더 안쪽 (해안 바로 뒤 작은 봉우리 없음)
+  // 해안 바위 (하와이 현무암처럼 낮고 둥근 검은 바위). d = 해안선에서 안쪽 거리, y = 화면 안쪽 위치
+  rocks: {
+    list: [{ d: 2.0, y: 0.3, h: 0.55 }, { d: 4.2, y: -0.4, h: 0.7 }],
+    width: 1.4,               // 폭 (지름)
+    depthScale: 0.8,          // 안쪽 방향 폭 비율
+    color: [16, 16, 18], light: [44, 46, 50],
+    washRing: 0.4,            // 파도가 닿으면 바위 둘레로 갈라지는 흰 물결 진하기
+  },
+  sea: { slope: 7, fireflyMinDepth: 0.15 },   // 바다 쪽: 수심 경사 거리(DEPTH.slope) · 반딧불이가 머무는 최소 수심
+  wash: { width: 5, reach: 0.45 },            // 파도 도달 (SHORE_WASH.shoreWidth · reach)
+  debugColors: { sand: [230, 200, 120], forestEdge: [120, 200, 120], forestDeep: [60, 150, 90], hills: [220, 150, 90] },
+};
+
 const SHORE_WASH = {
   segment: 0.5,               // 해안선을 나누는 구간 길이 (구간마다 위상·세기가 다름)
   strengthVar: 0.3,           // 구간마다 도달 거리 ±30%
   rise: 1.1, hold: 0.3, fall: 4.5,   // 올라올 때(ease-out) / 정점에서 머묾 / 빠지며 모래로 스밈 (초)
-  shoreWidth: 5,              // 해안(물가 ~ 산 밑) 폭 (월드)
-  reach: 0.45,                // 보통 파도가 올라오는 폭 = 해안 폭 × 이 값 × 파면 진폭
+  shoreWidth: ISLAND_TERRAIN.wash.width,   // 해안 폭 (월드). ISLAND_TERRAIN.wash 에서
+  reach: ISLAND_TERRAIN.wash.reach,        // 보통 파도가 올라오는 폭 = 해안 폭 × 이 값 × 파면 진폭 (ISLAND_TERRAIN.wash)
   dryTime: 6,                 // 젖은 땅이 마르는 시간 (초)
   // 선 없이 면으로: 젖음 맵(최근일수록 진하게) + 얇은 물막. 자국 선·물줄기·흰 끝선은 없음
   bins: 5,                    // 물가 안쪽 방향 젖음 칸 수
@@ -407,7 +443,7 @@ const SHORE_WASH = {
 
 // ── 수심 지형: 해안선(구불구불)에서 바다 쪽으로 완만하게 깊어짐 ─────────────
 const DEPTH = {
-  slope: 7,                   // 이 거리(월드)에 걸쳐 수심 0 → 1
+  slope: ISLAND_TERRAIN.sea.slope,   // 이 거리(월드)에 걸쳐 수심 0 → 1 (ISLAND_TERRAIN.sea)
   power: 1.4,                 // 수심 = smoothstep(거리/slope) ^ power
   shoreAmp: 1.5,              // 해안선 굴곡 진폭 (만·곶)
   shoreWave: [6, 12],         // 굴곡 파장 범위
@@ -557,7 +593,10 @@ const WATER_SIM = {
   },
 };
 
+FIREFLY.guide.shoreMinDepth = ISLAND_TERRAIN.sea.fireflyMinDepth;   // 반딧불이 최소 수심도 섬 지형 블록에서
+
 window.CONFIG = {
+  ISLAND_TERRAIN,
   palette: PALETTE,
   WATER_PRESETS: { calm: WATER_CALM, normal: WATER_NORMAL },
   water: WATER_CALM,          // ← WATER_NORMAL 로 바꿔 끼우면 보통 물결 (URL ?water=normal 도 가능)
@@ -631,7 +670,7 @@ window.CONFIG = {
   },
 
   // 바다 이동 한계 (펭귄·빙하가 이 밖으로 나가지 않게 부드럽게 밀어 줌)
-  bounds: { x: [-75, 75], y: [-36, 36], push: 6 },
+  bounds: { x: [-128, 75], y: [-36, 36], push: 6 },   // (−75 → −128) 섬 안쪽 언덕까지 걸어갈 수 있게
   // 좌우로만 이동 (GRIS 전용): 링·키의 위아래 입력은 무시하고, 펭귄을 lane 선 근처로 부드럽게 되밀어 둠
   lane: { y: 0.3, halfWidth: 0.6, push: 8 },   // y = 이동 선 (월드 y), halfWidth = 이만큼은 자유, push = 되미는 세기
 
@@ -714,7 +753,7 @@ window.CONFIG = {
   },
 
   world: {
-    islandDistance: 40, islandHalfWidth: 16, islandHalfLength: 40,
+    islandDistance: -ISLAND_TERRAIN.shoreX, islandHalfWidth: 60, islandHalfLength: 40,   // (폭 16 → 60) 언덕까지 섬이 이어지게
     shoreHeight: 0.03, summitHeight: 34,   // 물가는 수면과 거의 같은 높이 (완만한 해변)
     mountainScale: { height: 1.3, radius: 1.35, beach: 3.2 },   // 산 크기 배율 (그림만): 상륙 때 정상·양옆 능선이 화면 밖까지 이어지게
   },

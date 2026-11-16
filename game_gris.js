@@ -9,6 +9,7 @@
   try {
     const qs = new URLSearchParams(location.search);
     const wp = qs.get('water'); if (wp && C.WATER_PRESETS[wp]) C.water = C.WATER_PRESETS[wp];
+    if (qs.get('debug') === 'terrain') C.debugTerrain = true;   // ?debug=terrain : 지형 디버그 오버레이
     const q = qs.get('cfg');
     if (q) q.split(',').forEach((kv) => {
       const [path, val] = kv.split('=');
@@ -199,6 +200,7 @@
     const peak = (dist, y, h, rWant) => {
       let rad = Math.min(rWant, dist - 2.5);
       const MS = w.mountainScale; h *= MS.height; rad = Math.min(rad * MS.radius, dist - MS.beach);   // 커져도 해변(물이 올라오는 곳)은 덮지 않게
+      if (C.ISLAND_TERRAIN) dist += C.ISLAND_TERRAIN.mountains.offset;   // 산은 원경으로만
       peaks.push({ x: shoreX + side * dist, y, h, r: rad,
         ax: (r() - 0.5) * rad * 0.5, ay: (r() - 0.5) * rad * 0.5, sh: 0.35 + r() * 0.25, so: (r() - 0.5) * 0.5 });
     };
@@ -209,7 +211,7 @@
       peak(11 + r() * 4 + k * 0.4, y, h, 4 + h * 0.22);
       peak(21 + r() * 5, y + sg * 2, h * (0.75 + r() * 0.3), 6 + h * 0.2);
     }
-    for (let y = -w.islandHalfLength + 6; y <= w.islandHalfLength - 6; y += 4 + r() * 2) peak(6 + r() * 1.5, y, 3 + r() * 4, 3);
+    if (!C.ISLAND_TERRAIN || C.ISLAND_TERRAIN.mountains.nearPeaks) for (let y = -w.islandHalfLength + 6; y <= w.islandHalfLength - 6; y += 4 + r() * 2) peak(6 + r() * 1.5, y, 3 + r() * 4, 3);
     return { side, shoreX, cx, cy: 0, rx: w.islandHalfWidth, ry: w.islandHalfLength, shape, peaks, shoreAt };
   }
 
@@ -382,6 +384,7 @@
     sim = SIM.enabled && window.WaterSim ? window.WaterSim.create(SIM) : null;
     S.islands = [makeIsland(-1, 57)];                        // 왼쪽 섬만. 오른쪽은 안개에 녹는 열린 바다 (빙하 배치가 해안 거리를 보므로 먼저)
     S.cands = genField();
+    buildTerrainProps();
     S.floePool = Array.from({ length: IF.maxActive }, newFloeObj);
     const [sfx, sfy] = startForward();
     cam.x = 0; cam.y = 0; cam.z = 0; cam.yaw = cam.yawT = yawFromForward(sfx, sfy);
@@ -501,8 +504,64 @@
   const onFloe = (f, x, y, scale = 1) => f && f.active && inPoly(f.shape, (x - f.x) / scale, (y - f.y) / scale);
   const floeAt = (x, y, scale = 1) => S.floePool.find((f) => f.active && onFloe(f, x, y, scale)) || null;
   const islandAt = (x, y) => S.islands.find((is) => inPoly(is.shape, x, y));
+  // ── 섬 지형 ─────────────────────────────────────────────
+  const IT = C.ISLAND_TERRAIN;
+  const TSTEP = 0.1, terrainTab = (() => {                   // 단면을 0.1 간격 표로 (캣멀롬 보간)
+    if (!IT) return null;
+    const P = IT.profile, n = Math.ceil(P[P.length - 1][0] / TSTEP) + 1, T = new Float32Array(n);
+    const cr = (p0, p1, p2, p3, t) => 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t * t + (-p0 + 3 * p1 - 3 * p2 + p3) * t * t * t);
+    let k = 0;
+    for (let i = 0; i < n; i++) {
+      const d = i * TSTEP; while (k < P.length - 2 && P[k + 1][0] < d) k++;
+      const a = P[Math.max(0, k - 1)], b = P[k], c2 = P[k + 1], e = P[Math.min(P.length - 1, k + 2)], t = clamp((d - b[0]) / (c2[0] - b[0]), 0, 1);
+      T[i] = Math.max(0, cr(a[1], b[1], c2[1], e[1], t));
+    }
+    return T;
+  })();
+  function profileAt(d) {                                    // 해안선에서 안쪽 거리 d 의 지형 높이 (해변 기준 0)
+    if (!(d > 0)) return 0;
+    const u = d / TSTEP, i = Math.floor(u); if (i >= terrainTab.length - 1) return terrainTab[terrainTab.length - 1];
+    return lerp(terrainTab[i], terrainTab[i + 1], u - i);
+  }
+  const inlandDist = (x, y) => { const sd = shoreDist(x, y); return sd === Infinity ? -1 : -sd; };
+  // 구역 값을 경계에서 부드럽게 섞어 읽음 (key: speed / color / trees)
+  function zoneAt(d) {
+    const Z = IT.zones; let i = 0; while (i < Z.length - 1 && d > Z[i].to) i++;
+    const z = Z[i], nb = i < Z.length - 1 ? Z[i + 1] : null, k = nb ? smooth(z.to - IT.zoneBlend, z.to + IT.zoneBlend, d) : 0;
+    return { z, nb, k };
+  }
+  const zoneNum = (d, key) => { const { z, nb, k } = zoneAt(d); const v = (q) => (Array.isArray(q[key]) ? lerp(q[key][0], q[key][1], clamp((d - (IT.zones[IT.zones.indexOf(q) - 1] || { to: 0 }).to) / (q.to - (IT.zones[IT.zones.indexOf(q) - 1] || { to: 0 }).to), 0, 1)) : q[key]); return nb ? lerp(v(z), v(nb), k) : v(z); };
+  const zoneColor = (d) => { const { z, nb, k } = zoneAt(d); return nb ? z.color.map((v, i) => v + (nb.color[i] - v) * k) : z.color; };
+  function rockHeightAt(x, y) {
+    let h = 0;
+    for (const r of S.rocks || []) { const u2 = Math.pow((x - r.x) / r.R, 2) + Math.pow((y - r.y) / r.Ry, 2); if (u2 < 1) h = Math.max(h, r.h * Math.pow(1 - u2, 0.75)); }   // 낮고 둥근 돔 (윗면 완만)
+    return h;
+  }
+  // 지형 높이 (섬 위 어디든): 해변 높이 + 단면 + 바위. 펭귄·발자국·그림자·나무·물막이 모두 이 값을 씀
+  function terrainHeightAt(x, y = C.lane ? C.lane.y : 0) {
+    if (!IT) return C.world.shoreHeight;
+    const d = inlandDist(x, y);
+    return C.world.shoreHeight + profileAt(d) + rockHeightAt(x, y);
+  }
+  function terrainGrad(x, y) { const e = 0.15; return { gx: (terrainHeightAt(x + e, y) - terrainHeightAt(x - e, y)) / (2 * e), gy: (terrainHeightAt(x, y + e) - terrainHeightAt(x, y - e)) / (2 * e) }; }
+  // 바위·나무 배치 (리셋 때 한 번)
+  function buildTerrainProps() {
+    S.rocks = []; S.trees = [];
+    const is = S.islands[0]; if (!IT || !is) return;
+    const RK = IT.rocks;
+    for (const r of RK.list) S.rocks.push({ x: is.shoreAt(r.y) + is.side * r.d, y: r.y, d: r.d, h: r.h, R: RK.width / 2, Ry: RK.width / 2 * RK.depthScale });
+    const T = IT.trees, rr = rng(T.seed), laneY = C.lane ? C.lane.y : 0;
+    for (let d = 6; d < IT.ground.maxDist; d += 0.5) {
+      const dens = zoneNum(d, 'trees');
+      for (let y = laneY - T.laneGap; y > laneY - T.back; y -= 0.5) {
+        if (rr() > dens * 0.25) continue;                     // 0.5 × 0.5 칸마다 확률
+        const x = is.shoreAt(y) + is.side * (d + (rr() - 0.5) * 0.5);
+        S.trees.push({ x, y: y + (rr() - 0.5) * 0.4, h: lerp(T.height[0], T.height[1], rr()), w: lerp(T.width[0], T.width[1], rr()), lean: (rr() - 0.5) * 0.12 });
+      }
+    }
+  }
   function surfaceAt(x, y) {
-    if (islandAt(x, y)) return { mode: 'island', z: C.world.shoreHeight };
+    if (islandAt(x, y)) return { mode: 'island', z: terrainHeightAt(x, y) };
     const f = floeAt(x, y, 0.95);
     if (f) return { mode: 'floe', floe: f, z: floeTopAt(f, x - f.x, y - f.y) };
     return { mode: 'water', z: 0 };
@@ -809,6 +868,12 @@
     let maxSp = shallow ? lerp(DP.walkSpeed, DP.wadeMinSpeed, wadeK) : deep ? WP.deepMaxSpeed : pm.maxSpeed[surf];
     // 오르막은 최고 속도가 최대 25% 줄어듦
     p.slopeG = null;
+    if (IT && p.mode === 'island' && !p.air) {               // 섬: 구역별 속도 배율 + 오르막 감속 (경사에 맞춰 몸도 기욺)
+      const d = inlandDist(p.x, p.y), gr = terrainGrad(p.x, p.y), v0 = Math.hypot(p.vx, p.vy);
+      maxSp *= zoneNum(d, 'speed');
+      p.slopeG = gr;
+      if (v0 > 0.05) maxSp *= 1 - IT.slope.uphillSlow * clamp((gr.gx * p.vx + gr.gy * p.vy) / v0 / Math.tan(deg(IT.walkableMaxSlope)), 0, 1);
+    }
     if (p.mode === 'floe' && p.floe && p.floe.relief && !p.air) {
       const RL = C.floe.relief, gr = reliefAt(p.floe, p.lx, p.ly), v0 = Math.hypot(p.vx, p.vy);
       p.slopeG = gr;
@@ -899,6 +964,10 @@
         const k = ease(DR.blend, dt);
         p.vx += (Math.cos(p.driftAng) * DR.speed - p.vx) * k; p.vy += (Math.sin(p.driftAng) * DR.speed - p.vy) * k;
       }
+      if (IT && p.mode === 'island' && p.slopeG) {             // 섬 내리막: 살짝 미끄러짐
+        const gr = p.slopeG, sl = Math.hypot(gr.gx, gr.gy);
+        if (sl > IT.slope.slideSlope) { const a = (sl - IT.slope.slideSlope) * IT.slope.slideAccel * dt; p.vx -= gr.gx / sl * a; p.vy -= gr.gy / sl * a; }
+      }
       // 빙하 경사: 내리막은 살짝 미끄러져 내려옴
       if (p.mode === 'floe' && p.floe && p.floe.relief) {
         const RL = C.floe.relief, gr = reliefAt(p.floe, p.lx, p.ly), sl = Math.hypot(gr.gx, gr.gy);
@@ -954,7 +1023,7 @@
       if (sim && deep) p.z += SIM.feedback.penguin * sim.around(p.x, p.y, 0.55, 0.55);   // 주변 물결을 타고 오르내림
     } else if (!p.air) {
       p.dive.h = p.dive.v = 0;
-      const tz = p.mode === 'island' ? C.world.shoreHeight : p.mode === 'floe' && p.floe ? floeTopAt(p.floe, p.lx, p.ly) : 0;
+      const tz = p.mode === 'island' ? terrainHeightAt(p.x, p.y) : p.mode === 'floe' && p.floe ? floeTopAt(p.floe, p.lx, p.ly) : 0;
       p.z += (tz - p.z) * ease(14, dt);
     }
 
@@ -1416,7 +1485,7 @@
       const near = ws.segs.filter((q) => q.reach > 0.05 && Math.abs(q.y - S.p.y) < 14);
       if (!near.length) break;
       const q = near[(Math.random() * near.length) | 0], dep = q.reach * (0.6 + 0.45 * Math.random());
-      spawnSpark(q.x - q.nx * dep, q.y - q.ny * dep, 0.01, lerp(SPK.shoreLife[0], SPK.shoreLife[1], Math.random()), C.world.shoreHeight + 0.01);
+      spawnSpark(q.x - q.nx * dep, q.y - q.ny * dep, 0.01, lerp(SPK.shoreLife[0], SPK.shoreLife[1], Math.random()), terrainHeightAt(q.x - q.nx * dep, q.y - q.ny * dep) + 0.01);
     }
   }
   // 물가에서 안쪽으로 몇 만큼 물이 덮였는지 (>0 이면 물 속)
@@ -2152,7 +2221,106 @@
     ctx.globalAlpha = 1;
   }
 
+  // 섬 지면: (안쪽 거리 d, 화면 안쪽 y) 칸을 먼 것부터 단색 면으로 + 가는 균열선. 경사가 빛을 향하면 살짝 밝게
+  function drawTerrain() {
+    const is = S.islands[0], G = IT.ground; if (!is) return;
+    const L = FIXED_LIGHT, cells = [], shoreCache = new Map();
+    const shoreY = (yy) => { let v = shoreCache.get(yy); if (v === undefined) { v = is.shoreAt(clamp(yy, -is.ry + 0.01, is.ry - 0.01)); shoreCache.set(yy, v); } return v; };   // 띠 경계마다 한 번만
+    for (let y = G.yRange[0]; y < G.yRange[1]; y += G.yStep) {
+      const y1 = y + G.yStep;
+      if (Math.abs(y) >= is.ry && Math.abs(y1) >= is.ry) continue;
+      for (let d = 0; d < G.maxDist; d += G.dStep) {
+        const d1 = d + G.dStep, xs = (dd, yy) => shoreY(yy) + is.side * dd;
+        const P4 = [[xs(d, y), y, profileAt(d)], [xs(d1, y), y, profileAt(d1)], [xs(d1, y1), y1, profileAt(d1)], [xs(d, y1), y1, profileAt(d)]];
+        const cx = (P4[0][0] + P4[2][0]) / 2, cyy = (y + y1) / 2, cs = camSpace(cx, cyy, 0);
+        if (cs[1] < -G.dStep * 2 || cs[1] > G.view) continue;
+        cells.push({ P4, depth: cs[1], d, d1 });
+      }
+    }
+    cells.sort((a, b) => b.depth - a.depth);
+    const sh = C.world.shoreHeight;
+    for (const c of cells) {
+      const pts = projPoly(c.P4.map(([x, y, z]) => [x, y, sh + z]));
+      if (pts.length < 3) continue;
+      // 빛: 경사(안쪽으로 오르면 바다 쪽을 향함)와 고정 빛 방향
+      const slope = (profileAt(c.d1) - profileAt(c.d)) / (c.d1 - c.d), nx = -is.side * -slope, nl = Math.hypot(nx, 1);
+      const lit = clamp(0.5 + (nx * L[0] + L[2]) / nl * 0.5 - 0.5, -1, 1) * IT.ground.light;
+      const col = zoneColor((c.d + c.d1) / 2).map((v) => clamp(v * (1 + lit), 0, 255));
+      const fog = fogAt(Math.max(c.depth, 0));
+      ctx.globalAlpha = 1; ctx.fillStyle = mixFog(col, fog); ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 0.8;
+      ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fill(); ctx.stroke();
+      // 가는 균열선 (칸마다 정해진 무늬)
+      const hsh = hash2(Math.round(c.d * 3), Math.round(c.P4[0][1] * 3));
+      if (hsh < IT.ground.crack && c.depth < G.view * 0.6) {
+        const t0 = hash2(c.d + 7, c.P4[0][1]), t1 = hash2(c.d, c.P4[0][1] + 9), u0 = 0.2 + 0.6 * t0, u1 = 0.2 + 0.6 * t1;
+        const A = c.P4[0], B = c.P4[3], Cc = c.P4[1];
+        const p0 = [lerp(A[0], B[0], u0), lerp(A[1], B[1], u0)], p1 = [lerp(Cc[0], c.P4[2][0], u1), lerp(Cc[1], c.P4[2][1], u1)];
+        const q0 = project(p0[0], p0[1], terrainHeightAt(p0[0], p0[1]) + 0.01), q1 = project(p1[0], p1[1], terrainHeightAt(p1[0], p1[1]) + 0.01);
+        if (q0[2] > rig.near && q1[2] > rig.near) { ctx.globalAlpha = 0.5 * (1 - fog); ctx.strokeStyle = `rgb(${IT.ground.crackColor.join(',')})`; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.moveTo(q0[0], q0[1]); ctx.lineTo((q0[0] + q1[0]) / 2 + (t0 - 0.5) * 6, (q0[1] + q1[1]) / 2); ctx.lineTo(q1[0], q1[1]); ctx.stroke(); }
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+  // 나무·바위: 깊이 순서로 다른 것들과 함께 그림 (임시 도형)
+  function terrainItems(items) {
+    if (!IT) return;
+    const T = IT.trees, RK = IT.rocks;
+    for (const t of S.trees || []) {
+      const c = camSpace(t.x, t.y, 0); if (c[1] < rig.near + 0.5 || c[1] > IT.ground.view) continue;
+      const z0 = terrainHeightAt(t.x, t.y), b = project(t.x, t.y, z0), tp = project(t.x + t.lean, t.y, z0 + t.h);
+      if (Math.max(b[0], tp[0]) < -60 || Math.min(b[0], tp[0]) > W + 60) continue;
+      items.push({ d: c[1], draw: () => {
+        const fog = fogAt(c[1]), ppu = pxPerUnit(c[1]), hw = t.w * 0.5 * ppu;
+        ctx.globalAlpha = 1; ctx.strokeStyle = mixFog(T.trunk, fog); ctx.lineWidth = Math.max(1, 0.08 * ppu);
+        ctx.beginPath(); ctx.moveTo(b[0], b[1]); ctx.lineTo(tp[0], tp[1]); ctx.stroke();
+        const mid = [lerp(b[0], tp[0], 0.3), lerp(b[1], tp[1], 0.3)];
+        ctx.fillStyle = mixFog(T.color, fog); ctx.beginPath(); ctx.moveTo(tp[0], tp[1] - 0.15 * ppu); ctx.lineTo(mid[0] + hw, mid[1]); ctx.lineTo(mid[0] - hw, mid[1]); ctx.closePath(); ctx.fill();
+      } });
+    }
+    for (const r of S.rocks || []) {
+      const c = camSpace(r.x, r.y, 0); if (c[1] < rig.near + 0.3) continue;
+      items.push({ d: c[1] - 0.01, draw: () => drawRock(r, c[1]) });
+    }
+  }
+  // 바위: 낮고 둥근 돔 (고리 3겹 × 14 조각), 위쪽을 살짝 밝게. 파도가 닿으면 둘레에 흰 물결이 갈라짐
+  function drawRock(r, depth) {
+    const RK = IT.rocks, fog = fogAt(depth), n = 14, K = 4, sh = C.world.shoreHeight, base = sh + profileAt(r.d);
+    const ring = (k) => { const u = 1 - k / K; return Array.from({ length: n }, (_, i) => { const a = i / n * Math.PI * 2, x = r.x + Math.cos(a) * r.R * u, y = r.y + Math.sin(a) * r.Ry * u; return [x, y, base + r.h * Math.pow(1 - u * u, 0.75) + profileAt(inlandDist(x, y)) - profileAt(r.d)]; }); };
+    // 둘레 물결: 그 자리 끝선이 바위 앞쪽에 닿은 만큼
+    const ws = S.wash; if (ws && RK.washRing > 0) { let q = null, bd = Infinity; for (const s of ws.segs) { const dd = Math.abs(s.y - r.y); if (dd < bd) { bd = dd; q = s; } }
+      const k = q ? smooth(r.d - r.R, r.d + r.R * 0.3, q.reach) : 0;
+      if (k > 0.02) { const e = groundEllipse(r.x, r.y, r.R * 1.25, base + 0.01); if (e) { ctx.globalAlpha = RK.washRing * k * (1 - fog); ctx.drawImage(shadeRing, e.x - e.rx, e.y - e.ry * 0.8, e.rx * 2, e.ry * 2 * 0.8); } } }
+    const rings = []; for (let k = 0; k <= K; k++) rings.push(ring(k));
+    const quads = [];
+    for (let k = 0; k < K; k++) for (let i = 0; i < n; i++) { const j = (i + 1) % n, q = [rings[k][i], rings[k][j], rings[k + 1][j], rings[k + 1][i]]; quads.push({ q, dd: camSpace((q[0][0] + q[2][0]) / 2, (q[0][1] + q[2][1]) / 2, (q[0][2] + q[2][2]) / 2)[1], k }); }
+    quads.sort((a, b) => b.dd - a.dd);
+    for (const { q, k } of quads) {
+      const pts = projPoly(q); if (pts.length < 3) continue;
+      const col = RK.color.map((v, i) => v + (RK.light[i] - v) * (k / K) * 0.6);   // 꼭대기 쪽이 살짝 밝게
+      ctx.globalAlpha = 1; ctx.fillStyle = mixFog(col, fog); ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 0.6;
+      ctx.beginPath(); pts.forEach(([x, y], m) => (m ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+  // 디버그 오버레이 (?debug=terrain): 지면 선 · 구역 색 · 해안선 · 바위 (반투명)
+  function drawTerrainDebug() {
+    const is = S.islands[0]; if (!is) return;
+    const laneY = C.lane ? C.lane.y : 0, DC = IT.debugColors;
+    ctx.save(); ctx.globalAlpha = 0.75; ctx.lineWidth = 2.5;
+    let prev = null;
+    for (let d = 0; d <= IT.ground.maxDist; d += 0.5) {
+      const x = is.shoreAt(laneY) + is.side * d, c = camSpace(x, laneY, terrainHeightAt(x, laneY)); if (c[1] < rig.near) { prev = null; continue; }
+      const sp = toScreen(c), zn = zoneAt(d).z.name;
+      if (prev) { ctx.strokeStyle = `rgb(${DC[zn].join(',')})`; ctx.beginPath(); ctx.moveTo(prev[0], prev[1]); ctx.lineTo(sp[0], sp[1]); ctx.stroke(); }
+      prev = sp;
+    }
+    for (const z of IT.zones) { if (z.to > IT.ground.maxDist) continue; const x = is.shoreAt(laneY) + is.side * z.to, a = project(x, laneY, terrainHeightAt(x, laneY)); if (a[2] < rig.near) continue; ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = '11px sans-serif'; ctx.fillText(z.name + ' |', a[0] - 40, a[1] - 8); }
+    { const x = is.shoreAt(laneY), a = project(x, laneY, 0), b = project(x, laneY, 3); if (a[2] > rig.near) { ctx.strokeStyle = 'rgba(80,200,255,0.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); ctx.fillStyle = 'rgba(80,200,255,0.9)'; ctx.fillText('shoreX ' + x.toFixed(1), b[0] + 4, b[1]); } }
+    for (const r of S.rocks || []) { const e = groundEllipse(r.x, r.y, r.R, terrainHeightAt(r.x, r.y)); if (!e) continue; ctx.strokeStyle = 'rgba(255,90,90,0.9)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(e.x, e.y, e.rx, Math.max(2, e.ry), 0, 0, Math.PI * 2); ctx.stroke(); ctx.fillStyle = 'rgba(255,90,90,0.9)'; ctx.fillText('rock d' + r.d, e.x + e.rx + 3, e.y); }
+    ctx.restore();
+  }
   function drawIslandGround() {
+    if (IT) { drawTerrain(); return; }
     const h = C.world.shoreHeight;
     for (const is of S.islands) {
       const d = camSpace(is.shoreX, clamp(cam.y, -is.ry, is.ry), 0)[1];
@@ -2254,7 +2422,7 @@
   const wetCv = document.createElement('canvas'), wetG = wetCv.getContext('2d');
   const filmCv = document.createElement('canvas'), filmG = filmCv.getContext('2d');
   function drawShoreWash() {
-    const ws = washShape(), Wsh = C.SHORE_WASH, z = C.world.shoreHeight + 0.004;
+    const ws = washShape(), Wsh = C.SHORE_WASH, z = C.world.shoreHeight + 0.004, zIn = (dep) => (IT ? C.world.shoreHeight + profileAt(dep) : C.world.shoreHeight) + 0.004;   // 지형 높이를 따라
     if (ws.segs.length < 2) return;
     const d0 = camSpace(ws.is.shoreX, clamp(cam.y, -ws.is.ry, ws.is.ry), 0)[1];
     if (d0 < -ws.is.rx) return;
@@ -2273,7 +2441,7 @@
     filmG.setTransform(1, 0, 0, 1, 0, 0); filmG.globalAlpha = 1; filmG.clearRect(0, 0, fw2, fh2); filmG.setTransform(fres, 0, 0, fres, 0, 0);
     wetG.fillStyle = `rgb(${rgbS(PAL.wetSand)})`; filmG.fillStyle = `rgb(${rgbS(PAL.film)})`;
     let anyW = false, anyF = false;
-    const at = (q, dep) => camSpace(q.x - q.nx * dep, q.y - q.ny * dep, z);
+    const at = (q, dep) => camSpace(q.x - q.nx * dep, q.y - q.ny * dep, zIn(dep));
     if (!SW) for (let i = 0; i < segsV.length - 1; i++) {
       const a = segsV[i], b = segsV[i + 1];
       if (!a.wet || !b.wet) continue;
@@ -2400,7 +2568,7 @@
     }
     // 물막 위 작은 파문 (펭귄 발밑)
     for (const r of S.washRipples) {
-      const k = r.t / 1.2, e = groundEllipse(r.x, r.y, 0.15 + 0.5 * k, z);
+      const k = r.t / 1.2, e = groundEllipse(r.x, r.y, 0.15 + 0.5 * k, terrainHeightAt(r.x, r.y) + 0.004);
       if (!e) continue;
       ctx.globalAlpha = 0.3 * (1 - k); ctx.drawImage(shadeRing, e.x - e.rx, e.y - e.ry, e.rx * 2, e.ry * 2);
     }
@@ -2408,7 +2576,7 @@
     const FP = C.FOOTPRINTS, sand = pawPrints(FP.color);
     for (const q of S.prints) {
       if (!q.on) continue;
-      drawPawPrint(sand, q.x, q.y, q.ang, q.side, FP.size, q.t, FP.life, FP.alpha * (1 - fog), z);
+      drawPawPrint(sand, q.x, q.y, q.ang, q.side, FP.size, q.t, FP.life, FP.alpha * (1 - fog), terrainHeightAt(q.x, q.y) + 0.004);
     }
     ctx.globalAlpha = 1;
   }
@@ -3083,6 +3251,7 @@
       if (d > -f.R) items.push({ d: sd, draw: () => drawFloe(f, Math.max(d, 0)) });
     }
     mountainItems(items);
+    terrainItems(items);
     items.push({ d: pd, draw: drawPenguin });
     items.sort((a, b) => b.d - a.d);
     // 먼 것 → 안개 층 → 가까운 것 (펭귄·가까운 빙하는 선명하게)
@@ -3096,6 +3265,7 @@
     drawPlanktonOverFog();
     ctx.globalAlpha = 1;
     drawDither();
+    if (IT && C.debugTerrain) drawTerrainDebug();
     drawUI(dt);
   }
 
@@ -3126,5 +3296,5 @@
   reset();
   requestAnimationFrame(frame);
 
-  window.__game = { get sim() { return sim; }, step, keys, STEP, penScale, floeTopAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
+  window.__game = { get sim() { return sim; }, step, keys, STEP, penScale, floeTopAt, terrainHeightAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
 })();
