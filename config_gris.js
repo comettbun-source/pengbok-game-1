@@ -297,11 +297,11 @@ const SPLASH_DROPS = {
 // ── 눈가루 (GRIS): 빙하에 오르내릴 때 발밑에서 흩날림 ─────
 const SNOW_PUFF = {
   // (미스트) 굵은 알갱이 대신 아주 작은 점을 많이, 공기 저항 크게 → 퍼지며 천천히 흩어짐
-  count: [22, 32], landCount: [34, 46],   // 오르내릴 때 · 높은 곳에서 착지할 때
+  count: [36, 50], landCount: [55, 75],   // 오르내릴 때 · 높은 곳에서 착지할 때
   speed: [0.5, 1.5], up: [0.5, 1.3],      // 옆으로 · 위로 (이전 0.6~1.8 · 1.3~2.8): 낮게 퍼짐
-  life: [0.9, 1.7], size: [0.005, 0.015],  // (0.02~0.05 → 0.005~0.015) 미세하게, 조금 더 오래 떠 있음
-  gravity: 0.5, drag: 3.4, alpha: 0.65, max: 160, color: [196, 210, 230],   // 거의 안 떨어지고 공기에 멈춤
-  swirl: 0.5, grow: 1.8, minPx: 0.4,      // 공기에 일렁임 · 사라지며 커지는 배율(번지는 느낌) · 화면 최소 반지름 px   // 흰 빙하 위에서도 보이게 살짝 푸른 회색
+  life: [0.9, 1.7], size: [0.0018, 0.005],  // (0.02~0.05 → 0.0018~0.005) 아주 작은 입자 미세하게, 조금 더 오래 떠 있음
+  gravity: 0.5, drag: 3.4, alpha: 0.55, max: 220, color: [196, 210, 230],   // 거의 안 떨어지고 공기에 멈춤
+  swirl: 0.6, grow: 1.15, minPx: 0.3,      // 공기에 일렁임 · 사라지며 커지는 배율(번지는 느낌) · 화면 최소 반지름 px   // 흰 빙하 위에서도 보이게 살짝 푸른 회색
 };
 
 const PHYSICS = {
@@ -331,7 +331,7 @@ const PHYSICS = {
     friction: { sand: 2.4, forest: 3.0 },  // 감쇠 (1/초). 이전 흙 6 → 금방 멈추지 않고 쭉 미끄러짐
     kick: { period: 0.42, impulse: 0.9, needInput: false },   // 0.42초마다 발로 차서 +0.9 속도 (링을 안 밀어도 누르고 있으면 참)
     maxSpeed: 2.6,                         // 섬 슬라이딩 최고 속도
-    groove: { every: 0.06, life: 7, alpha: 0.42, width: 0.17, color: [6, 7, 9], max: 160, fadeTime: 1.6, taper: 6 },   // 배가 지나간 홈: 배 근처 진하게 → fadeTime(초)마다 연해짐 · 양끝 taper 점에 걸쳐 뾰족하게   // 모래에 배가 지나간 홈 (간격 초 · 수명 · 진하기 · 폭)
+    groove: { every: 0.06, life: 2.2, alpha: 0.42, width: 0.17, color: [6, 7, 9], max: 60, fadeTime: 0.5, taper: 5 },   // (수명 7 → 2.2초, fadeTime 1.6 → 0.5) 짧게 남고 빨리 흐려짐.   // 배가 지나간 홈: 배 근처 진하게 → fadeTime(초)마다 연해짐 · 양끝 taper 점에 걸쳐 뾰족하게   // 모래에 배가 지나간 홈 (간격 초 · 수명 · 진하기 · 폭)
     puff: { count: [7, 11], color: [128, 130, 136] },   // 발로 찰 때마다 튀는 모래 알갱이 (SNOW_PUFF 재사용, 색만 모래 회색)
     feet: { rest: 14, plant: 62, kick: -18, reach: 0.12, tuck: 0.05, length: 0.16 },   // 그림 (도): 평소 · 딛기 직전 발끝이 바닥에 닿는 각 · 뒤로 빵 찬 각 (− = 위) · 찰 때 뻗는 길이 · 딛을 때 당기는 길이 · 다리 길이
   },
@@ -424,7 +424,7 @@ const ISLAND_TERRAIN = {
     front: { density: 0.05, y: [2.6, 5.5], d: [14, 60], alpha: 0.9 },                  // 이동 선 앞쪽 실루엣 (드물게)
     color: [11, 19, 16], frond: [22, 36, 30], trunk: [16, 20, 19], palmTrunk: [34, 40, 40], bushColor: [9, 16, 13],
   },
-  ground: { dStep: 1, yStep: 4, yRange: [-40, 40], maxDist: 76, view: 70, crack: 0.35, crackColor: [10, 12, 14], light: 0.18 },   // 지면 칸 그리기
+  ground: { dStep: 1, yStep: 4, yRange: [-40, 40], maxDist: 76, view: 70, crack: 0,  /* (0.35 → 0) 바닥 곳곳의 일직선 균열선 끔 */ crackColor: [10, 12, 14], light: 0.18 },   // 지면 칸 그리기
   mountains: { offset: 78, nearPeaks: false },   // 산은 원경으로만: 해안에서 이만큼 더 안쪽 (해안 바로 뒤 작은 봉우리 없음)
   // 해안 바위 (하와이 현무암처럼 낮고 둥근 검은 바위). d = 해안선에서 안쪽 거리, y = 화면 안쪽 위치
   rocks: {
