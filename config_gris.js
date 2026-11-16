@@ -74,7 +74,7 @@ const WATER_CALM = {
     darkMul: 0.8,             // 어두운 선 진하기 배율
   },
   // 헤엄칠 때: 선 대신 부드러운 명암 면 (앞쪽 밝은 물 덩어리, 양옆·뒤 어두운 골, 뒤로 길쭉한 얼룩)
-  swimShade: { every: 0.12, life: 1.6, scale: [0.4, 1.8], brightAlpha: 0.2, darkAlpha: 0.07, max: 12, length: 2.2 },   // 어두운 바탕: 밝은 쪽이 주인공
+  swimShade: { every: 0.12, life: 1.2, scale: [0.4, 1.3], brightAlpha: 0.11, darkAlpha: 0.04, max: 10, length: 1.5 },   // (GRIS: 0.2/0.07, 길이 2.2 → 0.11/0.04, 1.5) 헤엄 자국이 V자로 강해 보여서 작고 옅게
   glints: { max: 20, rate: 14, life: 0.6, alpha: [0.1, 0.2], depth: [2, 22] },   // ③ 미세 반짝 (흰 점·짧은 선)
   tone: { amp: 0.04, period: 24, scale: 0.35 },   // 수면 전체 밝기를 아주 느린 노이즈로 ±4%
   contours: {                 // 빙하·펭귄 둘레의 번지는 등고선 링
@@ -258,14 +258,15 @@ const LAND_FIREFLY = {
   perRock: [3, 5], max: 12,            // 바위당 수 · 전체 상한
   arriveGap: [0.6, 1.5], arriveDelay: 1.2, arriveSpeed: 3.2,   // 하나둘씩 날아와 앉음 (간격 · 첫 도착 지연 · 날아오는 속도)
   blink: { on: 0.25, off: [2, 4], syncShare: 0.5, nudge: 0.07, periodPull: 0.03 },   // 0.25초 켜짐 → 2~4초 꺼짐. 일부는 이웃이 켜질 때 박자를 조금씩 당겨 서서히 맞춤
-  trigger: 3.0, delay: [0, 0.4],       // 펭귄이 바위에서 이 반경 안으로 오면, 가까운 것부터 0~0.4초 지연 뒤 날아오름
+  trigger: 1.3, delay: [0, 0.3],       // (3.0 → 1.3) 펭귄이 만질 수 있을 만큼 다가오면, 가까운 것부터 0~0.3초 지연 뒤 날아오름
+  drift: { lift: 0.35, ahead: [1.2, 2.6], speedMul: 1.1, minSpeed: 0.5, maxSpeed: 3.2, fadeAfter: [4, 7] },   // 확 가버리지 않고 펭귄 속도에 맞춰 옆(안쪽)으로 앞서감 · 남는 수를 넘으면 몇 초 뒤 사라짐
   facing: 55,                          // 그리고 펭귄이 바위 쪽을 바라볼 때만 (바라보는 방향 ± 이 각도 안에 바위)
   burst: { time: 0.15, rise: 0.6 },    // 처음 0.15초 급상승
   speed: [2, 5], zigzag: { amp: 0.35, freq: [5, 9] },   // 불규칙한 속도 · 지그재그
   forest: { d: [8, 12], yBack: [2.5, 6] },   // 날아가는 숲 가장자리 (해안선에서 안쪽 거리 · 이동 선 뒤쪽 거리)
   forestPins: [4, 6], pinBlink: { on: 0.6, off: [2.5, 4.5] }, pinDrift: 0.25,   // 숲에 남아 느리게 깜빡이는 수
   // 숲 안으로 길 안내: 남은 반딧불이들이 펭귄보다 앞(섬 안쪽)에서 맴돌다, 다가오면 더 안쪽으로 나아감
-  guide: { lead: [3.5, 7], yBack: [0.8, 2.6], speed: 2.6, catchUp: 1.6, wander: 0.35, endD: 70 },
+  guide: { lead: [1.6, 3.8], yBack: [0.8, 2.6], speed: 2.6, catchUp: 1.6, wander: 0.35, endD: 70 },   // (앞서는 거리 3.5~7 → 1.6~3.8) 가까이서 함께 가는 느낌
   size: [0.012, 0.028], tail: { time: 0.08, alpha: 0.18 },   // (0.03~0.08 → 0.012~0.028) 바다반딧불이처럼 작고 섬세하게 · 아주 짧은 꼬리
   glowScale: [3.2, 1.8],               // 번짐 크기 배율 (바깥 · 중간). 점이 작아도 은은하게 보이게
   rockGlow: 0.1,                       // 바위 윗면에 비치는 아주 옅은 빛
@@ -280,9 +281,14 @@ const LAND_FIREFLY = {
 const SPLASH_DROPS = {
   count: [10, 24], perSpeed: 3,        // 방울 수 = 기본 + 떨어지는 속도 × perSpeed
   speed: [0.5, 1.9], up: [1.2, 3.6],   // 옆으로 · 위로 튀는 속도 (빠르게 떨어질수록 큼)
-  size: [0.008, 0.03], gravity: 11, alpha: 0.75, color: [190, 206, 228],
+  size: [0.008, 0.03], gravity: 13, alpha: 0.85, color: [190, 206, 228],   // 빨리 떨어져 퍄샤샥
   ring: 0.6,                           // 떨어진 자리 수면에 아주 작은 파문 (물 엔진 충격 세기 배율, 0 = 끔)
-  max: 80,
+  max: 140,
+  // 퍄샤샥: 사진처럼 빠진 자리 둘레로 물 왕관이 솟고, 큰 방울·잔 물보라가 사방으로 흩어짐
+  crown: { count: [28, 42], radius: [0.22, 0.38], up: [2.0, 3.6], out: [0.7, 1.7], size: [0.012, 0.045] },
+  spray: { count: [20, 32], up: [2.4, 4.2], out: [1.6, 3.6], size: [0.005, 0.013] },
+  sheet: { life: 0.42, height: 0.42, radius: [0.28, 0.75], points: 30, alpha: 0.22, rimAlpha: 0.55, width: 0.025, lean: 0.25 },   // 솟았다 무너지는 얇은 물 왕관 (들쭉날쭉한 윗선 + 옅은 막)   // 솟았다 무너지는 얇은 물 벽 (세로 줄무늬로 표현)
+  highlight: 0.6,                      // 큰 방울 가운데 밝은 점
 };
 
 // ── 눈가루 (GRIS): 빙하에 오르내릴 때 발밑에서 흩날림 ─────
@@ -385,7 +391,8 @@ const ISLAND_TERRAIN = {
   slope: { uphillSlow: 0.25, slideSlope: 0.08, slideAccel: 1.6 },   // 오르막 최대 −25%, 이보다 가파른 내리막은 살짝 미끄러짐
   // 구역: 이동 속도 배율 · 나무 밀도(단위 넓이당 그루) · 지면 색
   zones: [
-    { name: 'sand', to: 6, speed: 0.5, trees: 0, color: [58, 60, 64] },
+    { name: 'sand', to: 6, speed: 0.62,   // (0.5 → 0.62) 살짝 빠르게
+      trees: 0, color: [58, 60, 64] },
     { name: 'forestEdge', to: 14, speed: 1.45, trees: [0.12, 0.2], color: [36, 40, 40] },   // 속도 0.8 → 1.15 (모래만 그대로)
     { name: 'forestDeep', to: 34, speed: 1.65, trees: [0.14, 0.24], color: [24, 28, 29] },   // 0.85 → 1.25
     { name: 'hills', to: 999, speed: 1.6, trees: 0.06, color: [31, 34, 38] },   // 0.9 → 1.3
@@ -531,8 +538,8 @@ const FOOTPRINTS = {
   ice: { alpha: 0.14, life: 1.4, max: 30, color: [140, 146, 152] },   // 빙하: 옅은 회색 긁힘 자국 (빙하 좌표계에 저장)
   slideTrail: { alpha: 0.2, life: 1.8, width: 0.03, spacing: 0.08, max: 90 },  // 빙하 위 슬라이딩 활주 자국 한 줄
   // GRIS 섬 발자국: 모래는 깊게(진하고 오래, 가장자리에 밀려 올라온 밝은 테), 숲·언덕은 옅게
-  sand: { alpha: 0.75, life: 5, size: 1.15, color: [6, 7, 9], rim: [120, 122, 128], rimAlpha: 0.16, rimOffset: 0.025 },
-  forest: { alpha: 0.5, life: 4, size: 1, color: [4, 6, 6] },
+  sand: { alpha: 0.42, life: 5, size: 1.15, color: [6, 7, 9], rim: [120, 122, 128], rimAlpha: 0.09, rimOffset: 0.025 },   // (0.75 → 0.42) 더 연하게
+  forest: { alpha: 0.28, life: 4, size: 1, color: [4, 6, 6] },   // (0.5 → 0.28)
 };
 
 // ── 명암·그림자 블러 (ctx.filter 없이 스프라이트·겹 그리기·축소 캐시로) ─────────
@@ -583,8 +590,9 @@ const WATER_SIM = {
   edgeCells: 10,            // 격자 가장자리 흡수대 폭 (칸)
   edgeDamping: 6,           // 흡수대 감쇠
   body: {
-    gain: 0.16,             // 밀어낸 부피 → 수면 높이 배율 (물결 전체 세기. 펭귄 몸에 비해 커 보여서 0.25 → 0.16)
-    ring: [0.9, 1.7],       // 펭귄이 밀어낸 물이 솟는 고리 (몸 반지름의 배수: 안쪽, 바깥)
+    gain: 0.05,             // 밀어낸 부피 → 수면 높이 배율 (물결 전체 세기. 헤엄 물결이 V자로 커 보여서 0.16 → 0.05)
+    ring: [0.9, 2.6],       // (1.7 → 2.6) 밀린 물이 넓게 퍼져 V 가 날카롭지 않게
+    ringNote: 0,       // 펭귄이 밀어낸 물이 솟는 고리 (몸 반지름의 배수: 안쪽, 바깥)
     speedRef: 1.2,          // 펭귄 이동 속도가 이만큼일 때 gain 최대. 멈춰 있으면 0 (가만히 떠 있을 땐 고리 없음)
     floeSpeedRef: 0.8,      // 빙하도 같은 방식 (속도가 이만큼일 때 gain 최대)
     landingImpulse: 0.025,  // 빙하에 착지할 때 빙하 둘레 수면 충격 (높이)
@@ -648,8 +656,8 @@ const WATER_SIM = {
   },
   render: {
     resolution: 0.5,        // (0.22 → 0.5) 화면 대비 해상도 × 기기 픽셀비 × 품질 단계
-    slope: [0.003, 0.045],  // [이 기울기부터 보임, 이 기울기에서 진하기 63%] — 그 위로는 완만하게 포화
-    light: PALETTE.simLight, lightAlpha: PALETTE.simLightAlpha,   // 빛 받는 면
+    slope: [0.003, 0.12],   // (0.045 → 0.12) 작은 물결은 옅게 (헤엄 V 자국이 진하게 포화되지 않게)  // [이 기울기부터 보임, 이 기울기에서 진하기 63%] — 그 위로는 완만하게 포화
+    light: PALETTE.simLight, lightAlpha: 0.35,   // (0.5 → 0.35)   // 빛 받는 면
     floeLightMul: 0.5, floeLightRadius: 1.2,    // 빙하 반지름 × floeLightRadius 안에서는 밝은 면을 이 배율로
     dark: PALETTE.simDark, darkAlpha: PALETTE.simDarkAlpha,     // 그늘진 면
     // 물마루를 따라가는 반투명 흰 선: 수면이 볼록하게 솟고(곡률) 평평한(기울기 0) 마루에만. 물결이 있을 때만 조금
@@ -816,6 +824,7 @@ window.CONFIG = {
     delay: 1.5,               // 시작 후 파문까지 (초)
     left: 2.6, ahead: -3.0,   // (원본 4.5 / 3.5) GRIS: 펭귄 앞쪽(화면 쪽) 바다, 시작 빙하 앞 가장자리 바로 밖. 몸에 가리지 않게 살짝 왼쪽
     holdFirefly: true,        // 군집이 다 밝아질 때까지 그 자리에서 기다렸다가 왼쪽으로 출발 (펭귄이 다가오면 바로 물러남)
+    holdUntilWater: true,     // 그리고 펭귄이 물에 처음 들어올 때까지 물속에서 둥글게 맴돌며 기다림
     rippleRadius: 2.4,
     fadeIn: 2,                // 군집이 밝아지는 시간 (초)
   },

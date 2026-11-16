@@ -147,12 +147,12 @@
   // 지면(수면) 위에 이미지를 원근에 맞게 눕혀 그림: 중심, 한 축 방향(ax, ay), 두 축 반지름(la, lb)
   // 낮은 각도 보정 배율 (pitch 에서 파생): 바닥 그림이 납작해진 만큼 세로로 키움
   function groundLift() { const V = C.camera.view; return V ? clamp(Math.sin(deg(V.refPitchDeg)) / Math.max(0.02, Math.sin(cam.pitch)), 1, V.groundLiftMax) : 1; }
-  function drawGroundImage(img, x, y, ax, ay, la, lb, alpha, z = 0, oy = 0) {
+  function drawGroundImage(img, x, y, ax, ay, la, lb, alpha, z = 0, oy = 0, noLift = false) {
     if (alpha <= 0.003) return false;
     const c = camSpace(x, y, z);
     if (c[1] < rig.near + 0.3) return false;
     const pc = toScreen(c), pa = project(x + ax * la, y + ay * la, z), pb = project(x - ay * lb, y + ax * lb, z);
-    const gl = groundLift(), ux = pa[0] - pc[0], uy = (pa[1] - pc[1]) * gl, vx = pb[0] - pc[0], vy = (pb[1] - pc[1]) * gl;   // 낮은 각도: 세로만 키움
+    const gl = noLift ? 1 : groundLift(), ux = pa[0] - pc[0], uy = (pa[1] - pc[1]) * gl, vx = pb[0] - pc[0], vy = (pb[1] - pc[1]) * gl;   // 낮은 각도: 세로만 키움
     if (Math.abs(ux) + Math.abs(vx) > W * 2) return false;
     const S2 = img.width / 2;
     ctx.save();
@@ -381,7 +381,7 @@
   }
 
   function reset() {
-    S.time = 0; S.finished = false; S.stepN = 0;
+    S.time = 0; S.finished = false; S.stepN = 0; S.wentWater = false;
     sim = SIM.enabled && window.WaterSim ? window.WaterSim.create(SIM) : null;
     S.islands = [makeIsland(-1, 57)];                        // 왼쪽 섬만. 오른쪽은 안개에 녹는 열린 바다 (빙하 배치가 해안 거리를 보므로 먼저)
     S.cands = genField();
@@ -574,7 +574,7 @@
   function terrainGrad(x, y) { const e = 0.15; return { gx: (terrainHeightAt(x + e, y) - terrainHeightAt(x - e, y)) / (2 * e), gy: (terrainHeightAt(x, y + e) - terrainHeightAt(x, y - e)) / (2 * e) }; }
   // 바위·나무 배치 (리셋 때 한 번)
   function buildTerrainProps() {
-    S.rocks = []; S.trees = []; S.snow = []; S.drops = [];
+    S.rocks = []; S.trees = []; S.snow = []; S.drops = []; S.sheets = [];
     const is = S.islands[0]; if (!IT || !is) return;
     const RK = IT.rocks;
     for (const r of RK.list) {
@@ -1171,6 +1171,7 @@
 
   function setMode(mode, floe, vz = 0) {
     const p = S.p, prev = p.mode, W2 = WC();
+    if (mode === 'water') S.wentWater = true;
     if (mode === 'floe' && (prev !== 'floe' || vz < -1 || p.floe !== floe)) snowPuff(p.x, p.y, p.z, vz < -2.5);   // 빙하에 올라섬·착지: 눈가루
     else if (prev === 'floe' && mode !== 'floe') snowPuff(p.x, p.y, p.z, false);                       // 빙하에서 내려섬
     p.mode = mode;
@@ -1287,7 +1288,9 @@
     // lead: 속도에 비례, 화면 간격과 월드 간격 중 큰 쪽
     const lead = screenLead(sPen, clamp(LD.rest + LD.gain * spd, LD.min, LD.max));
     // GRIS: 시작 연출 동안은 정면 바다에서 밝아질 때까지 기다림 (펭귄이 lead 안으로 다가오면 평소처럼 물러남)
-    const hold = C.intro.holdFirefly && introVis() < 0.95 && dist > G.fleeTrigger;
+    const waitWater = C.intro.holdUntilWater && !S.wentWater;   // 펭귄이 물에 들어올 때까지 둥글게 맴돌며 기다림
+    ff.hold = waitWater;
+    const hold = (C.intro.holdFirefly && introVis() < 0.95 && dist > G.fleeTrigger) || waitWater;
     const sMin = hold ? ff.s : Math.min(ff.L, sPen + lead);
     // 펭귄이 군집을 확 지나침 (슬라이딩 등): 사라졌다가 펭귄 앞 lead 지점에서 다시 나타남. 가로지르는 이동 없음
     if (ff.respawn > 0) {
@@ -1310,7 +1313,7 @@
       if (dist < SEP.minDist) {                                // 하드 최소 간격: 완충 없이 즉시 펭귄 속도 × 1.3 으로 앞으로
         ff.s = Math.min(ff.L, ff.s + SEP.retreatMul * Math.max(spd, 0.6) * dt);
         ff.sTarget = Math.max(ff.sTarget, ff.s); ff.mode = 'flee'; ff.speed = Math.max(ff.speed || 0, SEP.retreatMul * spd); snap = true;
-      } else if (dist < G.fleeTrigger && ff.mode !== 'flee') { // 다가오면 경로를 따라 물러남 (천천히 오면 살짝, 빠르면 멀리)
+      } else if (dist < G.fleeTrigger && ff.mode !== 'flee' && !hold) {   // (물에 들어오기 전엔 물러나지 않고 맴돎) // 다가오면 경로를 따라 물러남 (천천히 오면 살짝, 빠르면 멀리)
         const va = Math.max(0, ff.vApp);
         ff.mode = 'flee'; ff.sTarget = Math.min(ff.L, Math.max(sMin, ff.s + clamp(G.fleeBase + G.fleeGain * va, G.fleeStepMin, G.fleeStepMax)));
         ff.speed = clamp(va * G.speedGain, G.speedMin, G.speedMax); log('fireflyFlee');
@@ -1345,9 +1348,10 @@
     // 해안 궤도 축: 해안선 방향(장축) · 법선
     let stx = 0, sty = 1;
     if (is && ff.mode === 'shore') { stx = is.shoreAt(pt.y + 0.5) - is.shoreAt(pt.y - 0.5); const l = Math.hypot(stx, 1); stx /= l; sty = 1 / l; }
+    else if (ff.hold) { stx = 1; sty = 0; }                      // 기다리는 동안: 같은 궤도 운동 (화면 가로가 장축)
     for (const m of ff.members) {
       let tx, ty;
-      if (ff.mode === 'shore') {
+      if (ff.mode === 'shore' || ff.hold) {
         if (m.orbR == null) { m.orbR = lerp(SH.orbitR[0], SH.orbitR[1], Math.random()); m.orbW = lerp(SH.orbit[0], SH.orbit[1], Math.random()) * (Math.random() < 0.7 ? 1 : -1); m.orb = Math.random() * 6.283; m.wox = 0; m.woy = 0; }
         m.orb += m.orbW * dt;
         const rr = m.orbR * (1 + 0.35 * noise1(S.time * 0.17 + m.ph * 4.3));   // 반경이 느리게 숨쉬어 똑같은 원이 되지 않게
@@ -2022,15 +2026,15 @@
         const k = q.t / SS.life, s = lerp(SS.scale[0], SS.scale[1], 1 - Math.pow(1 - k, 2)), cc = camSpace(q.x, q.y, 0);
         if (cc[1] < rig.near + 0.3) continue;
         const fade = Math.pow(1 - k, 1.4) * Math.min(1, q.t * 8) * (1 - fogAt(cc[1]));
-        drawGroundImage(q.bright ? shadeBright : shadeDark, q.x, q.y, q.hx, q.hy, s * 0.5 * SS.length * 0.5, s * 0.35, (q.bright ? SS.brightAlpha : SS.darkAlpha) * fade);
+        drawGroundImage(q.bright ? shadeBright : shadeDark, q.x, q.y, q.hx, q.hy, s * 0.5 * SS.length * 0.5, s * 0.35, (q.bright ? SS.brightAlpha : SS.darkAlpha) * fade, 0, 0, true);
       }
       if (p.mode === 'water' && !p.air && p.depth === 'deep') {
         const sp = Math.hypot(p.vx, p.vy), m = clamp(sp / P.penguin.maxSpeed.water, 0, 1);
         if (m > 0.05) {
           const hx = p.vx / sp, hy = p.vy / sp, r0 = penH() * 0.42;
-          drawGroundImage(shadeBright, p.x + hx * r0, p.y + hy * r0, hx, hy, r0 * 0.9, r0 * 1.1, SS.brightAlpha * 1.4 * m);            // 앞쪽 밝은 물 덩어리
-          for (const sd of [1, -1]) drawGroundImage(shadeDark, p.x - hy * r0 * sd * 1.1 - hx * r0 * 0.3, p.y + hx * r0 * sd * 1.1 - hy * r0 * 0.3, hx, hy, r0 * 1.2, r0 * 0.45, SS.darkAlpha * 1.3 * m);   // 양옆 골
-          drawGroundImage(shadeDark, p.x - hx * r0 * 1.6, p.y - hy * r0 * 1.6, hx, hy, r0 * 1.3, r0 * 0.6, SS.darkAlpha * m);     // 뒤 골
+          drawGroundImage(shadeBright, p.x + hx * r0, p.y + hy * r0, hx, hy, r0 * 0.9, r0 * 1.1, SS.brightAlpha * 1.4 * m, 0, 0, true);            // 앞쪽 밝은 물 덩어리
+          for (const sd of [1, -1]) drawGroundImage(shadeDark, p.x - hy * r0 * sd * 1.1 - hx * r0 * 0.3, p.y + hx * r0 * sd * 1.1 - hy * r0 * 0.3, hx, hy, r0 * 1.2, r0 * 0.45, SS.darkAlpha * 1.3 * m, 0, 0, true);   // 양옆 골
+          drawGroundImage(shadeDark, p.x - hx * r0 * 1.6, p.y - hy * r0 * 1.6, hx, hy, r0 * 1.3, r0 * 0.6, SS.darkAlpha * m, 0, 0, true);     // 뒤 골
         }
       }
     }
@@ -2474,7 +2478,12 @@
         const prev = f.ph; f.ph += dt / f.per;
         if (f.ph >= 1) { f.ph -= 1; flashed.set(f, true); }
         f.rock.glow = Math.max(f.rock.glow, lfBright(f));
-      } else if (f.state === 'pre') { f.wait -= dt; if (f.wait <= 0) { f.state = 'flee'; f.ft = 0; f.z0 = f.z; f.x0 = f.x; f.y0 = f.y; } }
+      } else if (f.state === 'pre') { f.wait -= dt; if (f.wait <= 0) {
+          const DR = LF.drift;                                 // 살짝 떠오른 뒤 펭귄 속도에 맞춰 옆(안쪽)으로 앞서감 → 그대로 숲 안내
+          f.state = 'pin'; f.px = f.x; f.py = f.y; f.pz = f.z + DR.lift; f.ft = 0; f.lead = lerp(DR.ahead[0], DR.ahead[1], Math.random()); f.gy = lerp(LF.guide.yBack[0], LF.guide.yBack[1], Math.random()); f.gd = inlandDist(f.x, f.y);
+          f.per = LF.pinBlink.on + lerp(LF.pinBlink.off[0], LF.pinBlink.off[1], Math.random()); f.ph = Math.random();
+          if (lf.pins < lf.pinMax) lf.pins++; else f.fadeAt = S.time + lerp(DR.fadeAfter[0], DR.fadeAfter[1], Math.random());
+        } }
       else if (f.state === 'flee') {                           // 퍄다닷: 0.15초 급상승 → 지그재그, 들쭉날쭉한 속도로 숲까지 곡선
         f.ft += dt;
         if (f.ft < LF.burst.time) { f.z += LF.burst.rise / LF.burst.time * dt; continue; }
@@ -2495,7 +2504,9 @@
         f.gd = Math.min(GD.endD, Math.max(f.gd, pd + f.lead));   // 뒤로 물러나지 않고 앞으로만
         const tx = is.shoreAt(laneY - f.gy) + is.side * f.gd, ty = laneY - f.gy + Math.sin(S.time * 0.4 + f.seed) * GD.wander;
         const tz = terrainHeightAt(tx, ty) + 0.9 + Math.sin(S.time * 0.7 + f.seed * 2) * GD.wander;
-        const dx = tx - f.px, dy = ty - f.py, dz = tz - f.pz, dd = Math.hypot(dx, dy, dz), v = Math.min(dd, (GD.speed + dd * GD.catchUp) * dt);
+        const DR = LF.drift, ps = Math.hypot(p.vx, p.vy);    // 펭귄 속도에 맞춰 (확 가버리지 않게)
+        const dx = tx - f.px, dy = ty - f.py, dz = tz - f.pz, dd = Math.hypot(dx, dy, dz), v = Math.min(dd, clamp(Math.max(ps * DR.speedMul, dd * 0.6), DR.minSpeed, DR.maxSpeed) * dt);
+        if (f.fadeAt && S.time > f.fadeAt) { f.state = 'fade'; continue; }
         if (dd > 1e-4) { f.px += dx / dd * v; f.py += dy / dd * v; f.pz += dz / dd * v; }
         f.x = f.px + Math.sin(S.time * 0.5 + f.seed) * LF.pinDrift; f.y = f.py; f.z = f.pz;
       } else if (f.state === 'fade') { f.vis = Math.max(0, f.vis - dt * 2); }
@@ -2550,11 +2561,20 @@
   function splashDrops(x, y, vz) {
     const SD = C.SPLASH_DROPS; if (!SD) return;
     S.drops = S.drops || [];
-    const k = clamp(vz / 5, 0.3, 1.4), n = Math.round(lerp(SD.count[0], SD.count[1], Math.random()) + vz * SD.perSpeed);
+    const k = clamp(vz / 5, 0.3, 1.4), R = Math.random, add = (q) => { if (S.drops.length >= SD.max) S.drops.shift(); S.drops.push(q); };
+    const n = Math.round(lerp(SD.count[0], SD.count[1], R()) + vz * SD.perSpeed);
     for (let i = 0; i < n; i++) {
-      if (S.drops.length >= SD.max) S.drops.shift();
-      const a = Math.random() * Math.PI * 2, s = lerp(SD.speed[0], SD.speed[1], Math.random()) * k, r0 = 0.2 + Math.random() * 0.2;
-      S.drops.push({ x: x + Math.cos(a) * r0, y: y + Math.sin(a) * r0 * 0.8, z: 0.05, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: lerp(SD.up[0], SD.up[1], Math.random()) * k * (1 - 0.5 * Math.random()), size: lerp(SD.size[0], SD.size[1], Math.pow(Math.random(), 2)), t: 0 });
+      const a = R() * Math.PI * 2, s = lerp(SD.speed[0], SD.speed[1], R()) * k, r0 = 0.2 + R() * 0.2;
+      add({ x: x + Math.cos(a) * r0, y: y + Math.sin(a) * r0 * 0.8, z: 0.05, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: lerp(SD.up[0], SD.up[1], R()) * k * (1 - 0.5 * R()), size: lerp(SD.size[0], SD.size[1], Math.pow(R(), 2)), t: 0 });
+    }
+    if (SD.crown) {                                            // 물 왕관: 둘레 고리에서 위로 솟는 큰 방울들 (고르게 퍼진 각도)
+      const CR = SD.crown, nc = Math.round(lerp(CR.count[0], CR.count[1], R()) * Math.min(1.3, 0.6 + k * 0.5));
+      for (let i = 0; i < nc; i++) { const a = (i + R() * 0.6) / nc * Math.PI * 2, r0 = lerp(CR.radius[0], CR.radius[1], R()), o = lerp(CR.out[0], CR.out[1], R()) * k;
+        add({ x: x + Math.cos(a) * r0, y: y + Math.sin(a) * r0 * 0.8, z: 0.04, vx: Math.cos(a) * o, vy: Math.sin(a) * o * 0.8, vz: lerp(CR.up[0], CR.up[1], R()) * k, size: lerp(CR.size[0], CR.size[1], Math.pow(R(), 1.5)), t: 0, big: true }); }
+      const SP2 = SD.spray, ns = Math.round(lerp(SP2.count[0], SP2.count[1], R()) * k);   // 잔 물보라: 빠르고 작게, 사방으로
+      for (let i = 0; i < ns; i++) { const a = R() * Math.PI * 2, o = lerp(SP2.out[0], SP2.out[1], R()) * k;
+        add({ x: x + Math.cos(a) * 0.15, y: y + Math.sin(a) * 0.12, z: 0.08, vx: Math.cos(a) * o, vy: Math.sin(a) * o * 0.8, vz: lerp(SP2.up[0], SP2.up[1], R()) * k, size: lerp(SP2.size[0], SP2.size[1], R()), t: 0 }); }
+      S.sheets = S.sheets || []; S.sheets.push({ x, y, t: 0, k, ph: R() * 6.28 });
     }
   }
   function stepDrops(dt) {
@@ -2562,6 +2582,7 @@
     for (const q of S.drops) { q.t += dt; q.vz -= SD.gravity * dt; q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt;
       if (q.z <= 0 && q.vz < 0) { q.dead = true; if (sim && SD.ring > 0 && q.size > 0.012) sim.drop(q.x, q.y, 0.12, -0.004 * SD.ring); } }
     S.drops = S.drops.filter((q) => !q.dead && q.t < 2);
+    if (S.sheets) { for (const s of S.sheets) s.t += dt; S.sheets = S.sheets.filter((s) => s.t < SD.sheet.life); }
   }
   function stepSnow(dt) {
     const SP = C.SNOW_PUFF; if (!SP || !S.snow) return;
@@ -2570,11 +2591,29 @@
     S.snow = S.snow.filter((q) => q.t < q.life);
   }
   function dropItems(items) {
-    const SD = C.SPLASH_DROPS; if (!SD || !S.drops || !S.drops.length) return;
+    const SD = C.SPLASH_DROPS; if (!SD || ((!S.drops || !S.drops.length) && (!S.sheets || !S.sheets.length))) return;
     items.push({ d: camSpace(S.p.x, S.p.y, 0)[1] - 0.06, draw: () => {
-      ctx.fillStyle = `rgb(${SD.color.join(',')})`;
-      for (const q of S.drops) { const c = camSpace(q.x, q.y, q.z); if (c[1] < rig.near) continue; const [sx, sy] = toScreen(c), r = Math.max(0.6, q.size * pxPerUnit(c[1]));
-        ctx.globalAlpha = SD.alpha * Math.min(1, q.t * 20); ctx.beginPath(); ctx.ellipse(sx, sy, r, r * (1 + Math.min(1.2, Math.abs(q.vz) * 0.15)), 0, 0, Math.PI * 2); ctx.fill(); }   // 빠를수록 세로로 살짝 늘어남
+      const col = SD.color.join(',');
+      // 물 왕관: 둘레 고리에서 들쭉날쭉한 윗선까지 옅은 막 + 윗선은 밝게 (솟았다 무너짐)
+      if (SD.sheet && S.sheets) for (const s of S.sheets) {
+        const SH = SD.sheet, u = s.t / SH.life, hgt = SH.height * s.k * Math.sin(Math.PI * Math.min(1, u * 1.1)), rad = lerp(SH.radius[0], SH.radius[1], Math.sqrt(u)) * (0.7 + 0.3 * s.k), n = SH.points;
+        const base = [], top = [];
+        for (let i = 0; i <= n; i++) {
+          const a = i / n * Math.PI * 2 + s.ph, j = 0.55 + 0.45 * Math.abs(Math.sin(a * 2.5 + s.ph * 3) * Math.cos(a * 4.1 - s.ph));   // 들쭉날쭉한 높이
+          const bx = s.x + Math.cos(a) * rad, by = s.y + Math.sin(a) * rad * 0.8, ro = rad * (1 + SH.lean * u);
+          base.push(camSpace(bx, by, 0)); top.push(camSpace(s.x + Math.cos(a) * ro, s.y + Math.sin(a) * ro * 0.8, hgt * j));
+        }
+        if (base.some((c2) => c2[1] < rig.near) || top.some((c2) => c2[1] < rig.near)) continue;
+        const B = base.map(toScreen), T = top.map(toScreen), fade = 1 - u;
+        ctx.fillStyle = `rgb(${col})`; ctx.globalAlpha = SH.alpha * fade;
+        for (let i = 0; i < n; i++) { ctx.beginPath(); ctx.moveTo(B[i][0], B[i][1]); ctx.lineTo(B[i + 1][0], B[i + 1][1]); ctx.lineTo(T[i + 1][0], T[i + 1][1]); ctx.lineTo(T[i][0], T[i][1]); ctx.closePath(); ctx.fill(); }
+        ctx.strokeStyle = `rgb(${col})`; ctx.globalAlpha = SH.rimAlpha * fade; ctx.lineWidth = Math.max(0.7, SH.width * pxPerUnit(base[0][1])); ctx.lineJoin = 'round';
+        ctx.beginPath(); T.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+      }
+      ctx.fillStyle = `rgb(${col})`;
+      for (const q of S.drops || []) { const c = camSpace(q.x, q.y, q.z); if (c[1] < rig.near) continue; const [sx, sy] = toScreen(c), r = Math.max(0.6, q.size * pxPerUnit(c[1]));
+        ctx.globalAlpha = SD.alpha * Math.min(1, q.t * 20); ctx.beginPath(); ctx.ellipse(sx, sy, r, r * (1 + Math.min(1.2, Math.abs(q.vz) * 0.15)), 0, 0, Math.PI * 2); ctx.fill();   // 빠를수록 세로로 살짝 늘어남
+        if (q.big && SD.highlight && r > 1.4) { ctx.fillStyle = '#ffffff'; ctx.globalAlpha = SD.highlight * SD.alpha * Math.min(1, q.t * 20); ctx.beginPath(); ctx.arc(sx - r * 0.3, sy - r * 0.3, r * 0.35, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = `rgb(${col})`; } }
       ctx.globalAlpha = 1;
     } });
   }
@@ -3598,5 +3637,5 @@
   reset();
   requestAnimationFrame(frame);
 
-  window.__game = { get sim() { return sim; }, step, keys, STEP, penScale, floeTopAt, terrainHeightAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
+  window.__game = { get sim() { return sim; }, drawFrame: () => draw(1 / 60), step, keys, STEP, penScale, floeTopAt, terrainHeightAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
 })();
