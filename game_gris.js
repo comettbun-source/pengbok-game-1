@@ -3059,6 +3059,8 @@
     }
     g.rotate(p.wobble);
     let swimFeetLater = null;
+    const SWP = C.PENGUIN_RIG && C.PENGUIN_RIG.enabled && C.PENGUIN_RIG.swim;
+    if (SWP && p.mode === 'water' && !p.air && p.lay > SWP.fromDeg) { drawPenguinSwim(g, u, v, p); return; }
     if (p.lay > 0.5) {
       // 헤엄 자세: 화면에서 보이는 진행 방향으로 눕힘. 카메라 쪽/반대쪽으로 갈 때는 짧아 보이게
       const sp2 = Math.hypot(p.vx, p.vy), c2 = Math.cos(cam.yaw), s2 = Math.sin(cam.yaw);
@@ -3174,14 +3176,57 @@
     if (front < 0 && !swim) drawTail();
   }
 
+  // 기본 헤엄 자세 (사진 참고): 몸은 수면에 수평으로 떠 있고 엉덩이(등 뒤쪽)가 물 위로 올라옴, 목은 뽁 세워 머리를 들고, 발은 뒤 아래에서 파닥파닥
+  // 지역 좌표: 수면 = y −p.sink (그림이 p.sink 만큼 아래로 옮겨져 있음). 위는 −
+  function drawPenguinSwim(g, u, v, p) {
+    const R = C.PENGUIN_RIG, W = R.swim, K = R.colors;
+    const sp2 = Math.hypot(p.vx, p.vy), c2 = Math.cos(cam.yaw), s2 = Math.sin(cam.yaw);
+    const hx = sp2 > 0.05 ? (c2 * p.vx - s2 * p.vy) / sp2 : (p.layDirX || 0);
+    if (sp2 > 0.05) p.layDirX = hx;
+    const side = hx >= 0 ? 1 : -1, sideShare = Math.abs(hx), len = lerp(W.foreshorten, 1, sideShare), front = clamp(v.fvy, -1, 1);
+    const ell = (x, y, rx, ry, rot = 0) => { g.beginPath(); g.ellipse(x * u, y * u, Math.max(0.01, rx * u), Math.max(0.01, ry * u), rot, 0, Math.PI * 2); g.fill(); };
+    const yw = -(p.sink || 0), bob = Math.sin(S.time * W.bobHz * Math.PI * 2) * W.bob;
+    // 목 뽁: 헤엄 자세로 바뀌는 동안 목이 살짝 지나치게 솟았다 자리잡음 (lay 진행도로 계산, 상태 저장 없음)
+    const x = clamp((p.lay - W.fromDeg) / (C.PHYSICS.water.layDeg - W.fromDeg), 0, 1), pop = x + Math.sin(Math.PI * x) * W.popOvershoot;
+    const bodyY = yw + W.bodyDepth + bob, by = (dx) => bodyY + dx * 0;
+    g.save(); g.scale(side, 1);                                         // 이제 +x = 앞(머리 쪽)
+    // 발: 몸 뒤 아래에서 뒤로 뻗어 파닥파닥 (몸보다 먼저 = 뒤에 깔림)
+    drawSwimFeet(g, u, p, -W.body.rx * len * u * 0.8, (bodyY + W.body.ry * 0.5) * u, Math.PI - deg(W.feetDownDeg), true);
+    // 먼 날개 (물속, 몸 뒤)
+    g.fillStyle = K.flipper; ell(0.02 * len, bodyY + 0.07, W.flipper.len * 0.5 * len, W.flipper.w, -0.25);
+    // 몸통 + 엉덩이 (뒤쪽이 물 위로 봉긋)
+    g.fillStyle = K.body;
+    ell(0, bodyY, W.body.rx * len, W.body.ry);
+    ell(-W.rump.back * len, bodyY - W.rump.up, W.rump.r * len, W.rump.r * 0.8);
+    // 배 (아래쪽, 대부분 물속)
+    g.fillStyle = K.belly; ell(0.04 * len, bodyY + W.body.ry * 0.55, W.body.rx * 0.8 * len, W.body.ry * 0.45);
+    // 목 + 머리: 앞쪽에서 위로 뽁
+    const nx = W.neck.x * len, hy = bodyY - W.neck.up * pop, hxp = nx + W.neck.lean * pop * len;
+    g.fillStyle = K.body;
+    g.beginPath(); g.moveTo((nx - W.neck.w) * u, (bodyY - 0.02) * u); g.quadraticCurveTo((nx - W.neck.w * 0.6) * u, (hy + 0.02) * u, hxp * u, hy * u);
+    g.lineTo((hxp + W.head.r * 0.4) * u, (hy + 0.04) * u); g.quadraticCurveTo((nx + W.neck.w) * u, (bodyY - 0.06) * u, (nx + W.neck.w * 1.3) * u, (bodyY + 0.02) * u); g.closePath(); g.fill();
+    ell(hxp, hy, W.head.r, W.head.r * 0.92);
+    // 얼굴·목 앞 흰색 (사진처럼 턱 아래 밝음) + 작은 눈 + 부리
+    if (front > -0.5) {
+      g.fillStyle = K.face; ell(hxp + W.head.r * 0.32, hy + W.head.r * 0.22, W.head.r * 0.5, W.head.r * 0.42);   // 볼 (작게)
+      ell(nx + W.neck.w * 0.9, (hy + bodyY) / 2 + 0.03, W.neck.w * 0.32, (bodyY - hy) * 0.32);                      // 목 앞 가는 흰 줄
+      g.fillStyle = K.eye; ell(hxp + W.head.r * 0.42, hy + W.head.r * 0.08, R.face.eyeR, R.face.eyeR * 1.15);
+    }
+    g.fillStyle = K.beak; g.beginPath(); g.moveTo((hxp + W.head.r * 0.8) * u, (hy - 0.025) * u); g.lineTo((hxp + W.head.r * 0.8 + R.beak.len) * u, (hy + 0.01) * u); g.lineTo((hxp + W.head.r * 0.8) * u, (hy + 0.03) * u); g.closePath(); g.fill();
+    // 가까운 날개: 옆구리에 붙여 물속으로 저음
+    g.fillStyle = K.flipper; ell(-0.02 * len, bodyY + 0.03, W.flipper.len * 0.5 * len, W.flipper.w, 0.3 + Math.sin(S.time * W.flipper.hz * Math.PI * 2) * 0.25);
+    g.restore();
+  }
+
   // 헤엄 발: (x0, y0)에서 방향 base(라디안, 캔버스 좌표)로 두 발을 뻗고, 번갈아 위아래로 파닥임
-  function drawSwimFeet(g, u, p, x0, y0, base) {
+  function drawSwimFeet(g, u, p, x0, y0, base, paddle = false) {
     const F = C.SWIM_FEET; if (!F || !F.enabled) return;
     const sp = Math.hypot(p.vx, p.vy), k = clamp(sp / 1.5, F.idleFlutter, 1.3);
-    const ph = S.time * F.flutterHz * Math.PI * 2 * (0.5 + 0.5 * k), L = u * F.length, W = u * F.width;
+    const fd = paddle && F.paddle ? F.paddle.deg : F.flutterDeg, fh = paddle && F.paddle ? F.paddle.hz : F.flutterHz;
+    const ph = S.time * fh * Math.PI * 2 * (0.5 + 0.5 * k), L = u * F.length, W = u * F.width;
     g.save(); g.fillStyle = COL.black;
     for (const e of [-1, 1]) {
-      const a = base + e * 0.08 + Math.sin(ph + (e > 0 ? Math.PI : 0)) * deg(F.flutterDeg) * k;
+      const a = base + e * 0.08 + Math.sin(ph + (e > 0 ? Math.PI : 0)) * deg(fd) * k;
       const ox = x0 + Math.cos(base + Math.PI / 2) * e * u * F.spread * 0.5, oy = y0 + Math.sin(base + Math.PI / 2) * e * u * F.spread * 0.5;
       g.save(); g.translate(ox, oy); g.rotate(a);
       g.beginPath(); g.ellipse(L * 0.45, 0, L * 0.5, W * 0.55, 0, 0, Math.PI * 2); g.fill();            // 다리
