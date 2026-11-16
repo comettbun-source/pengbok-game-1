@@ -1169,6 +1169,18 @@
           if (S.swimShade.length > SS.max) S.swimShade.shift();
         }
         if (!deep) emitWake(p, p.x - Math.cos(p.face) * 0.2, p.y - Math.sin(p.face) * 0.2, Math.atan2(p.vy, p.vx), sp, pm.maxSpeed.water, 0.22 * C.penguin.scale);
+        // 헤엄 물보라: 물을 가르는 머리 양옆으로 작은 방울
+        const SWS = C.SWIM_SPRAY;
+        if (SWS && SWS.enabled && sp > SWS.minSpeed && !p.air) {
+          p.sprayAcc = (p.sprayAcc || 0) + SWS.rate * (p.sliding ? SWS.slideMul : 1) * clamp((sp - SWS.minSpeed) / (pm.maxSpeed.water - SWS.minSpeed), 0, 1.5) * dt;
+          const SD = C.SPLASH_DROPS, hx = p.vx / sp, hy = p.vy / sp; S.drops = S.drops || [];
+          while (p.sprayAcc >= 1) { p.sprayAcc -= 1;
+            const side = Math.random() < 0.5 ? 1 : -1, R = Math.random(), o = lerp(SWS.out[0], SWS.out[1], R), fw = (Math.random() - 0.3) * SWS.head, al = (Math.random() * 2 - 0.7) * (SWS.along || 0);
+            if (S.drops.length >= SD.max) S.drops.shift();
+            S.drops.push({ x: p.x + hx * (SWS.head * 0.6 + fw) - hy * SWS.sideOffset * side, y: p.y + hy * (SWS.head * 0.6 + fw) + hx * SWS.sideOffset * side, z: 0.03,
+              vx: -hy * side * o + p.vx * SWS.forward + hx * al, vy: hx * side * o + p.vy * SWS.forward + hy * al, vz: lerp(SWS.up[0], SWS.up[1], Math.random()) * (0.6 + 0.4 * R), size: lerp(SWS.size[0], SWS.size[1], Math.random() * Math.random()), t: 0 });
+          }
+        }
         // 몸 뒤로 촘촘하게 길게 이어지는 푸른 점 꼬리
         const SPK = C.FIREFLY.sparkle, dx = p.vx / sp, dy = p.vy / sp;
         p.swimAcc = (p.swimAcc || 0) + SPK.swimRate * clamp(sp / pm.maxSpeed.water, 0, 1) * dt;
