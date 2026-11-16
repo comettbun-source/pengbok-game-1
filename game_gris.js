@@ -1304,7 +1304,8 @@
   function trainTable() {
     const TR = C.SHORE_WASH.train, D = C.DEPTH, step = 0.05, n = Math.ceil(TR.startDist / step) + 1, T = new Float32Array(n);
     const dep = (d) => Math.max(TR.minDepth, Math.pow(smooth(0, D.slope, d), D.power));
-    for (let i = 1; i < n; i++) { const d = (i - 0.5) * step; T[i] = T[i - 1] + step / (TR.speedDeep * Math.sqrt(dep(d))); }
+    const vMin = C.SHORE_WASH.swash ? C.SHORE_WASH.swash.speedShoreMin : 0;   // 해안 근처에서 느려지지 않게 속도 하한
+    for (let i = 1; i < n; i++) { const d = (i - 0.5) * step; T[i] = T[i - 1] + step / Math.max(vMin, TR.speedDeep * Math.sqrt(dep(d))); }
     return { T, step, n, dep, Tmax: T[n - 1] };
   }
   // 남은 시간 τ → 해안선에서의 거리 d (표 이분 탐색)
@@ -1325,10 +1326,24 @@
       const n = big ? 1 : TR.count[0] + ((Math.random() * (TR.count[1] - TR.count[0] + 1)) | 0);
       for (let i = 0; i < n; i++) {
         const amp = big ? TR.bigAmp : lerp(TR.amp[0], TR.amp[1], Math.random()) * (i === 0 ? 0.9 : 1);
-        ws.waves.push({ t0: ws.nextSet + i * TR.gap * (0.9 + 0.2 * Math.random()), amp, big, seed: Math.random() * 100, tl: lerp(TR.tongueLength[0], TR.tongueLength[1], Math.random()) });
+        const SW = C.SHORE_WASH.swash;
+        ws.waves.push({ t0: ws.nextSet + i * TR.gap * (0.9 + 0.2 * Math.random()), amp, big, seed: Math.random() * 100, tl: lerp(TR.tongueLength[0], TR.tongueLength[1], Math.random()),
+          tu: SW ? lerp(SW.rise[0], SW.rise[1], Math.random()) : 0, td: SW ? lerp(SW.fall[0], SW.fall[1], Math.random()) : 0 });
       }
-      ws.nextSet += (n - 1) * TR.gap + lerp(TR.setInterval[0], TR.setInterval[1], Math.random());
+      const lull = lerp(TR.setInterval[0], TR.setInterval[1], Math.random());
+      ws.nextSet += (n - 1) * TR.gap + (C.SHORE_WASH.swash ? Math.min(C.SHORE_WASH.swash.lullMax, lull) : lull);
     }
+  }
+  // 새 끝선 모델: 올라올 때 1−(1−t/Tu)², 머묾, 빠질 때 1−(t/Td)^fallExp
+  function swashEnv(tau, w) {
+    const SW = C.SHORE_WASH.swash;
+    if (tau <= 0) return 0;
+    if (tau < w.tu) { const u = 1 - tau / w.tu; return 1 - u * u; }
+    tau -= w.tu;
+    if (tau < SW.hold) return 1;
+    tau -= SW.hold;
+    if (tau < w.td) return 1 - Math.pow(tau / w.td, SW.fallExp);
+    return 0;
   }
   function waveEnv(tau) {
     const Wsh = C.SHORE_WASH;
@@ -1348,8 +1363,30 @@
     ws.waves = ws.waves.filter((w) => S.time - w.t0 < 30);
     const bigMax = Wsh.shoreWidth * TR.bigReach;
     let lv = 0;
-    const B = Wsh.bins, maxIn = max * Wsh.binReach;
-    for (const q of ws.segs) {
+    const B = Wsh.bins, maxIn = max * Wsh.binReach, SW = Wsh.swash;
+    if (SW) {                                                  // 새 끝선 모델 + 임계 감쇠 스프링, 젖음·물막은 연속 경계
+      const om = 2 * Math.PI * SW.smoothHz, ex = Math.exp(-om * dt);
+      for (const q of ws.segs) {
+        let r = 0, tgt = 0;
+        for (const w of ws.waves) {
+          const e = swashEnv(S.time - waveArrive(w, q), w);
+          if (e <= 0) continue;
+          r = Math.max(r, e);
+          const tg = 1 + TR.tongue * noise1(q.s / w.tl + w.seed);   // 파도마다 고정된 혀 모양 (프레임마다 안 바뀜)
+          tgt = Math.max(tgt, Math.min(w.big ? bigMax : Infinity, e * w.amp * q.str * tg * max));
+        }
+        if (q.sx == null) { q.sx = tgt; q.sv = 0; q.wetR = 0; q.filmR = 0; q.peak = 0; }
+        const e0 = q.sx - tgt, tmp = (q.sv + om * e0) * dt;   // 임계 감쇠 스프링 (해석해, dt 와 무관하게 안정)
+        q.sx = tgt + (e0 + tmp) * ex; q.sv = (q.sv - om * tmp) * ex;
+        const reach = Math.max(0, q.sx);
+        if (q.sv > 0.02) q.peak = Math.max(q.peak, reach); else if (reach < 0.02) q.peak = 0;
+        q.foam = q.sv > 0.05 ? Math.min(1, (q.foam || 0) + dt * 8) : Math.max(0, (q.foam || 0) - dt / Wsh.foam.life);
+        q.thin = q.sv > 0 || q.peak <= 0 ? 1 : Math.pow(clamp(reach / q.peak, 0, 1), SW.thinExp);   // 빠질수록 얇아짐
+        q.wetR = Math.max(reach, q.wetR - dt * max / Wsh.dryTime);    // 먼 곳부터 마름
+        q.filmR = Math.max(reach, q.filmR - dt * max / Wsh.filmTime);
+        q.reach = reach; q.level = r; lv = Math.max(lv, r);
+      }
+    } else for (const q of ws.segs) {
       // swash: 파면 진폭에 비례해 올라옴. 구간별 ±30% + 파도마다 혀 모양 요철
       let r = 0, reach = 0;
       for (const w of ws.waves) {
@@ -1670,14 +1707,15 @@
 
   // 수면 전체 밝기: 아주 느린 노이즈로 ±4% (낮은 해상도 캔버스를 키워 덮음)
   const toneCv = document.createElement('canvas'), toneG = toneCv.getContext('2d');
-  toneCv.width = 24; toneCv.height = 12;
+  const TONE_W = (C.quality && C.quality.toneSize[0]) || 24, TONE_H = (C.quality && C.quality.toneSize[1]) || 12;
+  toneCv.width = TONE_W; toneCv.height = TONE_H;
   function drawWaterTone() {
     const T = WC().tone, hz = Math.max(0, rig.horizon);
     if (!S.toneT || S.time - S.toneT > 0.25) {
       S.toneT = S.time;
-      const img = toneG.createImageData(24, 12), ys = cam.yaw * 3;
-      for (let j = 0; j < 12; j++) for (let i = 0; i < 24; i++) {
-        const n = noise2(i * T.scale + ys, j * T.scale * 1.6 + S.time / T.period), v = 1 + n * T.amp, k = (j * 24 + i) * 4;
+      const img = toneG.createImageData(TONE_W, TONE_H), ys = cam.yaw * 3, sx = 24 / TONE_W, sy = 12 / TONE_H;
+      for (let j = 0; j < TONE_H; j++) for (let i = 0; i < TONE_W; i++) {
+        const n = noise2(i * sx * T.scale + ys, j * sy * T.scale * 1.6 + S.time / T.period), v = 1 + n * T.amp, k = (j * TONE_W + i) * 4;
         img.data[k] = Math.min(255, BG[0] * v); img.data[k + 1] = Math.min(255, BG[1] * v); img.data[k + 2] = Math.min(255, BG[2] * v); img.data[k + 3] = 255;
       }
       toneG.putImageData(img, 0, 0);
@@ -1718,7 +1756,7 @@
     const lineOn = R.line.alpha > 0;
     const y0 = Math.max(0, Math.floor(rig.horizon) + 2);
     if (y0 >= H) return;
-    const w = Math.max(8, Math.ceil(W * R.resolution)), h = Math.max(4, Math.ceil((H - y0) * R.resolution));
+    const rr = offRes(R.resolution), w = Math.max(8, Math.ceil(W * rr)), h = Math.max(4, Math.ceil((H - y0) * rr));
     if (!simImg || simImg.width !== w || simImg.height !== h) { fitCv(simCv, w, h); simImg = simG.createImageData(w, h); }
     const LN = R.line, cr = sim.crest, lc = LN.color;
     const D = simImg.data, N = sim.N, sh = sim.shade, inv = 1 / sim.dx, lo = R.slope[0], span = 1 / R.slope[1];
@@ -1768,7 +1806,7 @@
     const R = SIM.shore.render, RS = SIM.render;
     const y0 = Math.max(0, Math.floor(rig.horizon) + 2);
     if (y0 >= H) return;
-    const w = Math.max(8, Math.ceil(W * RS.resolution * 1.4)), h = Math.max(4, Math.ceil((H - y0) * RS.resolution * 1.4));
+    const rr = offRes(RS.resolution * 1.4), w = Math.max(8, Math.ceil(W * rr)), h = Math.max(4, Math.ceil((H - y0) * rr));
     if (!shoreImg || shoreImg.width !== w || shoreImg.height !== h) { fitCv(shoreCv, w, h); shoreImg = shoreG.createImageData(w, h); }
     const D = shoreImg.data, N = sim.N, inv = 1 / sim.dx, F = sim.foam, Wt = sim.wet, Fm = sim.film, K = sim.k;
     const far = SIM.size * 1.5, FGd = C.FOG.dist, eC = 1 / SIM.edgeCells, ls = R.laceScale, l0 = R.lace[0], l1 = 1 / (R.lace[1] - R.lace[0]);
@@ -2162,7 +2200,7 @@
   function drawShoreTrain() {
     const ws = washShape(), TR = C.SHORE_WASH.train, tb = ws.table, segs = visibleShore().filter((_, i) => i % 2 === 0);   // 파면은 완만해서 구간 2개마다 하나로 충분
     if (segs.length < 2 || !ws.waves.length) return;
-    const res = TR.resolution, w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));
+    const res = offRes(TR.resolution), w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));
     for (const cv of [crestCv, troughCv]) fitCv(cv, w, h);
     for (const g2 of [crestG, troughG]) { g2.setTransform(1, 0, 0, 1, 0, 0); g2.clearRect(0, 0, w, h); g2.setTransform(res, 0, 0, res, 0, 0); g2.fillStyle = '#000'; }
     const a0 = TR.alpha[0], a1 = TR.alpha[1], peak = TR.alpha[1] * TR.steepBoost;
@@ -2179,12 +2217,13 @@
       const st = segs.map((q) => {
         const tau = waveArrive(wv, q) - S.time;
         if (tau <= 0 || tau >= tb.Tmax) return null;
-        const d = trainDist(tb, tau), dep = tb.dep(d), lam = TR.speedDeep * Math.sqrt(dep) * TR.gap;
+        const SW = C.SHORE_WASH.swash, acc = SW && tau < SW.accelTime;   // 도달 직전: 가속하며 앞이 가팔라짐
+        const d = acc ? trainDist(tb, SW.accelTime) * Math.pow(tau / SW.accelTime, SW.accelPow) : trainDist(tb, tau), dep = tb.dep(d), lam = TR.speedDeep * Math.sqrt(dep) * TR.gap;
         const sh = Math.min(TR.shoalMax, Math.pow(dep, -TR.shoal));
         const steep = Math.exp(-Math.pow((dep - TR.steepDepth) / 0.09, 2));            // 수심 0.2 부근에서 가팔라짐
         const cd = camSpace(q.x + q.nx * d, q.y + q.ny * d, 0)[1], fade = smooth(TR.fadeDepth, TR.fadeDepth * 2.5, dep) * (1 - smooth(TR.startDist * 0.7, TR.startDist, d)) * (1 - fogAt(cd)) * (TR.nearFade ? smooth(TR.nearFade[0], TR.nearFade[1], cd) : 1);
         const al = lerp(a0, a1, clamp((sh - 1) / (TR.shoalMax - 1), 0, 1)) * Math.min(1.2, wv.amp) * (1 + (TR.steepBoost - 1) * steep) * fade;
-        return { d, cw: lam * TR.crest * (1 - TR.steepNarrow * steep), tw: lam * TR.trough, al };
+        return { d, cw: lam * TR.crest * (1 - TR.steepNarrow * steep) * (acc ? 0.5 + 0.5 * tau / SW.accelTime : 1), tw: lam * TR.trough, al };
       });
       for (let i = 0; i < segs.length - 1; i++) {
         const A = st[i], B = st[i + 1];
@@ -2227,15 +2266,15 @@
     if (segsV.length > 1) nestedBands(8, (i) => -(i + 1) / 8 * D.wetSandWidth, (i) => (1 - (i + 0.5) / 8) * 0.85 * (1 - fog), (d1) => shoreBand(0.05, d1, z - 0.002, segsV));
     // 파도 젖음 맵 + 물막: 낮은 해상도 오프스크린 두 장에 칸별 면으로 그려 부드럽게 키움 (선 없음)
     const B = Wsh.bins, maxIn = Wsh.shoreWidth * Wsh.reach * Wsh.binReach;
-    const res = C.SHADOW_BLUR.wetResolution, w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));
-    const SHT = Wsh.sheet, fres = SHT ? SHT.resolution : res, fw2 = Math.max(8, Math.ceil(W * fres)), fh2 = Math.max(8, Math.ceil(H * fres));
+    const SW = Wsh.swash, res = SW ? offRes(Wsh.resolution) : C.SHADOW_BLUR.wetResolution, w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));
+    const SHT = Wsh.sheet, fres = SHT ? offRes(SHT.resolution) : res, fw2 = Math.max(8, Math.ceil(W * fres)), fh2 = Math.max(8, Math.ceil(H * fres));
     fitCv(wetCv, w, h); fitCv(filmCv, fw2, fh2);
     wetG.setTransform(1, 0, 0, 1, 0, 0); wetG.clearRect(0, 0, w, h); wetG.setTransform(res, 0, 0, res, 0, 0);
     filmG.setTransform(1, 0, 0, 1, 0, 0); filmG.globalAlpha = 1; filmG.clearRect(0, 0, fw2, fh2); filmG.setTransform(fres, 0, 0, fres, 0, 0);
     wetG.fillStyle = `rgb(${rgbS(PAL.wetSand)})`; filmG.fillStyle = `rgb(${rgbS(PAL.film)})`;
     let anyW = false, anyF = false;
     const at = (q, dep) => camSpace(q.x - q.nx * dep, q.y - q.ny * dep, z);
-    for (let i = 0; i < segsV.length - 1; i++) {
+    if (!SW) for (let i = 0; i < segsV.length - 1; i++) {
       const a = segsV[i], b = segsV[i + 1];
       if (!a.wet || !b.wet) continue;
       for (let k = 0; k < B; k++) {
@@ -2253,6 +2292,42 @@
         if (fv >= 0.01) { filmG.globalAlpha = Math.min(1, fv); path(filmG); anyF = true; }
       }
     }
+    // 이웃 구간 사이를 코사인 보간으로 쪼갬 → 끝선·젖음 경계에 계단이 안 생김
+    let segsS = segsV;
+    if (SW && segsV.length > 1) {
+      segsS = [];
+      const ci = (u, v, t) => u + (v - u) * (1 - Math.cos(Math.PI * t)) / 2;
+      for (let i = 0; i < segsV.length - 1; i++) {
+        const a = segsV[i], b = segsV[i + 1];
+        for (let m = 0; m < SW.sub; m++) {
+          const t = m / SW.sub, nx = lerp(a.nx, b.nx, t), ny = lerp(a.ny, b.ny, t), nl = Math.hypot(nx, ny) || 1;
+          segsS.push({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), nx: nx / nl, ny: ny / nl, s: lerp(a.s, b.s, t), reach: ci(a.reach, b.reach, t),
+            wetR: ci(a.wetR || 0, b.wetR || 0, t), filmR: ci(a.filmR || 0, b.filmR || 0, t), thin: ci(a.thin ?? 1, b.thin ?? 1, t), foam: ci(a.foam || 0, b.foam || 0, t) });
+        }
+      }
+      segsS.push(segsV[segsV.length - 1]);
+      // 젖은 모래: [0, wetR] 를 채우고 가장자리 wetEdge 만큼 알파 경사 (먼 곳부터 마름)
+      const strip = (g2, a, b, da0, da1, db0, db1) => {
+        const pts = [at(a, da0), at(b, db0), at(b, db1), at(a, da1)];
+        if (pts.some((c) => c[1] < rig.near)) return false;
+        g2.beginPath(); pts.forEach((c, j) => { const sp = toScreen(c); j ? g2.lineTo(sp[0], sp[1]) : g2.moveTo(sp[0], sp[1]); }); g2.closePath(); g2.fill(); return true;
+      };
+      const E = 5;
+      for (let i = 0; i < segsS.length - 1; i++) {
+        const a = segsS[i], b = segsS[i + 1], wa = a.wetR || 0, wb = b.wetR || 0;
+        if (wa > 0.02 || wb > 0.02) {
+          const ea = Math.min(SW.wetEdge, wa), eb = Math.min(SW.wetEdge, wb);
+          wetG.globalAlpha = 1; if (strip(wetG, a, b, 0, wa - ea, 0, wb - eb)) anyW = true;
+          for (let k = 0; k < E; k++) { wetG.globalAlpha = 1 - (k + 0.5) / E; strip(wetG, a, b, wa - ea * (1 - k / E), wa - ea * (1 - (k + 1) / E), wb - eb * (1 - k / E), wb - eb * (1 - (k + 1) / E)); }
+        }
+        // 빠진 뒤 남는 얇은 막: [끝선, filmR] 에 옅게, 바깥으로 갈수록 0
+        const fa = Math.max(0, (a.filmR || 0) - a.reach), fb = Math.max(0, (b.filmR || 0) - b.reach);
+        if (SHT && (fa > 0.02 || fb > 0.02)) for (let k = 0; k < E; k++) {
+          filmG.globalAlpha = SHT.residue * (1 - (k + 0.5) / E);
+          if (strip(filmG, a, b, a.reach + fa * k / E, a.reach + fa * (k + 1) / E, b.reach + fb * k / E, b.reach + fb * (k + 1) / E)) anyF = true;
+        }
+      }
+    }
     // GRIS: 올라온 물막 — 물가(투명) → 앞선(은은하게)으로 이어지는 얇은 면 + 군데군데 끊기는 가는 앞선 테두리
     if (SHT) {
       const n = SHT.strips, quad = (a, b, da0, da1, db0, db1) => {
@@ -2260,16 +2335,16 @@
         if (pts.some((c) => c[1] < rig.near)) return false;
         filmG.beginPath(); pts.forEach((c, j) => { const s = toScreen(c); j ? filmG.lineTo(s[0], s[1]) : filmG.moveTo(s[0], s[1]); }); filmG.closePath(); filmG.fill(); return true;
       };
-      for (let i = 0; i < segsV.length - 1; i++) {
-        const a = segsV[i], b = segsV[i + 1];
+      for (let i = 0; i < segsS.length - 1; i++) {
+        const a = segsS[i], b = segsS[i + 1], thin = ((a.thin ?? 1) + (b.thin ?? 1)) / 2;
         if (a.reach < 0.03 && b.reach < 0.03) continue;
-        for (let k = 0; k < n; k++) {                          // 물가 → 앞선: 진하기가 서서히 올라감 (겹치지 않는 띠)
+        for (let k = 0; k < n; k++) {                          // 물가 → 앞선: 진하기가 서서히 올라감 (겹치지 않는 띠). 빠질수록 얇아짐
           const u0 = k / n, u1 = (k + 1) / n;
-          filmG.globalAlpha = lerp(SHT.alpha[0], SHT.alpha[1], Math.pow(u1, 1.5));
+          filmG.globalAlpha = lerp(SHT.alpha[0], SHT.alpha[1], Math.pow(u1, 1.5)) * thin;
           if (quad(a, b, a.reach * u0, a.reach * u1, b.reach * u0, b.reach * u1)) anyF = true;
         }
         const brk = smooth(0.25, 0.6, 0.5 + 0.5 * noise1(a.s / 0.6 + S.time * 0.4));   // 앞선 테두리: 군데군데 끊김
-        if (brk > 0.02) { filmG.globalAlpha = SHT.lipAlpha * brk; quad(a, b, a.reach, Math.max(0, a.reach - SHT.lip), b.reach, Math.max(0, b.reach - SHT.lip)); }
+        if (brk > 0.02) { filmG.globalAlpha = SHT.lipAlpha * brk * thin; quad(a, b, a.reach, Math.max(0, a.reach - SHT.lip), b.reach, Math.max(0, b.reach - SHT.lip)); }
       }
     }
     ctx.imageSmoothingEnabled = true;
@@ -2277,15 +2352,15 @@
     if (anyF) { ctx.globalAlpha = (SHT ? 1 : Math.max(Wsh.waterAlpha, Wsh.filmAlpha)) * (1 - fog); ctx.drawImage(filmCv, 0, 0, W, H); }
     // 거품: 물막 앞선의 흰 띠 + 그 뒤 성긴 띠 (노이즈로 끊김). 올라올 때 진하고 빠지면서 사라짐
     if (SHT) {                                                 // GRIS: 거품 = 앞선을 따라 가늘게 끊기는 레이스 조각 (구간을 쪼개 무늬를 잘게)
-      const FO = Wsh.foam, L = SHT.lace, fr = SHT.resolution, fw = Math.max(8, Math.ceil(W * fr)), fh = Math.max(8, Math.ceil(H * fr));
+      const FO = Wsh.foam, L = SHT.lace, fr = offRes(SHT.resolution), fw = Math.max(8, Math.ceil(W * fr)), fh = Math.max(8, Math.ceil(H * fr));
       fitCv(crestCv, fw, fh); crestG.setTransform(1, 0, 0, 1, 0, 0); crestG.globalCompositeOperation = 'source-over'; crestG.clearRect(0, 0, fw, fh); crestG.setTransform(fr, 0, 0, fr, 0, 0);
       crestG.fillStyle = `rgb(${rgbS(FO.color)})`;
       let anyFo = false;
-      for (let i = 0; i < segsV.length - 1; i++) {
-        const a = segsV[i], b = segsV[i + 1], fo = ((a.foam || 0) + (b.foam || 0)) / 2;
+      for (let i = 0; i < segsS.length - 1; i++) {
+        const a = segsS[i], b = segsS[i + 1], fo = ((a.foam || 0) + (b.foam || 0)) / 2;
         if (fo < 0.03 || (a.reach < 0.03 && b.reach < 0.03)) continue;
-        for (let m = 0; m < L.sub; m++) {
-          const t0 = m / L.sub, t1 = (m + 1) / L.sub, s = lerp(a.s, b.s, (t0 + t1) / 2);
+        for (let m = 0, nsub = SW ? 1 : L.sub; m < nsub; m++) {
+          const t0 = m / nsub, t1 = (m + 1) / nsub, s = lerp(a.s, b.s, (t0 + t1) / 2);
           const nz = 0.5 + 0.5 * noise1(s / lerp(L.length[0], L.length[1], 0.5) + 13.7), nz2 = 0.5 + 0.5 * noise1(s * 2.3 - S.time * 0.25 + 71);
           if (nz < L.gap) continue;                            // 끊긴 자리
           const wdt = lerp(L.width[0], L.width[1], nz2) * fo, off = (nz2 - 0.5) * 0.08;
@@ -2549,6 +2624,7 @@
     const inland = (q.x - x) * q.nx + (q.y - y) * q.ny;
     if (inland < 0) return 1;
     if (q.reach > inland) return 1;
+    if (Wsh.swash && q.wetR != null) return inland < q.wetR ? 0.7 * (1 - smooth(q.wetR - Wsh.swash.wetEdge, q.wetR, inland)) : 0;
     if (!q.wet) return 0;
     const maxIn = Wsh.shoreWidth * Wsh.reach * Wsh.binReach, b = Math.floor(inland / maxIn * q.wet.length);
     return b < q.wet.length ? Math.max(q.wet[b] * 0.7, q.film[b]) : 0;
@@ -2791,7 +2867,19 @@
     let pressed = false;
     for (const ptr of pointers.values()) if (ptr.role === 'action') pressed = true;
     const sc = A.radius * (pressed ? 0.9 : 1) * (1 + S.tapPulse * 0.06);
-    drawPaw(a.x, a.y + sc * 0.04, sc, lum.action, (pressed ? 1.4 : 1) * A.alphaScale);
+    // 진하기: 누르면 touch, 뗀 뒤 hold 초까지 유지 → 평소 alphaScale → after 초 동안 안 만지면 idle 로 (fade 초에 걸쳐)
+    let want = (pressed ? 1.4 : 1) * A.alphaScale;
+    const ID = A.idle;
+    if (ID) {
+      const now = performance.now() / 1000;
+      if (pressed || S.pawLast == null) S.pawLast = now;
+      const since = now - S.pawLast;
+      want = pressed || since < ID.hold ? ID.touch : since > ID.after ? ID.alpha : A.alphaScale;
+      const cur = S.pawK ?? want, rate = want > cur ? 1 / 0.12 : Math.abs(cur - want) / Math.max(0.05, ID.fade - 0) * 1.0;
+      S.pawK = want > cur ? Math.min(want, cur + (want - cur) * Math.min(1, dt * 12)) : Math.max(want, cur - Math.max(rate, (A.alphaScale - ID.alpha) / ID.fade) * dt);
+      want = S.pawK;
+    }
+    drawPaw(a.x, a.y + sc * 0.04, sc, lum.action, want);
   }
 
   // 발바닥 모양 (버튼·발자국 공용): 베지어 구간, 그리고 다각형으로 샘플링한 것
@@ -2863,7 +2951,12 @@
     g2.bezierCurveTo(-0.625, 1.0, -0.885, 0.46, -0.885, -0.14);
     g2.bezierCurveTo(-0.885, -0.64, -0.675, -0.8, -0.5, -0.8);
     g2.bezierCurveTo(-0.43, -0.8, -0.38, -0.76, -0.35, -0.75);
-    g2.closePath(); g2.fill();
+    g2.closePath();
+    const AO = C.ui.action;
+    if (AO.outline) {                                          // 가는 외곽선 + 아주 옅은 채움 (임시 도형, 나중에 그림으로 교체)
+      g2.globalAlpha = clamp(AO.fillAlpha / Math.max(alpha, 0.01), 0, 1); g2.fill(); g2.globalAlpha = 1;
+      g2.lineWidth = AO.outline * DPR / (size / 2.2); g2.lineJoin = 'round'; g2.strokeStyle = g2.fillStyle; g2.stroke();
+    } else g2.fill();
     ctx.globalAlpha = alpha;
     ctx.drawImage(pawCv, cx - sc * 1.1, cy - sc * 1.1, sc * 2.2, sc * 2.2);
     ctx.globalAlpha = 1;
@@ -2944,8 +3037,20 @@
     ctx.imageSmoothingEnabled = true; ctx.globalAlpha = 1; ctx.drawImage(nearCv, 0, 0, W, H);
   }
 
+  // 오프스크린 해상도 배율: 기본값 × 기기 픽셀비(최대 dprMax) × 품질 단계
+  const offRes = (base) => { const Q = C.quality; return Q ? base * Math.min(Q.dprMax, DPR) * Q.tiers[S.qTier || 0] : base; };
+  // 디더: ±1 레벨 노이즈 타일 (어두운 그라데이션의 띠·계단 숨김)
+  const ditherPat = (() => { const N = 128, cv = document.createElement('canvas'); cv.width = cv.height = N; const g2 = cv.getContext('2d'), img = g2.createImageData(N, N), r = rng(91);
+    for (let i = 0; i < N * N; i++) { const up = r() < 0.5, k = i * 4; img.data[k] = img.data[k + 1] = img.data[k + 2] = up ? 255 : 0; img.data[k + 3] = 2; }
+    g2.putImageData(img, 0, 0); return cv; })();
+  let ditherFill = null;
+  function drawDither() {
+    const Q = C.quality; if (!Q || !Q.dither) return;
+    if (!ditherFill) ditherFill = ctx.createPattern(ditherPat, 'repeat');
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = Math.min(1, Q.dither); ctx.fillStyle = ditherFill; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.restore();
+  }
   function draw(dt) {
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.imageSmoothingQuality = 'high';   // (캔버스 크기가 바뀌면 초기화되므로 매 프레임)
     ctx.globalAlpha = 1;
     updateRig();
     drawSky();
@@ -2990,11 +3095,12 @@
     drawNearFog();
     drawPlanktonOverFog();
     ctx.globalAlpha = 1;
+    drawDither();
     drawUI(dt);
   }
 
   // ── 루프: 60Hz 고정 단계 + 프레임 저하 시 입자 수 줄이기 ──────
-  let last = performance.now(), acc = 0, frameAvg = 1 / 60;
+  let last = performance.now(), acc = 0, frameAvg = 1 / 60, qBad = 0, qGood = 0;
   S.quality = 1;
   function frame(now) {
     const real = Math.max(0, (now - last) / 1000);
@@ -3002,6 +3108,12 @@
     frameAvg += (Math.min(real, 0.1) - frameAvg) * 0.05;
     if (frameAvg > 1 / 45) S.quality = Math.max(0.5, S.quality - 0.01);
     else if (frameAvg < 1 / 56) S.quality = Math.min(1, S.quality + 0.002);
+    { const Q = C.quality;                                     // 품질 단계: 느리면 해상도 한 단계 낮춤, 넉넉하면 올림
+      if (Q) {
+        qBad = frameAvg > 1 / Q.downFps ? qBad + real : 0; qGood = frameAvg < 1 / Q.upFps ? qGood + real : 0;
+        if (qBad > Q.downAfter && (S.qTier || 0) < Q.tiers.length - 1) { S.qTier = (S.qTier || 0) + 1; qBad = 0; }
+        if (qGood > Q.upAfter && (S.qTier || 0) > 0) { S.qTier--; qGood = 0; }
+      } }
     acc += Math.min(real, 0.1);
     let n = 0;
     while (acc >= STEP && n < 6) { step(STEP); acc -= STEP; n++; }

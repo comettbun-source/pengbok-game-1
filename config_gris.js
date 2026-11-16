@@ -157,7 +157,7 @@ const FOG = {
   horizonBand: { height: 0.12, alpha: 0.3 },     // 수평선 부근 옅은 안개띠
   // 흘러가는 안개덩이: fbm 노이즈 타일 하나를 만들어 여러 겹으로 스크롤
   clumps: {
-    tileSize: 128, octaves: 5, seed: 7,
+    tileSize: 256, octaves: 5, seed: 7,   // (128 → 256) 크게 늘여 그려서 무늬가 깨지지 않게
     threshold: [0.42, 0.8],   // 이 구간에서 옅음→진함 (진한 곳과 빈 곳이 섞이게)
     // scale = 타일 한 장이 덮는 화면 폭 비율, speed = 흐르는 속도(화면 폭/초), alpha = 진한 곳 농도
     layers: [
@@ -167,7 +167,7 @@ const FOG = {
     ],
   },
   penguinClear: { radius: 0.24, keep: 0.6 },     // 펭귄 중심 반경(화면 높이 비율)에서 가까운 층 농도를 60% 로
-  resolution: 0.125,          // 안개 오프스크린 해상도 (화면 대비)
+  resolution: 0.25,           // (0.125 → 0.25) 안개 오프스크린 해상도 (화면 대비). 부드러운 게 맞아 낮게 두고, 고품질 보간 + 디더로 띠·계단을 숨김
   keepClearDepth: 9,          // 이보다 가까운 것은 먼 안개 층 위에 그림
 };
 
@@ -345,14 +345,29 @@ const SHORE_WASH = {
   filmAlpha: 0.2,             // 물이 빠진 뒤 남는 얇은 투명 물막
   filmTime: 1.2,              // 물막이 남아 있는 시간 (마르는 순서대로 사라짐)
   wetAlpha: 0.32,             // 젖은 땅이 어두워지는 정도 (가장 최근이 가장 진함)
-  resolution: 0.25,           // 젖음 표시 오프스크린 해상도 (화면 대비)
+  resolution: 0.55,           // 젖음·물막·거품 오프스크린 해상도 (화면 대비 × 기기 픽셀비(최대 2) × 품질 단계)
   slowMul: 0.85,              // 물이 올라온 곳에 서 있으면 속도 배율 (물가에서 멈칫하지 않게 약하게)
   rippleEvery: 0.45,          // 그때 생기는 작은 파문 간격 (초)
+  // 끝선 운동 (챠아아 → 머묾 → 사아아). 끝선 x(t): 올라올 때 R·(1−(1−t/Tu)²), 빠질 때 R·(1−(t/Td)^fallExp)
+  // 여러 파도가 겹치면 끝선 = 그 순간 가장 큰 값 → 임계 감쇠 스프링(smoothHz)으로 한 번 더 부드럽게 (위치·속도 연속)
+  swash: {
+    rise: [0.9, 1.3],         // Tu: 올라오는 시간 (파도마다 무작위). 처음이 빠르고 정점에서 느려짐
+    hold: 0.15,               // 정점에서 머무는 시간
+    fall: [2.2, 3.0],         // Td: 빠지는 시간. 천천히 시작해 가속하다 모래로 스밈
+    fallExp: 1.6,
+    smoothHz: 1.9,            // 끝선 스프링 고유 진동수 (Hz). ω ≈ 12 rad/s. (12Hz 는 시간상수 13ms 라 60fps 에서 꺾임이 그대로 남았음)
+    speedShoreMin: 1.4,       // 파면이 해안 근처에서 느려지지 않게 하는 속도 하한 (월드/초)
+    accelTime: 0.3, accelPow: 0.7,   // 도달 직전 이 시간 동안 가속 (위치 ∝ 남은시간^accelPow), 앞이 가팔라짐
+    lullMax: 5,               // 묶음 사이 잔잔한 구간 최대 (초)
+    sub: 3,                   // 이웃 구간 사이를 코사인 보간으로 쪼개는 수 (계단 없애기)
+    wetEdge: 0.35, filmEdge: 0.25,   // 젖은 모래·남은 물막 가장자리 알파 경사 폭 (월드)
+    thinExp: 0.6,             // 빠질수록 물막이 얇아지는 정도 (남은 거리 비율^이 값)
+  },
   // 물막 앞쪽 거품: 올라올 때 앞선에 생기고, 빠지면서 성긴 띠로 남았다 사라짐
   foam: { alpha: 0.6, width: 0.3, trail: 0.9, trailAlpha: 0.35, life: 1.6, lace: 0.55, laceLength: 0.7, color: PALETTE.foam },
   // GRIS: 둔탁한 흰 띠 대신 — 물막은 물가에서 투명 → 앞선 쪽으로 은은하게, 앞선은 가늘게 끊기는 레이스 거품
   sheet: {
-    resolution: 0.32,         // 물막·거품을 그리는 오프스크린 해상도 (높을수록 또렷, 원래 0.1 이라 뭉개졌음)
+    resolution: 0.55,         // 물막·거품을 그리는 오프스크린 해상도 (화면 대비 × 기기 픽셀비 × 품질 단계. 0.32 에선 앞선이 계단처럼 깨졌음)
     alpha: [0.02, 0.16],      // 물막 진하기: 물가 쪽 → 앞선 쪽 (그 사이를 strips 겹으로 이음)
     strips: 6,
     lip: 0.07, lipAlpha: 0.32,      // 앞선 물테두리: 폭(월드)·진하기. 노이즈로 군데군데 끊김
@@ -367,7 +382,7 @@ const SHORE_WASH = {
     startDist: 22,            // 해안선에서 이 거리부터 파면이 보이기 시작
     count: [2, 4],            // 한 묶음에 연달아 오는 파면 수
     gap: 2.2,                 // 묶음 안 간격 (초) → 깊은 곳 간격 ≈ speedDeep × gap ≈ 6, 얕은 곳 ≈ 2.5
-    setInterval: [7, 11],     // 묶음 사이 잔잔한 구간 (초)
+    setInterval: [3, 5.5],   // (7~11 → 3~5.5) 묶음 사이 잔잔한 구간 (초, swash.lullMax 로 최대 5초)
     amp: [0.75, 1.05],        // 파면 진폭 (무작위). swash 도달 거리에 비례
     bigChance: 0.18,          // 묶음 대신 큰 파도 하나가 올 확률
     bigAmp: 1.5, bigReach: 0.7,   // 큰 파도: 진폭 ×1.5, 도달은 해안 폭의 70% 까지
@@ -385,7 +400,7 @@ const SHORE_WASH = {
     fadeDepth: 0.06,          // 이보다 얕으면 파면은 swash(물막) 로 넘어가며 사라짐
     tongue: 0.3,              // swash 끝선 혀 모양 요철 ±비율 (해안선 방향 노이즈)
     tongueLength: [1.5, 3],   // 요철 파장 (파도마다 무작위)
-    resolution: 0.18,         // 명암 면 오프스크린 해상도 (화면 대비, 낮을수록 부드럽게 번짐)
+    resolution: 0.5,          // (0.18 → 0.5) 명암 면 오프스크린 해상도 (화면 대비 × 기기 픽셀비 × 품질 단계)
     nearFade: [4, 10],        // GRIS: 카메라에서 이 거리 안쪽의 파면은 옅게 (낮은 각도라 가까운 파면이 화면을 가로지르는 굵은 띠로 보여서)
   },
 };
@@ -430,12 +445,23 @@ const FOOTPRINTS = {
 };
 
 // ── 명암·그림자 블러 (ctx.filter 없이 스프라이트·겹 그리기·축소 캐시로) ─────────
+// ── 그리기 품질 (GRIS): 오프스크린 해상도 = 기본값 × 기기 픽셀비(최대 dprMax) × 품질 단계 ─────
+// 프레임이 떨어지면(downFps 아래로 downAfter 초) 한 단계 낮추고, 넉넉하면(upFps 위로 upAfter 초) 올림
+const QUALITY = {
+  tiers: [1, 0.75, 0.55],     // 품질 단계 3개 (해상도 배율)
+  dprMax: 2,
+  downFps: 45, downAfter: 2,
+  upFps: 57, upAfter: 6,
+  dither: 1,                  // 화면 전체에 ±1 레벨 디더 노이즈 (어두운 그라데이션 띠 숨김, 0 = 끔)
+  toneSize: [96, 48],         // 수면 밝기 노이즈 해상도 (24×12 → 96×48)
+};
+
 const SHADOW_BLUR = {
   ratio: 0.25,                // 경계 번짐 폭 = 그림자 크기 × 이 값 (20~30%)
   layers: 5,                  // 다각형 그림자를 크기를 바꿔 겹쳐 그리는 횟수 (클수록 부드럽게)
   facetTexture: 96,           // 빙하 윗면 음영 캐시 크기 (px)
   facetDownscale: 6,          // 음영을 이만큼 줄였다 키워 경계를 흐림 (생성 때 한 번)
-  wetResolution: 0.1,         // 젖은 땅·물막 오프스크린 해상도 (낮을수록 경계가 부드럽게 번짐)
+  wetResolution: 0.4,         // 젖은 땅·물막 오프스크린 해상도 (낮을수록 경계가 부드럽게 번짐)
 };
 
 // ── 물 엔진 (water.js): 펭귄 주변 수면을 격자로 계산 ─────────────
@@ -520,7 +546,7 @@ const WATER_SIM = {
     floePx: 60,             // 빙하가 주변 물결을 타는 정도 (물결 높이 1 당 px)
   },
   render: {
-    resolution: 0.3,        // 화면 대비 해상도 (낮을수록 가볍고 부드러움)
+    resolution: 0.5,        // (0.22 → 0.5) 화면 대비 해상도 × 기기 픽셀비 × 품질 단계
     slope: [0.003, 0.045],  // [이 기울기부터 보임, 이 기울기에서 진하기 63%] — 그 위로는 완만하게 포화
     light: PALETTE.simLight, lightAlpha: PALETTE.simLightAlpha,   // 빛 받는 면
     floeLightMul: 0.5, floeLightRadius: 1.2,    // 빙하 반지름 × floeLightRadius 안에서는 밝은 면을 이 배율로
@@ -542,6 +568,7 @@ window.CONFIG = {
   DEPTH,
   FOOTPRINTS,
   SHADOW_BLUR,
+  quality: QUALITY,
   WATER_SIM,
 
   ui: {
@@ -557,7 +584,10 @@ window.CONFIG = {
       releasePush: 170,        // 터치 시작점에서 이만큼 벗어나면 입력 0 (역할은 뗄 때까지 유지)
     },
     // 오른쪽 물갈퀴 발바닥 버튼 (반지름·터치 영역 약 1.4배, 알파 약 70%)
-    action: { insetX: 70, insetY: 46, radius: 45, hitRadius: 120, alphaScale: 0.5 },   // (GRIS 전: 53 / 140 / 0.7) 살짝 작고 더 반투명하게
+    action: { insetX: 70, insetY: 46, radius: 30, hitRadius: 120, alphaScale: 0.28,   // 보이는 크기만 작게 (45 → 30), 터치 영역 120 은 그대로
+      outline: 1.5, fillAlpha: 0.04,              // 채운 면 대신 가는 외곽선(px) + 아주 옅은 채움
+      idle: { after: 3, fade: 1, alpha: 0.14, touch: 0.5, hold: 1 },   // 3초 안 만지면 1초에 걸쳐 0.14 로, 누르면 0.5, 뗀 뒤 1초 지나면 다시 연해짐
+    },
     adapt: { lightAlpha: 0.42, darkAlpha: 0.5, threshold: [0.35, 0.6], smooth: 3, sampleMs: 120 },
   },
 
