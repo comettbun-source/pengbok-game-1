@@ -1175,7 +1175,7 @@
           p.sprayAcc = (p.sprayAcc || 0) + SWS.rate * (p.sliding ? SWS.slideMul : 1) * clamp((sp - SWS.minSpeed) / (pm.maxSpeed.water - SWS.minSpeed), 0, 1.5) * dt;
           const SD = C.SPLASH_DROPS, hx = p.vx / sp, hy = p.vy / sp; S.drops = S.drops || [];
           while (p.sprayAcc >= 1) { p.sprayAcc -= 1;
-            const side = Math.random() < 0.5 ? 1 : -1, R = Math.random(), o = lerp(SWS.out[0], SWS.out[1], R), fw = (Math.random() - 0.3) * SWS.head, al = (Math.random() * 2 - 0.7) * (SWS.along || 0);
+            const side = Math.random() < 0.5 ? 1 : -1, R = Math.random(), o = lerp(SWS.out[0], SWS.out[1], R), fw = (Math.random() - 0.8) * SWS.head, al = SWS.back ? -lerp(SWS.back[0], SWS.back[1], Math.random()) : (Math.random() * 2 - 0.7) * (SWS.along || 0);
             if (S.drops.length >= SD.max) S.drops.shift();
             S.drops.push({ x: p.x + hx * (SWS.head * 0.6 + fw) - hy * SWS.sideOffset * side, y: p.y + hy * (SWS.head * 0.6 + fw) + hx * SWS.sideOffset * side, z: 0.03,
               vx: -hy * side * o + p.vx * SWS.forward + hx * al, vy: hx * side * o + p.vy * SWS.forward + hy * al, vz: lerp(SWS.up[0], SWS.up[1], Math.random()) * (0.6 + 0.4 * R), size: lerp(SWS.size[0], SWS.size[1], Math.random() * Math.random()), t: 0 });
