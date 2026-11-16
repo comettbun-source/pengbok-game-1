@@ -312,9 +312,9 @@ const ICE_FIELD = {
   fixed: [
     // GRIS 가로 구도: 빙하는 3개만. 이동 선(y ≈ 0.3) 위에 시작 빙하 → 첫 빙하(점프 한 번), 그 뒤로는 헤엄쳐 섬까지
     { x: 0, y: 0, size: 1, start: true },        // 시작 빙하 (x −3 ~ 3)
-    { x: -10.5, y: 0.3, size: 0.72 },             // 둘째 빙하: 시작 빙하와 먼 빙하(x −24) 가운데서 살짝 오른쪽. 시작 빙하와 약 5.6 떨어져 헤엄쳐 건넘
+    { x: -12, y: 0.3, size: 0.72 },               // 둘째 빙하 (x −10.5 → −12): 시작 빙하와 약 7 떨어져 헤엄쳐 건넘
     // 먼 배경 빙하 하나: 안개에 싸여 흐리게 (FOG.floe)
-    { x: -24, y: -26, size: 1.8 },
+    { x: -26.5, y: -26, size: 1.8 },             // (x −24 → −26.5)
   ],
 
 
@@ -537,6 +537,7 @@ window.CONFIG = {
   ui: {
     // 왼쪽 아래 이동 링. inset = 화면 가장자리 ~ 링 바깥선 간격(엄지 하나 정도)
     ring: {
+      hidden: true,            // GRIS: 링 없음. 발바닥 버튼 말고 화면 어디든 눌러 끌면 좌우 이동 (누른 자리가 기준, 멀리 끌면 기준이 따라옴)
       insetX: 70, insetY: 46,
       radius: 34,
       lineWidth: 3,
@@ -546,7 +547,7 @@ window.CONFIG = {
       releasePush: 170,        // 터치 시작점에서 이만큼 벗어나면 입력 0 (역할은 뗄 때까지 유지)
     },
     // 오른쪽 물갈퀴 발바닥 버튼 (반지름·터치 영역 약 1.4배, 알파 약 70%)
-    action: { insetX: 70, insetY: 46, radius: 53, hitRadius: 140, alphaScale: 0.7 },
+    action: { insetX: 70, insetY: 46, radius: 45, hitRadius: 120, alphaScale: 0.5 },   // (GRIS 전: 53 / 140 / 0.7) 살짝 작고 더 반투명하게
     adapt: { lightAlpha: 0.42, darkAlpha: 0.5, threshold: [0.35, 0.6], smooth: 3, sampleMs: 120 },
   },
 

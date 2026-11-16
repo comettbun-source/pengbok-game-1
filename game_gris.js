@@ -575,6 +575,7 @@
 
   function pickRole(x, y) {
     const rg = layout.ring, a = layout.action;
+    if (C.ui.ring.hidden) return Math.hypot(x - a.x, y - a.y) <= C.ui.action.hitRadius ? 'action' : 'ring';   // GRIS: 발바닥 말고는 전부 이동
     if (Math.hypot(x - rg.x, y - rg.y) <= C.ui.ring.hitRadius) return 'ring';
     if (Math.hypot(x - a.x, y - a.y) <= C.ui.action.hitRadius) return 'action';
     const p = S.p;
@@ -594,7 +595,7 @@
     }
     const role = id === 'kb' ? 'action' : pickRole(x, y);
     const ptr = { role, x, y, ox: x, oy: y, t0: performance.now(), long: false };
-    if (role === 'ring' && Math.hypot(x - layout.ring.x, y - layout.ring.y) <= C.ui.ring.radius * 1.15) { ptr.ox = layout.ring.x; ptr.oy = layout.ring.y; }
+    if (role === 'ring' && !C.ui.ring.hidden && Math.hypot(x - layout.ring.x, y - layout.ring.y) <= C.ui.ring.radius * 1.15) { ptr.ox = layout.ring.x; ptr.oy = layout.ring.y; }
     if (role === 'drag') { ptr.floe = S.p.floe; const f = ptr.floe; f.grab = f.grab || [f.x, f.y]; f.grabN = (f.grabN || 0) + 1; }
     pointers.set(id, ptr);
     if (role === 'action') { S.tapPulse = 1; actionPress(ptr); }
@@ -617,7 +618,10 @@
     if (!ptr) return;
     const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y;
     ptr.x = e.clientX; ptr.y = e.clientY;
-    if (ptr.role === 'camera') {
+    if (ptr.role === 'ring' && C.ui.ring.hidden) {          // GRIS: 기준점이 손가락을 따라옴 → 아무리 길게 끌어도 계속 이동
+      const R = C.ui.ring, ddx = ptr.x - ptr.ox, ddy = ptr.y - ptr.oy, l = Math.hypot(ddx, ddy);
+      if (l > R.maxPush) { ptr.ox = ptr.x - ddx / l * R.maxPush; ptr.oy = ptr.y - ddy / l * R.maxPush; }
+    } else if (ptr.role === 'camera') {
       S.lastCamTouch = S.time;
       if (C.camera.lockRotation) return;                       // GRIS: 각도 고정
       cam.yawT = clamp(cam.yawT + dx * C.camera.rotateSensX, -deg(C.camera.yawLockDeg), deg(C.camera.yawLockDeg));   // GRIS: 좌우 ±yawLockDeg 안에서만
@@ -2726,6 +2730,8 @@
     const R = C.ui.ring, rg = layout.ring;
     let active = null;
     for (const ptr of pointers.values()) if (ptr.role === 'ring') { active = ptr; break; }
+    if (R.hidden) active = null;                               // GRIS: 링 그림 없음
+    else {
     ctx.lineWidth = R.lineWidth;
     ctx.strokeStyle = uiColor(lum.ring, active ? 1.4 : 1);
     ctx.beginPath(); ctx.arc(rg.x, rg.y, R.radius, 0, Math.PI * 2); ctx.stroke();
@@ -2735,6 +2741,7 @@
       if (l > lim) { dx *= lim / l; dy *= lim / l; }
       ctx.fillStyle = uiColor(lum.ring, 1.2);
       ctx.beginPath(); ctx.arc(rg.x + dx, rg.y + dy, R.radius * 0.32, 0, Math.PI * 2); ctx.fill();
+    }
     }
     const A = C.ui.action, a = layout.action;
     let pressed = false;
