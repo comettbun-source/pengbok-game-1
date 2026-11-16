@@ -481,7 +481,23 @@
   }
 
   // ── 지형 판정 (빙하 = 그림과 같은 다각형, 충돌 = 원·타원) ──────
-  const floeTopAt = (f, lx, ly) => C.floe.topHeight + (f.relief ? f.relief.fn(lx, ly) * C.floe.relief.reliefExaggerate : 0) + f.tilt.x * lx + f.tilt.y * ly;
+  // 윗면 높이: 화면에 그린 메시(고리 × 꼭짓점 사각형)를 그대로 보간. 높이 함수(fn)를 직접 쓰면
+  // 메시보다 가는 능선·어깨에서 펭귄이 그려진 면보다 최대 0.5 떠 보였음 (공중 부양 버그)
+  function meshTopAt(f, lx, ly) {
+    const rf = f.relief, shp = f.shape, n = shp.length, K = rf.K, R = rf.rings;
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n, A = shp[i], B = shp[j];
+      const cAB = A[0] * B[1] - A[1] * B[0], cAp = A[0] * ly - A[1] * lx, cpB = lx * B[1] - ly * B[0];
+      if (cAB > 0 ? (cAp < -1e-9 || cpB < -1e-9) : (cAp > 1e-9 || cpB > 1e-9)) continue;   // 이 쐐기(중심·A·B) 밖
+      const ex = B[0] - A[0], ey = B[1] - A[1], den = ex * ly - ey * lx;
+      const t = Math.abs(den) < 1e-9 ? 0 : clamp(-cAp / den, 0, 1);
+      const qx = A[0] + ex * t, qy = A[1] + ey * t, s = clamp(Math.hypot(lx, ly) / (Math.hypot(qx, qy) || 1), 0, 1);
+      const u = (1 - s) * K, k0 = Math.min(K - 1, Math.floor(u)), fr = u - k0;
+      return lerp(lerp(R[k0][i][2], R[k0][j][2], t), lerp(R[k0 + 1][i][2], R[k0 + 1][j][2], t), fr);
+    }
+    return R[0][0][2];
+  }
+  const floeTopAt = (f, lx, ly) => C.floe.topHeight + (f.relief ? meshTopAt(f, lx, ly) : 0) + f.tilt.x * lx + f.tilt.y * ly;
   const onFloe = (f, x, y, scale = 1) => f && f.active && inPoly(f.shape, (x - f.x) / scale, (y - f.y) / scale);
   const floeAt = (x, y, scale = 1) => S.floePool.find((f) => f.active && onFloe(f, x, y, scale)) || null;
   const islandAt = (x, y) => S.islands.find((is) => inPoly(is.shape, x, y));
@@ -1145,7 +1161,10 @@
     ff.vApp += ((ff.lastDist - dist) / dt - ff.vApp) * ease(4, dt); ff.lastDist = dist;   // 다가오는 속도 (+)
     const sPen = projectOnPath(p.x, p.y);
     // lead: 속도에 비례, 화면 간격과 월드 간격 중 큰 쪽
-    const lead = screenLead(sPen, clamp(LD.rest + LD.gain * spd, LD.min, LD.max)), sMin = Math.min(ff.L, sPen + lead);
+    const lead = screenLead(sPen, clamp(LD.rest + LD.gain * spd, LD.min, LD.max));
+    // GRIS: 시작 연출 동안은 정면 바다에서 밝아질 때까지 기다림 (펭귄이 lead 안으로 다가오면 평소처럼 물러남)
+    const hold = C.intro.holdFirefly && introVis() < 0.95 && dist > G.fleeTrigger;
+    const sMin = hold ? ff.s : Math.min(ff.L, sPen + lead);
     // 펭귄이 군집을 확 지나침 (슬라이딩 등): 사라졌다가 펭귄 앞 lead 지점에서 다시 나타남. 가로지르는 이동 없음
     if (ff.respawn > 0) {
       ff.respawn -= dt; ff.vis = Math.max(0, ff.respawn / SEP.respawnFade);
@@ -2906,5 +2925,5 @@
   reset();
   requestAnimationFrame(frame);
 
-  window.__game = { get sim() { return sim; }, step, keys, STEP, penScale, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
+  window.__game = { get sim() { return sim; }, step, keys, STEP, penScale, floeTopAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
 })();
