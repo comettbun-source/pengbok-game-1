@@ -3188,33 +3188,44 @@
     const yw = -(p.sink || 0), bob = Math.sin(S.time * W.bobHz * Math.PI * 2) * W.bob;
     // 목 뽁: 헤엄 자세로 바뀌는 동안 목이 살짝 지나치게 솟았다 자리잡음 (lay 진행도로 계산, 상태 저장 없음)
     const x = clamp((p.lay - W.fromDeg) / (C.PHYSICS.water.layDeg - W.fromDeg), 0, 1), pop = x + Math.sin(Math.PI * x) * W.popOvershoot;
-    const bodyY = yw + W.bodyDepth + bob, by = (dx) => bodyY + dx * 0;
-    g.save(); g.scale(side, 1);                                         // 이제 +x = 앞(머리 쪽)
+    const L = len, P = (x, y) => [x * L * u, (yw + W.bodyDepth + bob + y) * u];   // 수면 기준 몸 좌표 → 캔버스 (+x = 앞)
+    const nk = W.neck.up * pop;                                         // 목이 솟은 정도 (뽁)
+    g.save(); g.scale(side, 1);
+    // 실루엣 (스케치 참고): 꼬리 → 낮은 등 → 엉덩이 살짝 봉긋 → 부드럽게 솟는 목 → 둥근 머리 → 위로 향한 부리 → 목 앞 → 깊고 둥근 가슴 → 긴 배 → 꼬리
+    const sil = () => {
+      g.beginPath();
+      g.moveTo(...P(-0.52, 0.02));
+      g.bezierCurveTo(...P(-0.42, -0.06 - W.rump.up), ...P(-0.24, -0.07 - W.rump.up), ...P(-0.08, -0.04));   // 엉덩이
+      g.bezierCurveTo(...P(0.06, -0.03), ...P(0.12, -0.12 - nk * 0.5), ...P(0.16, -0.2 - nk));                // 목 뒤
+      g.bezierCurveTo(...P(0.18, -0.34 - nk), ...P(0.3, -0.38 - nk), ...P(0.38, -0.33 - nk));                  // 머리 위
+      g.bezierCurveTo(...P(0.43, -0.3 - nk), ...P(0.44, -0.24 - nk), ...P(0.42, -0.2 - nk));                   // 머리 앞
+      g.bezierCurveTo(...P(0.4, -0.12 - nk * 0.4), ...P(0.42, -0.04), ...P(0.42, 0.04));                      // 목 앞
+      g.bezierCurveTo(...P(0.42, 0.18), ...P(0.3, 0.26), ...P(0.12, 0.27));                                     // 가슴 (깊고 둥글게)
+      g.bezierCurveTo(...P(-0.12, 0.28), ...P(-0.38, 0.16), ...P(-0.52, 0.02));                                 // 배 → 꼬리
+      g.closePath();
+    };
     // 발: 몸 뒤 아래에서 뒤로 뻗어 파닥파닥 (몸보다 먼저 = 뒤에 깔림)
-    drawSwimFeet(g, u, p, -W.body.rx * len * u * 0.8, (bodyY + W.body.ry * 0.5) * u, Math.PI - deg(W.feetDownDeg), true);
-    // 먼 날개 (물속, 몸 뒤)
-    g.fillStyle = K.flipper; ell(0.02 * len, bodyY + 0.07, W.flipper.len * 0.5 * len, W.flipper.w, -0.25);
-    // 몸통 + 엉덩이 (뒤쪽이 물 위로 봉긋)
-    g.fillStyle = K.body;
-    ell(0, bodyY, W.body.rx * len, W.body.ry);
-    ell(-W.rump.back * len, bodyY - W.rump.up, W.rump.r * len, W.rump.r * 0.8);
-    // 배 (아래쪽, 대부분 물속)
-    g.fillStyle = K.belly; ell(0.04 * len, bodyY + W.body.ry * 0.55, W.body.rx * 0.8 * len, W.body.ry * 0.45);
-    // 목 + 머리: 앞쪽에서 위로 뽁
-    const nx = W.neck.x * len, hy = bodyY - W.neck.up * pop, hxp = nx + W.neck.lean * pop * len;
-    g.fillStyle = K.body;
-    g.beginPath(); g.moveTo((nx - W.neck.w) * u, (bodyY - 0.02) * u); g.quadraticCurveTo((nx - W.neck.w * 0.6) * u, (hy + 0.02) * u, hxp * u, hy * u);
-    g.lineTo((hxp + W.head.r * 0.4) * u, (hy + 0.04) * u); g.quadraticCurveTo((nx + W.neck.w) * u, (bodyY - 0.06) * u, (nx + W.neck.w * 1.3) * u, (bodyY + 0.02) * u); g.closePath(); g.fill();
-    ell(hxp, hy, W.head.r, W.head.r * 0.92);
-    // 얼굴·목 앞 흰색 (사진처럼 턱 아래 밝음) + 작은 눈 + 부리
+    { const [fx, fy] = P(-0.4, 0.12); drawSwimFeet(g, u, p, fx, fy, Math.PI - deg(W.feetDownDeg), true); }
+    g.fillStyle = K.body; sil(); g.fill();
+    // 배·가슴·목 앞의 흰 부분: 실루엣 안에서만
+    g.save(); sil(); g.clip();
+    g.fillStyle = K.belly;
+    g.beginPath(); { const [cx, cy] = P(0.02, 0.24); g.ellipse(cx, cy, 0.5 * L * u, 0.1 * u, -0.08, 0, Math.PI * 2); } g.fill();            // 배 아래
     if (front > -0.5) {
-      g.fillStyle = K.face; ell(hxp + W.head.r * 0.32, hy + W.head.r * 0.22, W.head.r * 0.5, W.head.r * 0.42);   // 볼 (작게)
-      ell(nx + W.neck.w * 0.9, (hy + bodyY) / 2 + 0.03, W.neck.w * 0.32, (bodyY - hy) * 0.32);                      // 목 앞 가는 흰 줄
-      g.fillStyle = K.eye; ell(hxp + W.head.r * 0.42, hy + W.head.r * 0.08, R.face.eyeR, R.face.eyeR * 1.15);
+      g.beginPath(); { const [cx, cy] = P(0.39, -0.06 - nk * 0.5); g.ellipse(cx, cy, 0.05 * u, (0.16 + nk * 0.5) * u, -0.1, 0, Math.PI * 2); } g.fill();   // 목 앞 흰 줄
+      g.fillStyle = K.face; g.beginPath(); { const [cx, cy] = P(0.34, -0.25 - nk); g.ellipse(cx, cy, 0.07 * L * u + 0.02 * u, 0.06 * u, 0, 0, Math.PI * 2); } g.fill();   // 볼
     }
-    g.fillStyle = K.beak; g.beginPath(); g.moveTo((hxp + W.head.r * 0.8) * u, (hy - 0.025) * u); g.lineTo((hxp + W.head.r * 0.8 + R.beak.len) * u, (hy + 0.01) * u); g.lineTo((hxp + W.head.r * 0.8) * u, (hy + 0.03) * u); g.closePath(); g.fill();
-    // 가까운 날개: 옆구리에 붙여 물속으로 저음
-    g.fillStyle = K.flipper; ell(-0.02 * len, bodyY + 0.03, W.flipper.len * 0.5 * len, W.flipper.w, 0.3 + Math.sin(S.time * W.flipper.hz * Math.PI * 2) * 0.25);
+    g.restore();
+    if (front > -0.5) { g.fillStyle = K.eye; const [ex, ey] = P(0.36, -0.28 - nk); g.beginPath(); g.ellipse(ex, ey, R.face.eyeR * u, R.face.eyeR * 1.15 * u, 0, 0, Math.PI * 2); g.fill(); }
+    // 부리: 살짝 위로
+    { g.fillStyle = K.beak; const [b0x, b0y] = P(0.41, -0.3 - nk), [b1x, b1y] = P(0.41 + R.beak.len * 1.3 / L, -0.35 - nk), [b2x, b2y] = P(0.42, -0.25 - nk);
+      g.beginPath(); g.moveTo(b0x, b0y); g.lineTo(b1x, b1y); g.lineTo(b2x, b2y); g.closePath(); g.fill(); }
+    // 날개: 가슴 옆에서 뒤로 길게 붙인 고리 모양 (물가에서 천천히 저음)
+    { const [rx0, ry0] = P(0.24, 0.02), sw = Math.sin(S.time * W.flipper.hz * Math.PI * 2) * 0.12;
+      g.save(); g.translate(rx0, ry0); g.rotate(0.12 + sw); g.fillStyle = K.flipper;
+      const fl = W.flipper.len * L * u, fw = W.flipper.w * u;
+      g.beginPath(); g.moveTo(0, -fw * 0.6); g.bezierCurveTo(-fl * 0.4, -fw * 1.1, -fl * 0.9, -fw * 0.4, -fl, fw * 0.2); g.bezierCurveTo(-fl * 0.8, fw * 1.2, -fl * 0.3, fw * 1.1, 0, fw * 0.6); g.closePath(); g.fill();
+      g.restore(); }
     g.restore();
   }
 
