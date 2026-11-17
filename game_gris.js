@@ -2344,7 +2344,12 @@
     const pathAbove = () => { G.beginPath(); G.moveTo(0, -1); G.lineTo(ow, -1); for (let k = NC; k >= 0; k--) G.lineTo(curve[k][0], curve[k][1]); G.closePath(); };
     const pathBelow = () => { G.beginPath(); G.moveTo(0, oh + 1); G.lineTo(ow, oh + 1); for (let k = NC; k >= 0; k--) G.lineTo(curve[k][0], curve[k][1]); G.closePath(); };
     // ① 물 위 부분
-    G.save(); pathAbove(); G.clip(); G.drawImage(IMG, rx, ry, rw, rh, 0, 0, ow, h); G.restore();
+    G.drawImage(IMG, rx, ry, rw, rh, 0, 0, ow, h);   // 자르지 않고 그림 전체 (물속 부분은 아래에서 깊어질수록 사라지게)
+    { G.save(); pathBelow(); G.clip(); G.globalCompositeOperation = 'source-atop';   // 물속: 바다색으로 물들고
+      const gt = G.createLinearGradient(0, wl, 0, wl + bulge + FA.sinkFade * wl); gt.addColorStop(0, `rgba(${FA.sinkColor.join(',')},${FA.sinkTint[0]})`); gt.addColorStop(1, `rgba(${FA.sinkColor.join(',')},${FA.sinkTint[1]})`);
+      G.fillStyle = gt; G.fillRect(0, wl - 2, ow, oh); G.globalCompositeOperation = 'destination-out';   // 깊어질수록 안 보이게
+      const gd = G.createLinearGradient(0, wl, 0, wl + bulge + FA.sinkFade * wl); gd.addColorStop(0, `rgba(0,0,0,${1 - FA.sinkAlpha})`); gd.addColorStop(1, 'rgba(0,0,0,1)');
+      G.fillStyle = gd; G.fillRect(0, wl - 2, ow, oh); G.restore(); }
     if (FA.wet) {   // 물이 찰랑여 젖은 띠: 수면선 바로 위가 살짝 어둡게 (위아래로 움직임)
       G.save(); G.globalCompositeOperation = 'source-atop'; const wh = wl * FA.wet.height * (1 + 0.5 * Math.sin(tt * WW.lapSpeed + wph));
       G.beginPath(); G.moveTo(curve[0][0], curve[0][1] - wh); for (const [x, y] of curve) G.lineTo(x, y - wh); for (let q = curve.length - 1; q >= 0; q--) G.lineTo(curve[q][0], curve[q][1] + 1); G.closePath();
@@ -2365,7 +2370,7 @@
         const fr = (y - y0p) / Math.max(1, tot), yy = (y - y0p) / DPR;
         const dx = (Math.sin(yy * RF.freq + tt * RF.speed + wph) + 0.5 * Math.sin(yy * RF.freq * 2.7 - tt * RF.speed * 1.6)) * RF.amp * (0.25 + fr) * ow;
         const band = 1 - RF.band * (0.5 + 0.5 * Math.sin(yy * RF.freq * 0.45 + tt * RF.speed * 0.7 + wph * 3)) * fr;   // 아래로 갈수록 띠가 살짝 보임
-        G.globalAlpha = FA.reflectAlpha * band; G.drawImage(RC, 0, y, pw, rowH, dx * DPR, y, pw, rowH);
+        G.globalAlpha = FA.reflectAlpha * band; G.globalCompositeOperation = 'destination-over'; G.drawImage(RC, 0, y, pw, rowH, dx * DPR, y, pw, rowH);
       }
       G.restore(); }
     G.save(); G.globalCompositeOperation = 'destination-out';
@@ -3202,7 +3207,7 @@
     for (const r of S.washRipples) {
       const k = r.t / 1.2, e = groundEllipse(r.x, r.y, 0.15 + 0.5 * k, terrainHeightAt(r.x, r.y) + 0.004);
       if (!e) continue;
-      ctx.globalAlpha = 0.3 * (1 - k); ctx.drawImage(shadeRing, e.x - e.rx, e.y - e.ry, e.rx * 2, e.ry * 2);
+      ctx.globalAlpha = C.SHORE_WASH.rippleAlpha * (1 - k) * Math.min(1, r.t * 6); ctx.drawImage(shadeRing, e.x - e.rx, e.y - e.ry, e.rx * 2, e.ry * 2);   // 아주 옅게 (발밑 둥근 띠로 보이지 않게)
     }
     // 모래 발자국: 버튼과 같은 발바닥 모양, 팔자로 벌어지고 부드럽게 번짐
     if (!IT) { const FP = C.FOOTPRINTS, sand = pawPrints(FP.color);
@@ -3686,7 +3691,7 @@
     }
     const cut = waterCut(sx, sy);
     // 수영: 몸 둘레 물결 고리를 뒤쪽 절반 → 몸 → 앞쪽 절반 순서로 (몸 위로 고리가 비쳐 보이지 않게)
-    const e = p.sink > 0.2 && C.penguin.swimRingAlpha > 0 ? groundEllipse(p.x, p.y, penH() * 0.45) : null;
+    const e = p.sink > 0.2 && C.penguin.swimRingAlpha > 0 && p.depth === 'deep' ? groundEllipse(p.x, p.y, penH() * 0.45) : null;   // 해안 얕은 물에선 몸 둘레 고리 없음
     const ringHalf = (front) => {
       if (!e) return;
       ctx.save(); ctx.beginPath();
@@ -3697,7 +3702,7 @@
     };
     ringHalf(false);
     if (p.sink > 0.01 && cut && !(artReady() && C.PENGUIN_ART.submerged.hideDeep && p.depth === 'deep')) drawSubmerged(sx, sy, u, v, cut);   // 깊은 바다에선 물속 몸 안 보임   // 잠긴 몸: 푸른 회색, 아래로 옅어지고 굴절로 일렁임
-    if (cut) waterlineArc(cut, sx, sy, false);
+    if (cut && p.depth === 'deep') waterlineArc(cut, sx, sy, false);
     // 림 라이트: 물에 있을 때만 몸 윤곽 바깥으로 번지는 얇은 흰 빛 (검은 바다에 묻히지 않게). 빙하·땅 위에선 꺼짐
     { const PP = PAL.penguin, want = p.mode === 'water' ? 1 : 0;
       p.rimK = (p.rimK || 0) + (want - (p.rimK || 0)) * 0.12;
@@ -3718,7 +3723,7 @@
     const climbClip = false;   // 기어오르는 동안: 빙하 윗면 선 위로만 그림 (옆면을 뚫고 올라오는 것처럼 보이지 않게)
     ctx.save(); if (climbClip) { const ty = project(p.x, p.y, p.z)[1] + 1; ctx.beginPath(); ctx.rect(-W, -H, W * 3, ty + H); ctx.clip(); }
     ctx.translate(sx, sy); drawPenguinFigure(ctx, u, v, 'above', cut); ctx.restore();
-    if (cut) waterlineArc(cut, sx, sy, true);
+    if (cut && p.depth === 'deep') waterlineArc(cut, sx, sy, true);
     ringHalf(true);
   }
   // 몸을 감싸는 수면 타원: 원근에 맞게 납작하게, 출렁임에 따라 1~2px 흔들림

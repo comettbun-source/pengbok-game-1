@@ -358,13 +358,14 @@ const FLOE_ART = {
   enabled: true,
   assign: {
     0: { sprite: 3, width: 4.6 },          // 시작 빙하: 큰 빙하
-    1: { sprite: 2, width: 3.4, heightMul: 0.75 },   // 2번: 높은 빙하 (점프 배치기로 오를 수 있게 높이 살짝 낮춤)
+    1: { sprite: 2, width: 4.3, heightMul: 0.7 },   // 2번: 높은 빙하 (점프 배치기로 오를 수 있게 높이 살짝 낮춤)
     2: { sprite: 1, width: 10, far: true },  // 먼 배경: 납작한 빙하
     3: { sprite: 0, width: 3.5, far: true },  // 먼 배경: 작은 조각
   },
   depthRatio: 0.42,            // 발판 깊이(앞뒤) = 폭의 절반 × 이 값
   standInset: 0.03,            // 그림 윗선보다 이만큼 아래에 발이 닿음 (발이 떠 보이지 않게)
   start: -0.45,                // 시작 위치: 시작 빙하 가로 위치 (−1 왼쪽 끝 ~ 1 오른쪽 끝, 그림의 '시작위치')
+  sinkAlpha: 0.55, sinkFade: 0.35, sinkColor: [10, 18, 28], sinkTint: [0.35, 0.8],   // 물속 부분: 수면 바로 아래 진하기 · 사라지는 깊이(물 위 높이 비율) · 바다색 물듦
   saturation: 0.6,             // 빙하 채도 (1 = 원화 그대로)
   wet: { height: 0.07, alpha: 0.35 },   // 수면선 위 젖은 띠 (높이 비율 · 진하기)
   reflectRipple: { row: 2, freq: 0.35, speed: 1.6, amp: 0.01, band: 0.35 },   // 비친 모습 가로 물결: 띠 높이(px) · 띠 굴곡 · 움직임 · 좌우 흔들림(폭 비율)
@@ -480,7 +481,7 @@ const PHYSICS = {
     shallowMaxSpeed: 0.9, shallowForce: 5.5,      // 얕은 물 걷기: 미는 힘은 흙과 같게 (속도가 끊기지 않게)
     shallowWalk: { wobbleDeg: 8, wobbleFreq: 6 },
     shallowSink: 0.22,        // 얕은 물에서 잠기는 정도 (몸 높이 비율)
-    stepRipple: { radius: 0.32, life: 1.1, alpha: 0.22 },   // 한 걸음마다 발목 둘레 부드러운 파문
+    stepRipple: { radius: 0.32, life: 1.1, alpha: 0.08 },   // 한 걸음마다 발목 둘레 부드러운 파문
     deepMaxSpeed: 2.4,        // 깊은 물 헤엄
     slideMaxSpeed: 3.8,       // 슬라이딩을 누른 채 헤엄 (가장 빠름)
     layDeg: 60, slideLayDeg: 80,   // 헤엄칠 때 진행 방향으로 눕는 각도 / 슬라이딩 헤엄
@@ -619,7 +620,7 @@ const SHORE_WASH = {
   wetAlpha: 0.32,             // 젖은 땅이 어두워지는 정도 (가장 최근이 가장 진함)
   resolution: 0.55,           // 젖음·물막·거품 오프스크린 해상도 (화면 대비 × 기기 픽셀비(최대 2) × 품질 단계)
   slowMul: 0.85,              // 물이 올라온 곳에 서 있으면 속도 배율 (물가에서 멈칫하지 않게 약하게)
-  rippleEvery: 0.45,          // 그때 생기는 작은 파문 간격 (초)
+  rippleEvery: 0.45, rippleAlpha: 0.08,   /* (0.3 → 0.08) 발밑 파문 옅게 */          // 그때 생기는 작은 파문 간격 (초)
   // 끝선 운동 (챠아아 → 머묾 → 사아아). 끝선 x(t): 올라올 때 R·(1−(1−t/Tu)²), 빠질 때 R·(1−(t/Td)^fallExp)
   // 여러 파도가 겹치면 끝선 = 그 순간 가장 큰 값 → 임계 감쇠 스프링(smoothHz)으로 한 번 더 부드럽게 (위치·속도 연속)
   swash: {
