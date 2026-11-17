@@ -280,8 +280,17 @@
       rx, ry, born: S.time === 0 ? -10 : S.time, grab: null, lastEmit: null, peakSpeed: 0, prevSpeed: 0, aLong: 0, dir: [1, 0],
       ph: [r() * WC().bob.phaseSpread, r() * WC().bob.phaseSpread, r() * 6.28, r() * 6.28],
     });
+    const FA = C.FLOE_ART, A = FA && FA.enabled && window.FLOE_ART && FA.assign[c.id];
+    f.art = null;
+    if (A) {   // 빙하 원화: 옆모습 그림 한 장. 발판·충돌은 그림 폭(화면 가로축) × 깊이 타원, 높이는 그림 윗선
+      const sp = window.FLOE_ART.sprites[A.sprite], hw = A.width / 2, k = A.width / sp.w, [Fx, Fy] = startForward(), Rx = -Fy, Ry = Fx, dep = hw * (A.depth ?? FA.depthRatio);
+      f.art = { sp, A, hw, dep, k: k * (A.heightMul ?? 1), Rx, Ry };
+      f.shape = Array.from({ length: 28 }, (_, i) => { const a = i / 28 * Math.PI * 2, cx = Math.cos(a), u = clamp((cx + 1) / 2 * sp.top.length, 0, sp.top.length - 1) | 0, w = sp.top[u] == null ? 0.85 : 1;
+        return [Rx * hw * cx * w + Fx * dep * Math.sin(a), Ry * hw * cx * w + Fy * dep * Math.sin(a)]; });
+      f.rx = hw; f.ry = dep;
+    }
     f.R = Math.max(...f.shape.map(([x, y]) => Math.hypot(x, y)));
-    makeRelief(f, c);
+    if (f.art) f.relief = null; else makeRelief(f, c);
     f.cr = (rx + ry) / 2 * 0.92;                              // 충돌 원 반지름
     f.mass = Math.PI * rx * ry * P.floeDensity;
     f.heave.h = 0; f.heave.v = 0; f.tilt.x = f.tilt.y = f.tilt.vx = f.tilt.vy = 0; f.hist.fill(0);
@@ -399,7 +408,9 @@
     };
     manageField();
     S.p.floe = S.cands[0].floe;
-    { const f = S.p.floe, SP = C.intro.startSpot;   // 시작: 빙하 꼭대기 말고 낮고 평평한 곳에 안정적으로
+    if (S.p.floe && S.p.floe.art && C.FLOE_ART.start != null) { const f = S.p.floe, A = f.art, u = C.FLOE_ART.start * A.hw;   // 원화 빙하: 그림에 표시한 시작 위치
+      S.p.lx = A.Rx * u; S.p.ly = A.Ry * u; S.p.x = f.x + S.p.lx; S.p.y = f.y + S.p.ly; S.p.z = floeTopAt(f, S.p.lx, S.p.ly); }
+    else { const f = S.p.floe, SP = C.intro.startSpot;   // 시작: 빙하 꼭대기 말고 낮고 평평한 곳에 안정적으로
       if (f && f.relief && SP) { let best = null;
         for (let a = 0; a < 24; a++) for (let r = 0; r <= SP.maxR; r += 0.12) {
           const lx = Math.cos(a / 24 * Math.PI * 2) * r * f.rx, ly = Math.sin(a / 24 * Math.PI * 2) * r * f.ry, gr = reliefAt(f, lx, ly);
@@ -507,7 +518,12 @@
     }
     return R[0][0][2];
   }
-  const floeTopAt = (f, lx, ly) => C.floe.topHeight + (f.relief ? meshTopAt(f, lx, ly) : 0) + f.tilt.x * lx + f.tilt.y * ly;
+  function artTopAt(f, lx, ly) {   // 원화 빙하 윗선 높이 (화면 가로 위치 → 그림 열)
+    const A = f.art, T = A.sp.top, n = T.length, u = clamp(((lx * A.Rx + ly * A.Ry) / A.hw + 1) / 2 * n - 0.5, 0, n - 1), i = Math.floor(u), t = u - i;
+    const a = T[i] ?? 0, b = T[Math.min(n - 1, i + 1)] ?? a;
+    return Math.max(0.03, (a + (b - a) * t) * A.k - C.FLOE_ART.standInset);
+  }
+  const floeTopAt = (f, lx, ly) => (f.art ? artTopAt(f, lx, ly) : C.floe.topHeight + (f.relief ? meshTopAt(f, lx, ly) : 0)) + f.tilt.x * lx + f.tilt.y * ly;
   const onFloe = (f, x, y, scale = 1) => f && f.active && inPoly(f.shape, (x - f.x) / scale, (y - f.y) / scale);
   const floeAt = (x, y, scale = 1) => S.floePool.find((f) => f.active && onFloe(f, x, y, scale)) || null;
   const islandAt = (x, y) => S.islands.find((is) => inPoly(is.shape, x, y));
@@ -2293,7 +2309,36 @@
   // 빙하: 물에 반쯤 잠긴 덩어리. 접촉 그림자 → 잠긴 몸(아래로 옅어짐) → 수면 위 옆면 → 수면 흰 링 → 윗면(그라데이션·면 분할선)
   const floeHalo = (() => { const FF = C.FOG.floe, col = (FF ? FF.color : [28, 35, 45]).join(','); return makeSprite([[0, `rgba(${col},0.9)`], [0.4, `rgba(${col},0.6)`], [0.7, `rgba(${col},0.22)`], [1, `rgba(${col},0)`]]); })();
   const maskCv = document.createElement('canvas'), maskG = maskCv.getContext('2d');
+  const floeCv = document.createElement('canvas'), floeG = floeCv.getContext('2d');
+  let floeImg = null;
+  function drawFloeArt(f, d) {   // 원화 빙하: 수면선 위는 그대로, 아래는 바다색으로 물들며 옅어짐. 먼 것은 안개색
+    const FA = C.FLOE_ART, D = window.FLOE_ART; if (!floeImg) { floeImg = new Image(); floeImg.src = D.img; }
+    if (!floeImg.complete || !floeImg.naturalWidth) return;
+    const A = f.art, sp = A.sp, [rx, ry, rw, rh] = sp.r, a = floeAlpha(f);
+    const c = camSpace(f.x, f.y, 0); if (c[1] < rig.near) return;
+    const [sx, sy0] = toScreen(c), sy = sy0 + floeOffset(f), ppu = pxPerUnit(c[1]);
+    const w = A.hw * 2 * ppu, scl = w / sp.w, h = sp.h * scl * (A.A.heightMul ?? 1), wl = sp.wl * scl * (A.A.heightMul ?? 1);
+    const FF = C.FOG.floe, fog = FF ? FF.max * smooth(FF.start, FF.end, d) : fogAt(d);
+    const pw = Math.ceil(w * DPR) + 2, ph = Math.ceil(h * DPR) + 2;
+    if (floeCv.width < pw || floeCv.height < ph) { floeCv.width = Math.max(floeCv.width, pw); floeCv.height = Math.max(floeCv.height, ph); }
+    const G = floeG; G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.globalAlpha = 1; G.clearRect(0, 0, pw, ph);
+    G.imageSmoothingEnabled = true; G.drawImage(floeImg, rx, ry, rw, rh, 0, 0, w * DPR, h * DPR);
+    const wlp = wl * DPR;
+    G.globalCompositeOperation = 'source-atop';   // 물속: 바다색으로 물듦
+    const gs = G.createLinearGradient(0, wlp, 0, ph); gs.addColorStop(0, `rgba(${FA.underColor.join(',')},${FA.underTint[0]})`); gs.addColorStop(1, `rgba(${FA.underColor.join(',')},${FA.underTint[1]})`);
+    G.fillStyle = gs; G.fillRect(0, wlp, pw, ph - wlp);
+    if (fog > 0.01) { G.fillStyle = mixFog([255, 255, 255], 1).replace('rgb(', 'rgba(').replace(')', `,${fog})`); G.fillRect(0, 0, pw, ph); }
+    G.globalCompositeOperation = 'destination-out';   // 물속은 아래로 갈수록 옅게
+    const gf = G.createLinearGradient(0, wlp, 0, ph); gf.addColorStop(0, `rgba(0,0,0,${1 - FA.underAlpha})`); gf.addColorStop(1, 'rgba(0,0,0,1)');
+    G.fillStyle = gf; G.fillRect(0, wlp, pw, ph - wlp);
+    G.globalCompositeOperation = 'source-over';
+    const tiltA = Math.atan((f.tilt.x * A.Rx + f.tilt.y * A.Ry)) * FA.tiltMul;
+    ctx.save(); ctx.globalAlpha = a; ctx.translate(sx, sy); ctx.rotate(-tiltA); ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(floeCv, 0, 0, pw - 2, ph - 2, -w / 2, -wl, w, h);
+    ctx.restore();
+  }
   function drawFloe(f, d) {
+    if (f.art) { drawFloeArt(f, d); return; }
     const a = floeAlpha(f);
     if (a <= 0.01) return;
     const FF = C.FOG.floe, FL = C.floe, dy = floeOffset(f), fog = FF ? FF.max * smooth(FF.start, FF.end, d) : fogAt(d), shp = f.shape;   // GRIS: 빙하 전용 안개
@@ -4277,5 +4322,5 @@
   reset();
   requestAnimationFrame(frame);
 
-  window.__game = { drawPenguinFigure, penguinView, surfaceAt, get sim() { return sim; }, drawFrame: () => draw(1 / 60), step, keys, STEP, penScale, floeTopAt, terrainHeightAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
+  window.__game = { reliefOff: 1, drawPenguinFigure, penguinView, surfaceAt, get sim() { return sim; }, drawFrame: () => draw(1 / 60), step, keys, STEP, penScale, floeTopAt, terrainHeightAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
 })();

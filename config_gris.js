@@ -352,6 +352,23 @@ const PENGUIN_RIG = {
   },
 };
 
+// ── 빙하 원화 (assets/floe_sheet.png → floe_art.js): 0 작음 · 1 납작 · 2 높음 · 3 큼 ─────
+// 고정 빙하 번호(ICE_FIELD.fixed 순서)마다 그림과 폭(월드)을 정함. 높이는 그림 비율대로 (heightMul 로 조절)
+const FLOE_ART = {
+  enabled: true,
+  assign: {
+    0: { sprite: 3, width: 4.6 },          // 시작 빙하: 큰 빙하
+    1: { sprite: 1, width: 4.2 },          // 둘째 빙하: 납작한 빙하
+    2: { sprite: 2, width: 8 },            // 먼 배경 빙하: 높은 빙하
+  },
+  depthRatio: 0.42,            // 발판 깊이(앞뒤) = 폭의 절반 × 이 값
+  standInset: 0.03,            // 그림 윗선보다 이만큼 아래에 발이 닿음 (발이 떠 보이지 않게)
+  start: -0.45,                // 시작 위치: 시작 빙하 가로 위치 (−1 왼쪽 끝 ~ 1 오른쪽 끝, 그림의 '시작위치')
+  underAlpha: 0.5,             // 물속 부분 진하기 (수면선 바로 아래)
+  underColor: [12, 22, 34], underTint: [0.45, 0.85],   // 물속 부분을 바다색으로 (수면선 → 바닥)
+  tiltMul: 0.6,                // 출렁일 때 그림 기울기 배율
+};
+
 // ── 펭귄 원화 (GRIS, 사용자 그림 IMG_6025 → assets/penguin/penguin_atlas.png, penguin_art.js) ─────
 // 포즈 0(서 있음) → 7(수평). 몸·눈·날개·발을 따로 그려, 날개·발은 회전축(어깨·발목)에서 움직이고 눈은 깜빡임
 // enabled: false 면 임시 도형(PENGUIN_RIG)으로 돌아감
@@ -832,7 +849,7 @@ FIREFLY.guide.shoreMinDepth = ISLAND_TERRAIN.sea.fireflyMinDepth;   // 반딧불
 window.CONFIG = {
   ISLAND_TERRAIN,
   LAND_FIREFLY,
-  SNOW_PUFF, MOON, WATER_MIST, INTRO_HINT, SWIM_SPRAY, SWIM_FEET, PENGUIN_RIG, PENGUIN_ART,
+  SNOW_PUFF, MOON, WATER_MIST, FLOE_ART, INTRO_HINT, SWIM_SPRAY, SWIM_FEET, PENGUIN_RIG, PENGUIN_ART,
   SPLASH_DROPS,
   STARS,
   palette: PALETTE,
