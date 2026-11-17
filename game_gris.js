@@ -1056,6 +1056,9 @@
           S.grooves.push({ x: p.x, y: p.y, t: 0, k: Math.min(1, s / 1.5), cont: !!(g0 && g0.t < GR.every * 2.5 && Math.hypot(g0.x - p.x, g0.y - p.y) < 0.6) });
           if (S.grooves.length > GR.max) S.grooves.shift(); }
       } else {
+      if (p.mode === 'water' && P.toboggan && P.toboggan.waterSplash) {   // 물속 슬라이딩: 발로 파닥일 때마다 뒤로 물방울
+        p.wsT = (p.wsT || 0) + dt; if (p.wsT >= P.toboggan.waterSplash && s > 0.6) { p.wsT = 0; tobSplash(p.x - Math.cos(dir) * 0.45, p.y - Math.sin(dir) * 0.45, dir); }
+      }
       s *= Math.exp(-P.slideFriction[surf] * dt);
       s = Math.min(s, deep ? WP.slideMaxSpeed : shallow ? WP.shallowMaxSpeed * 1.6 : P.slideMaxSpeed);   // 깊은 물 슬라이딩 헤엄이 가장 빠름
       }
@@ -1126,16 +1129,20 @@
       }
     } else if (p.mode === 'water') {
       if (islandAt(p.x, p.y)) setMode('island');
-      else { const o = floeAt(p.x, p.y, P.water.climbAt ?? 0.88);
+      else {
+        // 몸 둘레(wallRadius)로 빙하에 닿는지: 몸이 빙하에 겹쳐 들어가 보이지 않게
+        const WR = P.water.wallRadius || 0, hit = (x, y) => floeAt(x, y, P.water.climbAt ?? 0.88);
+        let o = hit(p.x, p.y);
+        if (!o && WR > 0) for (let k = 0; k < 8 && !o; k++) { const a = k / 8 * Math.PI * 2; o = hit(p.x + Math.cos(a) * WR, p.y + Math.sin(a) * WR); }
         if (o) {
-          const top = floeTopAt(o, p.x - o.x, p.y - o.y);
-          if (P.water.autoClimbMax != null && top > P.water.autoClimbMax) {   // 높은 가장자리: 벽처럼 막힘 (점프하면 배치기로 올라감)
-            let nx = p.x - o.x, ny = p.y - o.y; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
-            for (let i = 0; i < 40 && floeAt(p.x, p.y, P.water.climbAt ?? 0.88); i++) { p.x += nx * 0.03; p.y += ny * 0.03; }
+          let nx = p.x - o.x, ny = p.y - o.y; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+          const ex = p.x - nx * WR, ey = p.y - ny * WR, top = floeTopAt(o, ex - o.x, ey - o.y);   // 몸이 닿은 쪽 가장자리 높이
+          if (P.water.autoClimbMax != null && top > P.water.autoClimbMax) {   // 수면보다 높은 가장자리: 머리가 닿고 막힘 (점프하면 배치기로 올라감)
+            for (let i = 0; i < 60 && (hit(p.x, p.y) || hit(p.x - nx * WR, p.y - ny * WR)); i++) { p.x += nx * 0.02; p.y += ny * 0.02; }
             const vn = p.vx * nx + p.vy * ny; if (vn < 0) { p.vx -= vn * nx; p.vy -= vn * ny; }
             p.wallFloe = o; p.wallAt = S.time;
-          } else setMode('floe', o, 0);   // 낮은 가장자리: 그대로 배치기로 퐁 올라섬
-        } }   // 빙하 가장자리에 닿으면 바로 올라섬 (안쪽까지 헤엄쳐 들어가 빙하를 뚫어 보이지 않게)
+          } else if (hit(p.x, p.y)) setMode('floe', o, 0);   // 수면과 높이가 맞는 가장자리만 그대로 퐁 올라섬
+        } }
     } else if (p.mode === 'island') {
       if (!islandAt(p.x, p.y)) { const o = floeAt(p.x, p.y); setMode(o ? 'floe' : 'water', o, -1); }
     }
@@ -2303,6 +2310,7 @@
       let ex = y1 - y0, ey = -(x1 - x0); const el = Math.hypot(ex, ey) || 1; ex /= el; ey /= el;   // 바깥 방향 수평 법선
       const tall = (rf.rings[0][i][2] + rf.rings[0][j][2]) / 2 > rf.H * 0.35 * RL.reliefExaggerate;
       if (pts.length < 3) continue;
+      if (((f.x + (x0 + x1) / 2 - rig.cx) * ex + (f.y + (y0 + y1) / 2 - rig.cy) * ey) > 0.02) continue;   // 카메라 반대쪽을 보는 옆면은 그리지 않음 (낮은 앞쪽 윗면 위로 뒤쪽 옆면 아래끝이 가로선처럼 비치지 않게)
       // 절벽면: 위에서 아래(수면)로 번지듯 이어지는 음영
       const topC = shadeOf([ex, ey, 0.15], tall ? RL.cliffDark : FLOE_SIDE_RGB, tall ? FLOE_SIDE_RGB : PAL.floe.sideLight);
       const yTop = Math.min(pts[0][1], pts[1][1]), yBot = Math.max(...pts.map((q) => q[1]));
@@ -3355,7 +3363,8 @@
         else if (deepW && (p.sliding || sp > 0.3)) ang = Math.sin(t * PA.swim.paddleHz * (p.sliding ? 1.6 : 1) * Math.PI * 2 + e) * deg(PA.swim.paddleDeg);   // 물: 발바닥 파닥파닥
         else if ((p.sliding && !deepW) || p.belly) {   // 발끝을 땅에 대고(아래로 내려 바닥에 닿게), 찰 때 뒤로 쭉
           const TB = PA.toboggan, kk = p.tobKick || 0, bot = q.y + q.h;
-          dy = Math.max(0, -bot) * TB.footDrop - kk * 0.02; dx = kk * TB.kickBack * (e ? 0.8 : 1); ang = deg(TB.footDownDeg) - kk * deg(TB.kickDeg) * (e ? 0.8 : 1);
+          dy = Math.max(0, -bot) * TB.footDrop - kk * 0.02; dx = kk * TB.kickBack * (e ? 0.8 : 1); ang = deg(TB.footDownDeg) - kk * deg(TB.kickDeg) * (e ? 0.8 : 1)
+            + Math.sin(t * Math.PI * 2 * (TB.paddleHz + sp * TB.paddlePerSpeed) + e) * deg(TB.paddleDeg);   // 차는 사이에도 이동 속도에 맞춰 빠르게 파닥
         }
       } else if (q.kind === 'flipper') {
         if (flapK > 0) ang = -deg(PA.flap.deg) * (0.5 + 0.5 * Math.sin(t * PA.flap.hz * Math.PI * 2)) * Math.min(1, flapK * 2);   // 물에서 점프: 날개 파닥

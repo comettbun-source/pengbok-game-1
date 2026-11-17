@@ -385,7 +385,7 @@ const PENGUIN_ART = {
   air: { flutterDeg: 7 },       // 점프 중 날개 떨림 (포즈 자체가 날개를 펼침)
   swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 5, flipperHz: 1.2 },
   flap: { time: 0.7, deg: 32, hz: 6 },   // 물에서 점프 = 날개 파닥 (최대 각도 작게: 반투명 부분이 안 보이게)
-  toboggan: { kickDeg: 22, footDownDeg: 18, footDrop: 1.0, kickBack: 0.08, flipperDeg: 10 },   // flipperDeg: 발 박자에 맞춰 날개 살짝   // footDrop: 발 아래끝을 바닥(0)까지 내림 비율 · kickBack: 찰 때 뒤로 뻗는 거리   // 육지 배 슬라이딩: 발끝을 아래로(땅에 닿게) · 찰 때 뒤로
+  toboggan: { kickDeg: 22, footDownDeg: 18, footDrop: 1.0, kickBack: 0.08, flipperDeg: 10, paddleHz: 3, paddlePerSpeed: 1.6, paddleDeg: 16 },   // paddle: 차는 사이 발 파닥 (빠르기 = paddleHz + 속도 × paddlePerSpeed)   // flipperDeg: 발 박자에 맞춰 날개 살짝   // footDrop: 발 아래끝을 바닥(0)까지 내림 비율 · kickBack: 찰 때 뒤로 뻗는 거리   // 육지 배 슬라이딩: 발끝을 아래로(땅에 닿게) · 찰 때 뒤로
   climb: { time: 0.42, hop: 0.32, riseIn: 0.22, bellyUntil: 0.75 },   // 물 → 빙하 배치기로 퐁: 걸리는 시간 · 솟는 높이 · 빙하 윗면 높이까지 오르는 데 쓰는 비율(짧을수록 옆면을 빨리 지나감) · 배 자세 유지 비율   // 물 → 빙하 기어오름 (그림만): 걸리는 시간 · 살짝 들썩 · 이 비율까지 배를 대고
   blink: { every: [2.5, 5], time: 0.13 },
 };
@@ -439,6 +439,7 @@ const PHYSICS = {
     friction: { sand: 2.4, forest: 3.0 },  // 감쇠 (1/초). 이전 흙 6 → 금방 멈추지 않고 쭉 미끄러짐
     kick: { period: 0.42, impulse: 0.9, needInput: false },   // 0.42초마다 발로 차서 +0.9 속도 (링을 안 밀어도 누르고 있으면 참)
     maxSpeed: 2.6,                         // 섬 슬라이딩 최고 속도
+    waterSplash: 0.16,        // 물속 슬라이딩: 이 간격(초)마다 발 뒤로 물방울
     splash: { count: [6, 10], speed: [0.6, 1.6], up: [0.9, 1.9], spread: 1.1, size: [0.004, 0.009] },   // 젖은 모래·얕은 물에서 발로 찰 때 뒤로 튀는 물방울 (챱챱)
     groove: { every: 0.06, life: 2.2, alpha: 0.42, width: 0.17, color: [6, 7, 9], max: 60, fadeTime: 0.5, taper: 5 },   // (수명 7 → 2.2초, fadeTime 1.6 → 0.5) 짧게 남고 빨리 흐려짐.   // 배가 지나간 홈: 배 근처 진하게 → fadeTime(초)마다 연해짐 · 양끝 taper 점에 걸쳐 뾰족하게   // 모래에 배가 지나간 홈 (간격 초 · 수명 · 진하기 · 폭)
     puff: { count: [7, 11], color: [128, 130, 136] },   // 발로 찰 때마다 튀는 모래 알갱이 (SNOW_PUFF 재사용, 색만 모래 회색)
@@ -456,7 +457,8 @@ const PHYSICS = {
     layTime: 0.3, standTime: 1.0,  // 눕는 데 / 멈춰서 다시 일어서는 데 걸리는 시간 (초)
     deepJumpMul: 0.25, shallowJumpMul: 0.6,   // 물에서 점프 높이 배율 (깊은 물은 슈퍼점프 불가)
     deepJumpCooldown: 0.8,    // 깊은 물 점프 연타 방지 (초)
-    autoClimbMax: 0.36,       // 이 높이까지의 낮은 빙하 가장자리는 헤엄쳐 닿으면 저절로 올라섬. 더 높으면 벽처럼 막히고, 점프하면 배치기로 올라감
+    wallRadius: 0.45,         // 물에서 몸 둘레 반지름: 이만큼 떨어진 곳에서 빙하에 막힘 (몸이 빙하에 겹치지 않게)
+    autoClimbMax: 0.46,       // 가장자리가 수면 가까이 낮은 빙하(첫 빙하 0.28~0.44)만 저절로 올라섬. 높은 빙하(두 번째 0.48~0.73)는 머리가 닿아 막히고 점프로       // 이 높이까지의 낮은 빙하 가장자리는 헤엄쳐 닿으면 저절로 올라섬. 더 높으면 벽처럼 막히고, 점프하면 배치기로 올라감
     climbAt: 1.0,             // 물 → 빙하 올라서는 지점 (빙하 크기 배율). 0.88 이었을 땐 빙하 안쪽까지 헤엄쳐 들어가 뚫어 보였음
     // 물에서 점프 = 배치기 상륙만 (GRIS): 앞쪽 가까이에 빙하·섬이 있을 때만 배를 내밀고 '통' 튀어올라 그 위에 배로 착지 → 잠깐 미끄러짐.
     // 근처에 올라설 곳이 없으면 점프 안 됨 (작은 파문만). enabled: false 면 예전 물 점프
