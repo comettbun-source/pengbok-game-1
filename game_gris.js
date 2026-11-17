@@ -3227,15 +3227,18 @@
     if (!p.air && p.wasAir) p.landAt = t;
     p.wasAir = p.air;
     let target = PO.stand;
+    const idleNow = onGround && !p.sliding && !p.belly && t - (p.inputAt ?? -9) > 0.25 && sp < 0.6 && !(p.landAt != null && t - p.landAt < JP.landTime);
     if (p.belly || (p.sliding && !inW)) target = PO.belly;
     else if (p.air) target = p.vz > JP.topAt * (p.jumpV0 || 1) ? JP.rise : p.vz > -JP.topAt * (p.jumpV0 || 1) ? (p.superUsed || !JP.lowNoTop ? JP.top : JP.rise) : JP.fall;   // 낮은 점프는 날개 펼친 꼭대기 포즈 없이
     else if (deepW) target = p.sliding ? PO.swimSlide : PO.swim;
     else if (p.landAt != null && t - p.landAt < JP.landTime) target = JP.crouch;
+    else if (idleNow && PO.idle != null) target = PO.idle;
     // 큰 변화(서기 ↔ 헤엄·배)는 사이 포즈를 빠르게 지나가게
-    if (p.artPose == null || Math.abs(target - p.artPose) <= 1.01 || p.air) p.artPose = target;
+    if (p.artPose == null || Math.abs(target - p.artPose) <= 1.01 || p.air || target === PO.idle || Math.round(p.artPose) === PO.idle) p.artPose = target;   // 가만히 포즈는 사이 포즈 없이 바로
     else p.artPose += Math.sign(target - p.artPose) * Math.min(Math.abs(target - p.artPose), PO.blendRate * (t - (p.artT || t)));
     p.artT = t;
     const poseI = clamp(Math.round(p.artPose), 0, D.frames.length - 1), F = D.frames[poseI];
+    { const bq = F.parts.find((q) => q.kind === 'body'); if (bq) p.artHalfW = bq.w / 2 * PA.scale; }   // 수면 가림 폭
     const swimLift = clamp((p.artPose - 3) / 3, 0, 1) * (deepW ? 1 : 0);   // 헤엄 포즈일수록 물 위로 띄움
     // 앉기: 땅에서 멈춰 있으면 정면으로 앉음, 움직이면 일어섬
     const SIT = PA.sit, still = onGround && !inW && !p.sliding && !p.belly && sp < SIT.maxDrift && t - (p.inputAt ?? -9) > 0.15 && D.front;   // 입력 없음 (빙하 위 미끄러짐은 무시)
@@ -3252,7 +3255,7 @@
     const flapK = inW && p.flapAt != null && t - p.flapAt < PA.flap.time ? 1 - (t - p.flapAt) / PA.flap.time : 0;
     g.save();
     g.scale(PA.scale, PA.scale);
-    if (walking) g.rotate((p.wobble || 0) * PA.walk.wobbleMul);
+    if (walking) g.rotate((p.wobble || 0) * (p.mode === 'island' ? PA.walk.wobbleMulSand : PA.walk.wobbleMul));
     if (swimLift > 0) {
       let top = 0, bot = 0; for (const q of F.parts) { top = Math.min(top, q.y); bot = Math.max(bot, q.y + q.h); }
       const fh = bot - top;
@@ -3271,7 +3274,8 @@
       let ang = 0, dy = 0, dx = 0;
       if (q.kind === 'foot') {
         const e = footI++ ? Math.PI : 0;
-        if (walking) {   // 한 발씩: 들어서(위) 앞으로 내딛고(−x = 앞, 원화는 왼쪽을 봄), 디딘 발은 뒤로 밀림
+        if (walking) {   // 한 발씩
+          const ph = running && PA.run.feetSync ? t * PA.run.flapHz * Math.PI * 2 : (p.phase || 0);   // 달리기: 날개 박자에 맞춰 빠르게. 들어서(위) 앞으로 내딛고(−x = 앞), 디딘 발은 뒤로
           const sw = Math.sin(ph + e);
           dy = -Math.max(0, sw) * PA.walk.footLift * amt; dx = -Math.cos(ph + e) * PA.walk.footStride * amt; ang = -sw * deg(PA.walk.footSwingDeg) * amt;
         }
@@ -3282,7 +3286,8 @@
         else if (p.air) ang = Math.sin(t * 16) * deg(PA.air.flutterDeg);
         else if (running) ang = -deg(PA.run.flipperUpDeg) * (0.8 + 0.2 * Math.sin(t * PA.run.flapHz * Math.PI * 2));   // 달리기: 날개 살짝 들고 파닥
         else if (deepW) ang = Math.sin(t * PA.swim.flipperHz * Math.PI * 2) * deg(PA.swim.flipperDeg);
-        else if (!walking) ang = Math.sin(t * PA.idle.breathHz * Math.PI * 2) * deg(PA.idle.breathDeg);
+        else if (walking) ang = Math.sin(ph) * deg(PA.walk.flipperSwayDeg) * (1 - 0.5 * amt);   // 느릿 걸을 때 날개 살짝 흔들
+        else ang = Math.sin(t * PA.idle.breathHz * Math.PI * 2) * deg(PA.idle.breathDeg);
       } else if (q.kind === 'eye' && blink) {
         g.drawImage(artImg, rx, ry + rh * 0.45, rw, Math.max(1, rh * 0.15), x, y + h * 0.45, w, Math.max(1, h * 0.15)); continue;
       }
@@ -3441,7 +3446,8 @@
     const t = S.time;
     // 주변 수면 높이만큼 수면선이 오르내림 (오르면 아랫몸이 더 잠김). 최대 cover.maxPx. 반사도 같은 선을 씀
     const lift = penLiftPx(e.d);
-    return { cx: e.x - sx + Math.sin(t * 2.3) * 0.8, cy: e.y - sy - lift + Math.sin(t * 3.1) * 1.2 + Math.sin(t * 5.3) * 0.5, rx: e.rx * (1 + 0.03 * Math.sin(t * 2.7)), ry: e.ry };
+    const fit = artReady() && p.artHalfW ? Math.max(1, p.artHalfW * C.PENGUIN_ART.waterline.cutFit / 0.33) : 1;   // 원화: 몸 폭에 맞춘 수면 가림
+    return { cx: e.x - sx + Math.sin(t * 2.3) * 0.8, cy: e.y - sy - lift + Math.sin(t * 3.1) * 1.2 + Math.sin(t * 5.3) * 0.5, rx: e.rx * fit * (1 + 0.03 * Math.sin(t * 2.7)), ry: e.ry * fit };
   }
   // 펭귄 자리 수면선이 수면 높이로 오르내리는 양 (px, 위로 +)
   function penLiftPx(d) {
@@ -3470,6 +3476,8 @@
   }
   // 잠긴 몸: 'below' 부분을 오프스크린에 그려 푸른 회색으로 물들이고, 수면선 0.5 → 깊이 0 으로 옅게, 세로 압축, 가로 굴절
   const subCv = document.createElement('canvas'), subG = subCv.getContext('2d');
+  const blur2Cv = document.createElement('canvas'), blur2G = blur2Cv.getContext('2d');
+  function compCanvas2(w, h) { if (blur2Cv.width < w || blur2Cv.height < h) { blur2Cv.width = Math.max(blur2Cv.width, w); blur2Cv.height = Math.max(blur2Cv.height, h); } return blur2G; }
   function drawSubmerged(sx, sy, u, v, cut) {
     const RS = C.reflect.submerged, RR = C.reflect.refract, p = S.p;
     const w = Math.ceil(u * 2.4), top = Math.ceil(cut.ry + 2), dep = Math.ceil(u * RS.depth), h = top + dep + 2;
@@ -3483,13 +3491,19 @@
     gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     subG.fillStyle = gr; subG.fillRect(0, 0, w, h);
     subG.globalCompositeOperation = 'source-over';
+    const AS = artReady() && C.PENGUIN_ART.submerged;
+    if (AS && AS.blur < 1) {   // 원화: 물속 몸을 흐리게 (작게 줄였다 다시 키움)
+      const bw2 = Math.max(1, Math.round(pw * AS.blur)), bh2 = Math.max(1, Math.round(ph * AS.blur)), B2 = compCanvas2(bw2, bh2);
+      B2.clearRect(0, 0, bw2, bh2); B2.imageSmoothingEnabled = true; B2.drawImage(subCv, 0, 0, pw, ph, 0, 0, bw2, bh2);
+      subG.setTransform(1, 0, 0, 1, 0, 0); subG.clearRect(0, 0, pw, ph); subG.imageSmoothingEnabled = true; subG.drawImage(B2.canvas, 0, 0, bw2, bh2, 0, 0, pw, ph); subG.setTransform(DPR, 0, 0, DPR, 0, 0);
+    }
     // 슬라이스: 수면선 아래는 세로 squash, 깊을수록 가로 굴절이 커짐
     const N = RS.slices, wy = sy + cut.cy, ppu = Math.max(1, pxPerUnit(camSpace(p.x, p.y, 0)[1]) * Math.max(0.2, rig.sp));
     // 한 장으로 세로 압축 → 정수 픽셀 줄 단위로 가로 굴절만 (줄 경계가 겹치거나 비지 않음)
     const dq = dep * RS.squash, cw = w + 8, chh = top + Math.ceil(dq) + 2, G2 = compCanvas(cw, chh);
     if (top > 0) G2.drawImage(subCv, 0, 0, pw, Math.round(top * DPR), 4, 0, w, top);   // 수면선 위(뒤쪽 반원 안) 부분
     G2.drawImage(subCv, 0, Math.round(top * DPR), pw, Math.round(dep * DPR), 4, top, w, dq);
-    bandBlit(cw, chh, sx - w / 2 - 4, wy - top, RS.alpha, N + 4, (yc) => {
+    bandBlit(cw, chh, sx - w / 2 - 4, wy - top, RS.alpha * (AS ? AS.alphaMul : 1), N + 4, (yc) => {
       const fr = clamp((yc - top) / Math.max(1, dq), 0, 1), dw = (yc - top) / ppu;
       if (fr <= 0) return 0;
       const gg = simGrad(p.x - rig.F[0] * dw, p.y - rig.F[1] * dw), gR = gg[0] * rig.R[0] + gg[1] * rig.R[1];

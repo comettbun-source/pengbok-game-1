@@ -133,7 +133,7 @@ const WATER_CALM = {
 // 보통: 약한 바람
 const WATER_NORMAL = {
   bob: { periods: [2.6, 4.1], ampsPx: [2.4, 1.6], maxPx: 5, lightBoost: 1.4, tiltDeg: 1.6, penguinLag: 0.25, phaseSpread: 6.28 },
-  swell: { count: 5, width: [0.3, 0.6], alpha: [0.06, 0.1], period: [6, 10], thick: 0.6, travel: 8 },
+  swell: { count: 0,  /* (5 → 0) 화면을 가로지르는 긴 직선 띠로 보여서 끔 */ width: [0.3, 0.6], alpha: [0.06, 0.1], period: [6, 10], thick: 0.6, travel: 8 },
   streams: { max: 70, shortShare: 0.6, shortLen: [0.8, 2.6], longLen: [2.6, 5], stepLen: 0.2, life: [2, 5], alpha: [0.12, 0.2], width: 1.5, pairGap: 2.5, pairAlpha: 0.8,
     fieldScale: 0.13, curl: 2.4, morph: 0.07, dirSpread: 60, speed: [0.1, 0.25], depth: [3, 45], avoid: 1.5, eddyAlpha: 0.16 },
   glints: { max: 20, rate: 20, life: 0.6, alpha: [0.14, 0.26], depth: [2, 22] },
@@ -359,7 +359,8 @@ const PENGUIN_ART = {
   rimMul: 0.35,                 // 물에 있을 때 몸 둘레 흰 림 빛 배율 (흰 몸엔 약하게)
   edge: { color: 'rgba(14, 20, 30, 0.38)', blur: 0.03, onIce: true, inWater: false, parts: ['body', 'foot', 'front'] },   // 몸 바깥쪽에만 아주 옅은 어두운 번짐
   pose: {
-    stand: 2,                   // 옆으로 서 있음 · 걷기 (날개 붙인 포즈, 사진 1)
+    idle: 8,                    // 가만히: 똑바로 선 자세 (source_idle.png)
+    stand: 2,                   // 걷기 (날개 붙인 포즈, 사진 1)
     jump: { crouch: 3, rise: 1, top: 0, fall: 1, land: 2, topAt: 0.35, landTime: 0.12, lowNoTop: true },   // lowNoTop: 일반(낮은) 점프는 GIF 2단계(웅크림→오름)까지만, 날개 활짝은 슈퍼점프에서만   // 점프 (참고 GIF): 웅크림 → 오름 → 꼭대기(날개 펼침) → 떨어짐 → 착지. topAt = 올라가는 속도가 처음의 이 비율 아래면 꼭대기 포즈
     belly: 7,                   // 배로 미끄러짐 · 배치기 · 터보건
     swim: 6, swimSlide: 7,      // 물: 기본 헤엄 · 슬라이딩 헤엄 (발 뒤로 뻗고 파닥)
@@ -367,9 +368,10 @@ const PENGUIN_ART = {
   },
   // 가만히 있으면 앉음 (정면 그림 source_front.png): 멈춘 뒤 delay 초 → 정면으로 서서 standTime → 앉음. 움직이면 정면으로 일어섰다(standTime) 옆으로 걸음
   sit: { enabled: false,   /* 정면 그림 사용 안 함 (true 로 바꾸면 다시 앉기) */ maxDrift: 0.6, delay: 1.0, standTime: 0.22, breath: 0.012, breathHz: 0.4, scale: 1.0 },
-  waterline: { swim: 0.5 },     // 물에 떠 있을 때 그림 높이 중 물속 비율
-  walk: { wobbleMul: 0.35, footLift: 0.035, footStride: 0.07, footSwingDeg: 16, bob: 0.01 },   // 뒤뚱 기울기 · 발 들림 · 발 앞뒤 보폭 · 발 각도 · 몸 들썩 (발이 이동거리만큼 움직이게)
-  run: { at: 0.85, flipperUpDeg: 34, flapHz: 5 },   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
+  waterline: { swim: 0.5, cutFit: 1.05 },   // cutFit: 수면 가림·수면 선을 그림 몸 폭에 맞춤 (예전 도형 폭 대신)
+  submerged: { alphaMul: 0.45, blur: 0.22 },   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
+  walk: { wobbleMul: 0.35, wobbleMulSand: 0.15, footLift: 0.035, footStride: 0.07, footSwingDeg: 16, bob: 0.01, flipperSwayDeg: 6 },   // 모래(섬)에선 덜 뒤뚱 · 느릿 걸을 때 날개 살짝 흔들림   // 뒤뚱 기울기 · 발 들림 · 발 앞뒤 보폭 · 발 각도 · 몸 들썩 (발이 이동거리만큼 움직이게)
+  run: { at: 0.85, flipperUpDeg: 34, flapHz: 5, feetSync: true },   // feetSync: 달릴 때 발도 날개 박자에 맞춰 빠르게   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
   idle: { breathDeg: 1.5, breathHz: 0.35 },
   air: { flutterDeg: 7 },       // 점프 중 날개 떨림 (포즈 자체가 날개를 펼침)
   swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 5, flipperHz: 1.2 },

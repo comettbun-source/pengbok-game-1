@@ -18,7 +18,13 @@ def get(r, opaque=False):
     return P
 pieces = []; frames = []
 unit = None
-for e in M:
+def lev(a):
+    a = a.copy(); a[..., :3] = np.clip(a[..., :3].astype(np.float32) * (255.0 / WHITE), 0, 255).astype(np.uint8); return a
+im_main = im
+im_idle = lev(np.array(Image.open('assets/penguin/source_idle.png')))
+IDLE = json.load(open(OUT + 'idle_place.json'))
+for e in M + [IDLE]:   # 포즈 0~7 + 8 = 가만히 서 있음 (source_idle.png, 같은 축척)
+    im = im_idle if e is IDLE else im_main
     y0, x0, y1, x1 = e['comp']
     ca = im[y0:y1, x0:x1, 3] > 30
     ys, xs = np.nonzero(ca)
