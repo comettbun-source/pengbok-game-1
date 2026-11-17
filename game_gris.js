@@ -2328,16 +2328,23 @@
     // 수면선: 가운데가 bulge 만큼 아래로 둥근 호 (빙하 바닥 타원의 앞쪽)
     if (!sp.span) { const T = sp.top, B = sp.bot, n = T.length; let l = 0, r = n - 1; while (l < n && !(T[l] > 0 && B[l] > 0)) l++; while (r > 0 && !(T[r] > 0 && B[r] > 0)) r--; sp.span = [l / n, (r + 1) / n]; }   // 수면선 높이에서 빙하가 차지하는 폭
     const xL = sp.span[0] * ow, xR = sp.span[1] * ow;
-    const N = 40, curve = [[0, wl]]; for (let k = 0; k <= N; k++) { const xn = k / N * 2 - 1; curve.push([xL + (xn + 1) / 2 * (xR - xL), wl + bulge * Math.sqrt(Math.max(0, 1 - xn * xn))]); } curve.push([ow, wl]);
+    const WW = FA.waterWave, wph = f.ph ? f.ph[0] : 0, tt = S.time;   // 수면선: 둥근 호 + 일렁이는 굴곡 (실제 바다처럼)
+    const N = 48, curve = [[0, wl]]; for (let k = 0; k <= N; k++) { const xn = k / N * 2 - 1, env = Math.sqrt(Math.max(0, 1 - xn * xn));
+      const wave = Math.sin(xn * WW.freq[0] * Math.PI + tt * WW.speed[0] + wph) * 0.6 + Math.sin(xn * WW.freq[1] * Math.PI - tt * WW.speed[1] + wph * 2.3) * 0.4;
+      curve.push([xL + (xn + 1) / 2 * (xR - xL), wl + bulge * (env + WW.amp * wave * (0.35 + 0.65 * env))]); } curve.push([ow, wl]);
     const NC = curve.length - 1;
     const pathAbove = () => { G.beginPath(); G.moveTo(0, -1); G.lineTo(ow, -1); for (let k = NC; k >= 0; k--) G.lineTo(curve[k][0], curve[k][1]); G.closePath(); };
     const pathBelow = () => { G.beginPath(); G.moveTo(0, oh + 1); G.lineTo(ow, oh + 1); for (let k = NC; k >= 0; k--) G.lineTo(curve[k][0], curve[k][1]); G.closePath(); };
     // ① 물 위 부분
     G.save(); pathAbove(); G.clip(); G.drawImage(floeImg, rx, ry, rw, rh, 0, 0, ow, h); G.restore();
     // ② 수면에 비친 모습: 물 위 부분을 수면선에서 뒤집어, 아래로 갈수록 옅게
-    G.save(); pathBelow(); G.clip();
-    G.globalAlpha = FA.reflectAlpha; G.translate(0, wl * 2 + bulge); G.scale(1, -1);
-    G.drawImage(floeImg, rx, ry, rw, rh * (sp.wl / sp.h), 0, 0, ow, wl);
+    G.save(); pathBelow(); G.clip(); G.globalAlpha = FA.reflectAlpha;
+    { const NS = 32; for (let k = 0; k < NS; k++) {   // 세로 조각마다 그 자리 수면선에서 뒤집음 → 빙하와 비친 모습 사이에 틈이 없음
+        const x0 = k / NS * ow, x1 = (k + 1) / NS * ow, xm = (x0 + x1) / 2;
+        let cy = wl; for (let q = 1; q < curve.length; q++) if (curve[q][0] >= xm) { const a2 = curve[q - 1], b2 = curve[q], tq = (xm - a2[0]) / Math.max(1e-6, b2[0] - a2[0]); cy = a2[1] + (b2[1] - a2[1]) * tq; break; }
+        G.save(); G.beginPath(); G.rect(x0 - 0.5, cy - 1, x1 - x0 + 1, oh); G.clip(); G.translate(0, cy * 2); G.scale(1, -1);
+        G.drawImage(floeImg, rx + rw * (x0 / ow), ry, rw * ((x1 - x0) / ow), rh * (sp.wl / sp.h), x0, cy - wl, x1 - x0, wl);
+        G.restore(); } }
     G.restore();
     G.save(); G.globalCompositeOperation = 'destination-out';
     const gf = G.createLinearGradient(0, wl, 0, wl + bulge + refl); gf.addColorStop(0, 'rgba(0,0,0,0)'); gf.addColorStop(0.15, 'rgba(0,0,0,0.25)'); gf.addColorStop(1, 'rgba(0,0,0,1)');
@@ -2349,10 +2356,12 @@
       L2.strokeStyle = G.strokeStyle; L2.lineWidth = G.lineWidth; L2.lineCap = 'round'; L2.beginPath(); for (let k = 1; k < NC; k++) { const [x, y] = curve[k]; if (k === 1) L2.moveTo(x, y); else L2.lineTo(x, y); } L2.stroke();
       L2.globalCompositeOperation = 'destination-in'; L2.fillStyle = lg; L2.fillRect(0, 0, ow, oh); G.setTransform(1, 0, 0, 1, 0, 0); G.drawImage(LC, 0, 0); }   // 양끝은 옅게
     G.restore();
-    // ④ 안개
+    // ④ 먼 배경 빙하: 흐리게 + 안개색
+    if (A.A.far && FA.far) { blurInPlace(G, floeCv, pw, ph, FA.far.blur); G.save(); G.setTransform(DPR, 0, 0, DPR, 0, 0); G.globalCompositeOperation = 'source-atop'; G.fillStyle = `rgba(${rgbS(PAL.fogBand)},${FA.far.haze})`; G.fillRect(0, 0, ow, oh); G.restore(); }
+    // ⑤ 안개
     if (fog > 0.01) { G.save(); G.globalCompositeOperation = 'source-atop'; G.fillStyle = mixFog([255, 255, 255], 1).replace('rgb(', 'rgba(').replace(')', `,${fog})`); G.fillRect(0, 0, ow, oh); G.restore(); }
     const tiltA = Math.atan((f.tilt.x * A.Rx + f.tilt.y * A.Ry)) * FA.tiltMul;
-    ctx.save(); ctx.globalAlpha = a; ctx.translate(sx, sy); ctx.rotate(-tiltA); ctx.imageSmoothingEnabled = true;
+    ctx.save(); ctx.globalAlpha = a * (A.A.far && FA.far ? FA.far.alpha : 1); ctx.translate(sx, sy); ctx.rotate(-tiltA); ctx.imageSmoothingEnabled = true;
     ctx.drawImage(floeCv, 0, 0, pw - 2, ph - 2, -ow / 2, -wl, ow, (ph - 2) / DPR);
     ctx.restore();
   }
