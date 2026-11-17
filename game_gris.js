@@ -1142,8 +1142,10 @@
           let nx = p.x - o.x, ny = p.y - o.y; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
           const ex = p.x - nx * Math.min(RX, Math.hypot(p.x - o.x, p.y - o.y) * 0.3), ey = p.y - ny * Math.min(RX, Math.hypot(p.x - o.x, p.y - o.y) * 0.3), top = floeTopAt(o, ex - o.x, ey - o.y);   // 몸이 닿은 쪽 가장자리 높이
           if (P.water.autoClimbMax != null && top > P.water.autoClimbMax) {   // 수면보다 높은 가장자리: 머리가 닿고 막힘 (점프하면 배치기로 올라감)
-            for (let i = 0; i < 80 && touching(); i++) { p.x += nx * 0.02; p.y += ny * 0.02; }   // 이마(몸 윤곽)가 가장자리에 딱 닿을 때까지만
+            for (let i = 0; i < 80 && touching(); i++) { p.x += nx * 0.02; p.y += ny * 0.02; }   // 부리가 가장자리에 딱 닿을 때까지만
             const vn = p.vx * nx + p.vy * ny; if (vn < 0) { p.vx -= vn * nx; p.vy -= vn * ny; }
+            if (S.time - (p.bumpAt ?? -9) > 0.6) {   // 콩: 부딪히면 눈을 깜빡이며 살짝 뒤로 밀려남
+              const BP = P.water.bump; p.bumpAt = S.time; p.blinkAt = S.time; p.vx += nx * BP.push; p.vy += ny * BP.push; ripple(p.x - nx * 0.4, p.y - ny * 0.4, 0.5, 0.8, WC().ripple.alpha * 0.5); log('floeBump'); }
             p.wallFloe = o; p.wallAt = S.time;
           } else if (hit(p.x, p.y)) setMode('floe', o, 0);   // 수면과 높이가 맞는 가장자리만 그대로 퐁 올라섬
         } }
@@ -3354,7 +3356,7 @@
       g.translate(0, ((-(p.sink || 0) + fh * PA.waterline.swim) * swimLift + Math.sin(t * 1.8) * 0.01 - flapK * 0.03) * u);
     }
     if (walking) g.translate(0, -Math.abs(Math.sin(ph)) * PA.walk.bob * amt * u);
-    if (p.bellySlapAt != null && t - p.bellySlapAt < PA.toboggan.slapTime && p.sliding) { const k = (t - p.bellySlapAt) / PA.toboggan.slapTime; g.translate(0, -Math.sin(Math.PI * (1 - k)) * PA.toboggan.slapHop * u); }   // 물개 배치기: 살짝 들렸다 철썩
+    if (p.sliding && !deepW && !p.air && (p.mode === 'water' || (p.mode === 'island' && wetAt(p.x, p.y) > 0.15))) { const TB = PA.toboggan; g.translate(0, -Math.abs(Math.sin(Math.PI * t * (TB.paddleHz + sp * TB.paddlePerSpeed))) * TB.slapHop * u); }   // 물가 배치기: 발 파닥 박자에 맞춰 통통통
     // 그림을 오프스크린에 그린 뒤 빛(명암·얼굴·반딧불이)을 입혀 한 번에 올림
     const X0 = -0.9 * u, Y0 = -1.35 * u, RW = 1.8 * u, RH = 1.7 * u, kpx = Math.min(3, DPR * PA.scale * 1.05);
     const opw = Math.ceil(RW * kpx), oph = Math.ceil(RH * kpx);
@@ -4199,7 +4201,7 @@
       let sd = f === p.floe && !p.air ? Math.max(d, pd + 0.01) : d;
       if (sd === d && !p.air && p.mode !== 'floe') {   // 빙하 바로 옆 물·땅의 펭귄: 펭귄 쪽 빙하 가장자리보다 앞이면 펭귄을 나중에 (빙하가 펭귄을 덮지 않게)
         const dx = p.x - f.x, dy = p.y - f.y, dl = Math.hypot(dx, dy);
-        if (dl < f.R * 1.8) sd = Math.min(d, pd - 0.01);   // 빙하 옆 물의 펭귄은 항상 빙하 뒤에 그려 가려지지 않게 (몸이 빙하 윤곽에 닿기 전에 막히므로 겹쳐 보이지 않음)
+        if (dl < f.R * 1.8) sd = Math.max(d, pd + 0.01);   // 빙하 옆 물의 펭귄: 빙하를 먼저(멀리) 그리고 펭귄을 위에 → 얼굴이 빙하에 가려지지 않음 (몸은 닿기 전에 막혀 겹치지 않음)
       }
       if (d > -f.R) items.push({ d: sd, draw: () => drawFloe(f, Math.max(d, 0)) });
     }
