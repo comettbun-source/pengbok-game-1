@@ -1048,7 +1048,7 @@
         const inl = IT ? inlandDist(p.x, p.y) : 0, onSand = !IT || inl < IT.zones[0].to;
         p.tobT = (p.tobT || 0) + dt;
         if (p.tobT >= TB.kick.period && (!TB.kick.needInput || mag > 0.1)) { p.tobT = 0; p.tobKick = 1; s += TB.kick.impulse; const kx = p.x - Math.cos(dir) * 0.25, ky = p.y - Math.sin(dir) * 0.25;
-          if (p.mode === 'water' || wetAt(p.x, p.y) > 0.15) { tobSplash(kx, ky, dir); waterMist(p.x, p.y, C.WATER_MIST.belly); p.bellySlapAt = S.time; } else tobPuff(kx, ky, p.z); }   // 물가: 물개처럼 배치기 + 둘레로 물 튐   // 젖은 곳: 발 챱챱 물방울
+          if (p.mode === 'water' || wetAt(p.x, p.y) > 0.15) { tobSplash(kx, ky, dir); if (C.WATER_MIST.belly) waterMist(p.x, p.y, C.WATER_MIST.belly); } else tobPuff(kx, ky, p.z); }   // 물가: 물개처럼 배치기 + 둘레로 물 튐   // 젖은 곳: 발 챱챱 물방울
         s *= Math.exp(-(onSand ? TB.friction.sand : TB.friction.forest) * dt);
         s = Math.min(s, TB.maxSpeed);
         const GR = TB.groove; p.grT = (p.grT || 0) + dt;   // 배가 지나간 홈
@@ -3356,7 +3356,7 @@
       g.translate(0, ((-(p.sink || 0) + fh * PA.waterline.swim) * swimLift + Math.sin(t * 1.8) * 0.01 - flapK * 0.03) * u);
     }
     if (walking) g.translate(0, -Math.abs(Math.sin(ph)) * PA.walk.bob * amt * u);
-    if (p.sliding && !deepW && !p.air && (p.mode === 'water' || (p.mode === 'island' && wetAt(p.x, p.y) > 0.15))) { const TB = PA.toboggan; g.translate(0, -Math.abs(Math.sin(Math.PI * t * (TB.paddleHz + sp * TB.paddlePerSpeed))) * TB.slapHop * u); }   // 물가 배치기: 발 파닥 박자에 맞춰 통통통
+    if (PA.toboggan.slapHop > 0 && p.sliding && !deepW && !p.air && (p.mode === 'water' || (p.mode === 'island' && wetAt(p.x, p.y) > 0.15))) { const TB = PA.toboggan; g.translate(0, -Math.abs(Math.sin(Math.PI * t * (TB.paddleHz + sp * TB.paddlePerSpeed))) * TB.slapHop * u); }   // 물가 배치기: 발 파닥 박자에 맞춰 통통통
     // 그림을 오프스크린에 그린 뒤 빛(명암·얼굴·반딧불이)을 입혀 한 번에 올림
     const X0 = -0.9 * u, Y0 = -1.35 * u, RW = 1.8 * u, RH = 1.7 * u, kpx = Math.min(3, DPR * PA.scale * 1.05);
     const opw = Math.ceil(RW * kpx), oph = Math.ceil(RH * kpx);

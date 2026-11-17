@@ -385,7 +385,7 @@ const PENGUIN_ART = {
   air: { flutterDeg: 7 },       // 점프 중 날개 떨림 (포즈 자체가 날개를 펼침)
   swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 5, flipperHz: 1.2 },
   flap: { time: 0.7, deg: 32, hz: 6 },   // 물에서 점프 = 날개 파닥 (최대 각도 작게: 반투명 부분이 안 보이게)
-  toboggan: { kickDeg: 22, footDownDeg: 18, footDrop: 1.0, kickBack: 0.08, flipperDeg: 10, slapTime: 0.3, slapHop: 0.035, paddleHz: 2.6, paddlePerSpeed: 1.3, paddleDeg: 16 },   // paddle: 차는 사이 발 파닥 (빠르기 = paddleHz + 속도 × paddlePerSpeed)   // flipperDeg: 발 박자에 맞춰 날개 살짝   // footDrop: 발 아래끝을 바닥(0)까지 내림 비율 · kickBack: 찰 때 뒤로 뻗는 거리   // 육지 배 슬라이딩: 발끝을 아래로(땅에 닿게) · 찰 때 뒤로
+  toboggan: { kickDeg: 22, footDownDeg: 18, footDrop: 1.0, kickBack: 0.08, flipperDeg: 10, slapTime: 0.3, slapHop: 0,  /* 물가 배치기 통통 끔 */ paddleHz: 2.6, paddlePerSpeed: 1.3, paddleDeg: 16 },   // paddle: 차는 사이 발 파닥 (빠르기 = paddleHz + 속도 × paddlePerSpeed)   // flipperDeg: 발 박자에 맞춰 날개 살짝   // footDrop: 발 아래끝을 바닥(0)까지 내림 비율 · kickBack: 찰 때 뒤로 뻗는 거리   // 육지 배 슬라이딩: 발끝을 아래로(땅에 닿게) · 찰 때 뒤로
   climb: { time: 0.42, hop: 0.32, riseIn: 0.22, bellyUntil: 0.75 },   // 물 → 빙하 배치기로 퐁: 걸리는 시간 · 솟는 높이 · 빙하 윗면 높이까지 오르는 데 쓰는 비율(짧을수록 옆면을 빨리 지나감) · 배 자세 유지 비율   // 물 → 빙하 기어오름 (그림만): 걸리는 시간 · 살짝 들썩 · 이 비율까지 배를 대고
   blink: { every: [2.5, 5], time: 0.13 },
 };
@@ -405,7 +405,7 @@ const SWIM_FEET = {
 // ── 물가루 (GRIS): 둘레로 낮게 퍼지는 아주 작은 물방울 (물기둥 없이) ─────
 const WATER_MIST = {
   flap: { count: [55, 75], radius: [0.25, 0.55], speed: [1.0, 2.6], up: [0.8, 2.0], size: [0.008, 0.02], ripple: 0.9 },   // 물에서 점프(날개 파닥)
-  belly: { count: [30, 42], radius: [0.3, 0.55], speed: [0.8, 2.0], up: [0.8, 1.8], size: [0.008, 0.018], ripple: 0.7 },   // 물가 슬라이딩 배치기
+  belly: null,   // 물가 슬라이딩 배치기 물튐 끔 (발로 찰 때 뒤로 튀는 물방울은 그대로)
 };
 
 // ── 눈가루 (GRIS): 빙하에 오르내릴 때 발밑에서 흩날림 ─────
