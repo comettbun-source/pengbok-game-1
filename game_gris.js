@@ -978,7 +978,7 @@
         if (!bellyT || S.time < (p.waterJumpCD || 0)) blocked = true;
       }
       if (inW && (WP.waterJump === 'flap' || (WP.waterJump === 'auto' && !bellyT))) {   // 올라설 곳이 없으면 날개만 파닥
-        blocked = true; bellyT = null; if (S.time > (p.flapAt || -9) + 0.25) { p.flapAt = S.time; splashDrops(p.x, p.y, 1.2); log('waterFlap'); }
+        blocked = true; bellyT = null; if (S.time > (p.flapAt || -9) + 0.25) { p.flapAt = S.time; waterMist(p.x, p.y, C.WATER_MIST.flap); log('waterFlap'); }   // 날개 파닥: 물가루가 둘레로 퍼짐 (물기둥 없이)
       }
       if (kind === 'super' && p.air && p.superUsed && P.superJump.oncePerAir) { blocked = true; log('superChainBlocked'); }   // 공중에서 슈퍼점프 연속 금지 (둥둥 뜨는 느낌 방지)
       else if (bellyT && !blocked && !p.air) {
@@ -1048,7 +1048,7 @@
         const inl = IT ? inlandDist(p.x, p.y) : 0, onSand = !IT || inl < IT.zones[0].to;
         p.tobT = (p.tobT || 0) + dt;
         if (p.tobT >= TB.kick.period && (!TB.kick.needInput || mag > 0.1)) { p.tobT = 0; p.tobKick = 1; s += TB.kick.impulse; const kx = p.x - Math.cos(dir) * 0.25, ky = p.y - Math.sin(dir) * 0.25;
-          if (p.mode === 'water' || wetAt(p.x, p.y) > 0.15) tobSplash(kx, ky, dir); else tobPuff(kx, ky, p.z); }   // 젖은 곳: 발 챱챱 물방울
+          if (p.mode === 'water' || wetAt(p.x, p.y) > 0.15) { tobSplash(kx, ky, dir); waterMist(p.x, p.y, C.WATER_MIST.belly); p.bellySlapAt = S.time; } else tobPuff(kx, ky, p.z); }   // 물가: 물개처럼 배치기 + 둘레로 물 튐   // 젖은 곳: 발 챱챱 물방울
         s *= Math.exp(-(onSand ? TB.friction.sand : TB.friction.forest) * dt);
         s = Math.min(s, TB.maxSpeed);
         const GR = TB.groove; p.grT = (p.grT || 0) + dt;   // 배가 지나간 홈
@@ -2702,6 +2702,18 @@
   }
 
   // ── 눈가루: 빙하에 오르내릴 때 발밑에서 흩날림 ───────────
+  // 물가루: 둘레로 낮게 퍼지는 아주 작은 방울 여러 개 + 작은 파문 (물기둥·왕관 없음)
+  function waterMist(x, y, M) {
+    const SD = C.SPLASH_DROPS; if (!SD || !M) return;
+    S.drops = S.drops || [];
+    const n = Math.round(lerp(M.count[0], M.count[1], Math.random()));
+    for (let i = 0; i < n; i++) {
+      if (S.drops.length >= SD.max) S.drops.shift();
+      const a = Math.random() * Math.PI * 2, r0 = lerp(M.radius[0], M.radius[1], Math.random()), sp = lerp(M.speed[0], M.speed[1], Math.random());
+      S.drops.push({ x: x + Math.cos(a) * r0, y: y + Math.sin(a) * r0 * 0.8, z: 0.02, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.8, vz: lerp(M.up[0], M.up[1], Math.random()), size: lerp(M.size[0], M.size[1], Math.pow(Math.random(), 1.5)), t: 0 });
+    }
+    if (M.ripple) ripple(x, y, M.ripple, 1.0, WC().ripple.alpha * 0.5);
+  }
   // 터보건: 젖은 모래·얕은 물에서 발로 찰 때 뒤로 튀는 물방울
   function tobSplash(x, y, dir) {
     const TB = C.PHYSICS.toboggan, SD = C.SPLASH_DROPS, W2 = TB.splash; if (!SD || !W2) return;
@@ -3342,6 +3354,7 @@
       g.translate(0, ((-(p.sink || 0) + fh * PA.waterline.swim) * swimLift + Math.sin(t * 1.8) * 0.01 - flapK * 0.03) * u);
     }
     if (walking) g.translate(0, -Math.abs(Math.sin(ph)) * PA.walk.bob * amt * u);
+    if (p.bellySlapAt != null && t - p.bellySlapAt < PA.toboggan.slapTime && p.sliding) { const k = (t - p.bellySlapAt) / PA.toboggan.slapTime; g.translate(0, -Math.sin(Math.PI * (1 - k)) * PA.toboggan.slapHop * u); }   // 물개 배치기: 살짝 들렸다 철썩
     // 그림을 오프스크린에 그린 뒤 빛(명암·얼굴·반딧불이)을 입혀 한 번에 올림
     const X0 = -0.9 * u, Y0 = -1.35 * u, RW = 1.8 * u, RH = 1.7 * u, kpx = Math.min(3, DPR * PA.scale * 1.05);
     const opw = Math.ceil(RW * kpx), oph = Math.ceil(RH * kpx);
@@ -4079,9 +4092,10 @@
     g2.putImageData(img, 0, 0);
     // 2톤: 같은 무늬에 색만 입힌 타일 두 장 (층마다 번갈아)
     return PAL.fogClumps.map((col) => {
-      const c2 = document.createElement('canvas'); c2.width = c2.height = N; const q = c2.getContext('2d');
-      q.drawImage(cv, 0, 0); q.globalCompositeOperation = 'source-in'; q.fillStyle = `rgb(${rgbS(col)})`; q.fillRect(0, 0, N, N);
-      return c2;
+      const c2 = document.createElement('canvas'), P2 = 2; c2.width = c2.height = N + P2 * 2; const q = c2.getContext('2d');   // 둘레 2px 를 반대쪽 무늬로 채움 (늘여 그릴 때 이음매에 투명이 섞이지 않게)
+      for (const dx of [-N, 0, N]) for (const dy of [-N, 0, N]) q.drawImage(cv, P2 + dx, P2 + dy);
+      q.globalCompositeOperation = 'source-in'; q.fillStyle = `rgb(${rgbS(col)})`; q.fillRect(0, 0, N + P2 * 2, N + P2 * 2);
+      c2.pad = P2; return c2;
     });
   })();
   const fogCv = document.createElement('canvas'), fogG = fogCv.getContext('2d');
@@ -4094,8 +4108,8 @@
     layG.setTransform(1, 0, 0, 1, 0, 0); layG.globalCompositeOperation = 'source-over'; layG.clearRect(0, 0, w, h);
     const ox = ((-(S.time * L.speed * w) - cam.yaw / (Math.PI * 2) * w * 2.2 * (1 / L.scale)) % tw + tw) % tw - tw;
     const oy = ((S.time * L.speed * w * 0.15 + li * 37) % th + th) % th - th;
-    const ox0 = Math.round(ox), oy0 = Math.round(oy);   // 불투명하게 1px 겹쳐 깔고 (겹친 줄이 진해지지 않게), 진하기는 마지막에 한 번만
-    for (let x = ox0; x < w; x += tw) for (let y = oy0; y < h; y += th) { const T = fogTile[li % fogTile.length], N = T.width; layG.drawImage(T, 0.5, 0.5, N - 1, N - 1, x, y, tw + 1, th + 1); }   // 가장자리 반 픽셀은 빼고 (투명 바깥이 섞여 이음매가 생기지 않게)
+    const ox0 = Math.round(ox), oy0 = Math.round(oy);   layG.imageSmoothingEnabled = true;   // 진하기는 마지막에 한 번만
+    for (let x = ox0; x < w; x += tw) for (let y = oy0; y < h; y += th) { const T = fogTile[li % fogTile.length], pd = T.pad || 0, N = T.width - pd * 2; layG.drawImage(T, pd, pd, N, N, x, y, tw, th); }   // 정수 위치·정수 크기로 겹치지도 비지도 않게 (반투명 타일이 겹치면 이음매가 가로선으로 보임)
     layG.globalCompositeOperation = 'destination-in';
     const cy = (hz + L.y) * h, hh = L.height * h / 2, gr = layG.createLinearGradient(0, cy - hh, 0, cy + hh);
     gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.35, 'rgba(0,0,0,1)'); gr.addColorStop(0.65, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');

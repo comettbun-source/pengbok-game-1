@@ -385,7 +385,7 @@ const PENGUIN_ART = {
   air: { flutterDeg: 7 },       // 점프 중 날개 떨림 (포즈 자체가 날개를 펼침)
   swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 5, flipperHz: 1.2 },
   flap: { time: 0.7, deg: 32, hz: 6 },   // 물에서 점프 = 날개 파닥 (최대 각도 작게: 반투명 부분이 안 보이게)
-  toboggan: { kickDeg: 22, footDownDeg: 18, footDrop: 1.0, kickBack: 0.08, flipperDeg: 10, paddleHz: 2.6, paddlePerSpeed: 1.3, paddleDeg: 16 },   // paddle: 차는 사이 발 파닥 (빠르기 = paddleHz + 속도 × paddlePerSpeed)   // flipperDeg: 발 박자에 맞춰 날개 살짝   // footDrop: 발 아래끝을 바닥(0)까지 내림 비율 · kickBack: 찰 때 뒤로 뻗는 거리   // 육지 배 슬라이딩: 발끝을 아래로(땅에 닿게) · 찰 때 뒤로
+  toboggan: { kickDeg: 22, footDownDeg: 18, footDrop: 1.0, kickBack: 0.08, flipperDeg: 10, slapTime: 0.3, slapHop: 0.06, paddleHz: 2.6, paddlePerSpeed: 1.3, paddleDeg: 16 },   // paddle: 차는 사이 발 파닥 (빠르기 = paddleHz + 속도 × paddlePerSpeed)   // flipperDeg: 발 박자에 맞춰 날개 살짝   // footDrop: 발 아래끝을 바닥(0)까지 내림 비율 · kickBack: 찰 때 뒤로 뻗는 거리   // 육지 배 슬라이딩: 발끝을 아래로(땅에 닿게) · 찰 때 뒤로
   climb: { time: 0.42, hop: 0.32, riseIn: 0.22, bellyUntil: 0.75 },   // 물 → 빙하 배치기로 퐁: 걸리는 시간 · 솟는 높이 · 빙하 윗면 높이까지 오르는 데 쓰는 비율(짧을수록 옆면을 빨리 지나감) · 배 자세 유지 비율   // 물 → 빙하 기어오름 (그림만): 걸리는 시간 · 살짝 들썩 · 이 비율까지 배를 대고
   blink: { every: [2.5, 5], time: 0.13 },
 };
@@ -400,6 +400,12 @@ const SWIM_FEET = {
   idleFlutter: 0.5,
   slide: true,                  // 슬라이딩 헤엄(엎드려 쭉)에도 뒤로 뻗은 발 표시
   liftDeg: 12, rootY: 0.03,     // 몸 축에서 등 쪽으로 드는 각도 · 엉덩이 끝에서 발이 시작하는 위치
+};
+
+// ── 물가루 (GRIS): 둘레로 낮게 퍼지는 아주 작은 물방울 (물기둥 없이) ─────
+const WATER_MIST = {
+  flap: { count: [55, 75], radius: [0.25, 0.55], speed: [1.0, 2.6], up: [0.8, 2.0], size: [0.008, 0.02], ripple: 0.9 },   // 물에서 점프(날개 파닥)
+  belly: { count: [30, 42], radius: [0.3, 0.55], speed: [0.8, 2.0], up: [0.8, 1.8], size: [0.008, 0.018], ripple: 0.7 },   // 물가 슬라이딩 배치기
 };
 
 // ── 눈가루 (GRIS): 빙하에 오르내릴 때 발밑에서 흩날림 ─────
@@ -457,7 +463,7 @@ const PHYSICS = {
     layTime: 0.3, standTime: 1.0,  // 눕는 데 / 멈춰서 다시 일어서는 데 걸리는 시간 (초)
     deepJumpMul: 0.25, shallowJumpMul: 0.6,   // 물에서 점프 높이 배율 (깊은 물은 슈퍼점프 불가)
     deepJumpCooldown: 0.8,    // 깊은 물 점프 연타 방지 (초)
-    wallReach: 0.6,           // 물에서 머리·꼬리 쪽(화면 가로) 몸 길이: 여기까지 빙하에 닿으면 막힘 (펭귄 키 0.975 기준, 그림에 맞춤)
+    wallReach: 0.56,          // 물에서 머리·꼬리 쪽(화면 가로) 몸 길이: 여기까지 빙하에 닿으면 막힘 (펭귄 키 0.975 기준, 그림에 맞춤)
     wallRadius: 0.95, /* 깊이(앞뒤) 방향 몸 범위: 이동 선 앞뒤로 비켜 지나가도 화면에서 빙하와 겹치지 않게 막음 */         // 물에서 몸 둘레 반지름: 이만큼 떨어진 곳에서 빙하에 막힘 (몸이 빙하에 겹치지 않게)
     autoClimbMax: 0.46,       // 가장자리가 수면 가까이 낮은 빙하(첫 빙하 0.28~0.44)만 저절로 올라섬. 높은 빙하(두 번째 0.48~0.73)는 머리가 닿아 막히고 점프로       // 이 높이까지의 낮은 빙하 가장자리는 헤엄쳐 닿으면 저절로 올라섬. 더 높으면 벽처럼 막히고, 점프하면 배치기로 올라감
     climbAt: 1.0,             // 물 → 빙하 올라서는 지점 (빙하 크기 배율). 0.88 이었을 땐 빙하 안쪽까지 헤엄쳐 들어가 뚫어 보였음
@@ -824,7 +830,7 @@ FIREFLY.guide.shoreMinDepth = ISLAND_TERRAIN.sea.fireflyMinDepth;   // 반딧불
 window.CONFIG = {
   ISLAND_TERRAIN,
   LAND_FIREFLY,
-  SNOW_PUFF, MOON, INTRO_HINT, SWIM_SPRAY, SWIM_FEET, PENGUIN_RIG, PENGUIN_ART,
+  SNOW_PUFF, MOON, WATER_MIST, INTRO_HINT, SWIM_SPRAY, SWIM_FEET, PENGUIN_RIG, PENGUIN_ART,
   SPLASH_DROPS,
   STARS,
   palette: PALETTE,
