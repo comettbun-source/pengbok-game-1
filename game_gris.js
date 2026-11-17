@@ -3353,7 +3353,11 @@
     if (swimLift > 0) {
       let top = 0, bot = 0; for (const q of F.parts) { top = Math.min(top, q.y); bot = Math.max(bot, q.y + q.h); }
       const fh = bot - top;
-      g.translate(0, ((-(p.sink || 0) + fh * PA.waterline.swim) * swimLift + Math.sin(t * 1.8) * 0.01 - flapK * 0.03) * u);
+      let dive = fh * PA.waterline.swim;
+      const eq = F.parts.find((q) => q.kind === 'eye');
+      if (p.sliding && eq && PA.waterline.slideEye != null) dive = -(eq.y + eq.h) - PA.waterline.slideEye;   // 바다 슬라이딩: 눈 바로 아래까지 잠김
+      p.artDive = (p.artDive ?? dive) + (dive - (p.artDive ?? dive)) * Math.min(1, (t - (p.artDiveT ?? t)) * 6); p.artDiveT = t;   // 잠기는 깊이는 부드럽게
+      g.translate(0, ((-(p.sink || 0) + p.artDive) * swimLift + Math.sin(t * 1.8) * 0.01 - flapK * 0.03) * u);
     }
     if (walking) g.translate(0, -Math.abs(Math.sin(ph)) * PA.walk.bob * amt * u);
     if (PA.toboggan.slapHop > 0 && p.sliding && !deepW && !p.air && (p.mode === 'water' || (p.mode === 'island' && wetAt(p.x, p.y) > 0.15))) { const TB = PA.toboggan; g.translate(0, -Math.abs(Math.sin(Math.PI * t * (TB.paddleHz + sp * TB.paddlePerSpeed))) * TB.slapHop * u); }   // 물가 배치기: 발 파닥 박자에 맞춰 통통통
@@ -3612,7 +3616,7 @@
     // 주변 수면 높이만큼 수면선이 오르내림 (오르면 아랫몸이 더 잠김). 최대 cover.maxPx. 반사도 같은 선을 씀
     const lift = penLiftPx(e.d);
     const fit = artReady() && p.artHalfW ? Math.max(1, p.artHalfW * C.PENGUIN_ART.waterline.cutFit / 0.33) : 1;   // 원화: 몸 폭에 맞춘 수면 가림
-    return { cx: e.x - sx + Math.sin(t * 2.3) * 0.8, cy: e.y - sy - lift + Math.sin(t * 3.1) * 1.2 + Math.sin(t * 5.3) * 0.5, rx: e.rx * fit * (1 + 0.03 * Math.sin(t * 2.7)), ry: e.ry * fit };
+    return { cx: e.x - sx + Math.sin(t * 2.3) * 0.8, cy: e.y - sy - lift + Math.sin(t * 3.1) * 1.2 + Math.sin(t * 5.3) * 0.5, rx: e.rx * fit * (1 + 0.03 * Math.sin(t * 2.7)), ry: e.ry * Math.min(fit, C.PENGUIN_ART.waterline.cutFitY ?? fit) };   // 세로는 덜 키움 (앞쪽 호가 너무 내려가 몸이 덜 잠겨 보이지 않게)
   }
   // 펭귄 자리 수면선이 수면 높이로 오르내리는 양 (px, 위로 +)
   function penLiftPx(d) {

@@ -370,7 +370,7 @@ const PENGUIN_ART = {
   },
   // 가만히 있으면 앉음 (정면 그림 source_front.png): 멈춘 뒤 delay 초 → 정면으로 서서 standTime → 앉음. 움직이면 정면으로 일어섰다(standTime) 옆으로 걸음
   sit: { enabled: false,   /* 정면 그림 사용 안 함 (true 로 바꾸면 다시 앉기) */ maxDrift: 0.6, delay: 1.0, standTime: 0.22, breath: 0.012, breathHz: 0.4, scale: 1.0 },
-  waterline: { swim: 0.5, cutFit: 1.05 },   // cutFit: 수면 가림·수면 선을 그림 몸 폭에 맞춤 (예전 도형 폭 대신)
+  waterline: { swim: 0.5, cutFit: 1.05, cutFitY: 1.3, slideEye: -0.03 },   // slideEye: 바다 슬라이딩 잠김 맞춤 (눈 아래끝 기준, − 일수록 더 깊이). 화면에서 수면이 눈 바로 아래에 오도록 맞춘 값   // cutFit: 수면 가림·수면 선을 그림 몸 폭에 맞춤 (예전 도형 폭 대신)
   submerged: { alphaMul: 0.45, blur: 0.22, hideDeep: true },   // hideDeep: 깊은 바다에선 물속 몸 안 그림 (얕은 물만)
   reflectDrop: 0.7,             // 물에 비친 모습 시작선을 수면 타원 앞쪽(보이는 몸 아래끝)으로 내림 (반지름 배율)
   reflectBlur: 1,               // 물에 비친 모습 흐림 (1 = 원래대로 선명. 흐리게 하면 버그가 있어 되돌림)
