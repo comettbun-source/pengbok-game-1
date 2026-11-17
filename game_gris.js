@@ -1770,6 +1770,31 @@
     ctx.globalAlpha = 1;
   }
 
+  // 초승달: 별처럼 카메라가 돌면 같이 흐름. 펭귄 명암 방향도 여기서
+  function moonScreen() {
+    const MO = C.MOON, ST = C.STARS; if (!MO) return null;
+    const hz = rig.horizon, span = W * (ST ? ST.spread : 3.2), shift = (cam.yaw / (Math.PI * 2)) * span * 2;
+    return [((MO.u * span - shift) % span + span) % span - (span - W) / 2, hz - MO.elev * H];
+  }
+  let moonSpr = null;
+  function drawMoon() {
+    const MO = C.MOON, m = moonScreen(); if (!MO || !m) return;
+    const r = MO.radius, R = Math.ceil(r * (MO.glow.radius + 0.5));
+    if (!moonSpr || moonSpr.r !== r) {   // 초승달 스프라이트: 원 − 옆으로 비킨 원
+      const cv = document.createElement('canvas'), k = 3; cv.width = cv.height = Math.ceil(r * 2.4 * k); const g = cv.getContext('2d'), c = cv.width / 2;
+      g.fillStyle = `rgb(${MO.color.join(',')})`; g.beginPath(); g.arc(c, c, r * k, 0, Math.PI * 2); g.fill();
+      g.globalCompositeOperation = 'destination-out'; g.beginPath(); g.arc(c + r * k * (2 * MO.phase - 0.35), c - r * k * 0.12, r * k * 0.98, 0, Math.PI * 2); g.fill();
+      moonSpr = { cv, r, k };
+    }
+    ctx.save();
+    const gl = ctx.createRadialGradient(m[0], m[1], 0, m[0], m[1], R);
+    gl.addColorStop(0, `rgba(${MO.color.join(',')},${MO.glow.alpha})`); gl.addColorStop(1, `rgba(${MO.color.join(',')},0)`);
+    ctx.fillStyle = gl; ctx.fillRect(m[0] - R, m[1] - R, R * 2, R * 2);
+    ctx.translate(m[0], m[1]); ctx.rotate(deg(MO.tilt)); ctx.globalAlpha = MO.alpha;
+    const sz = moonSpr.cv.width / moonSpr.k; ctx.drawImage(moonSpr.cv, -sz / 2, -sz / 2, sz, sz);
+    ctx.restore();
+  }
+
   // 1차원 값 노이즈 (부드럽게 보간)
   const hash1 = (i) => { const s = Math.sin(i * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
   const noise1 = (x) => { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return lerp(hash1(i), hash1(i + 1), u) * 2 - 1; };
@@ -3226,8 +3251,12 @@
     const maxSp = P.penguin.maxSpeed[surfKey(p.mode)] || 2;
     const deepW = inW && p.depth === 'deep';                    // 얕은 물은 걷는 자세 (상륙할 때 반으로 잘려 보이지 않게)
     const onGround = !p.air && !deepW;
-    const walking = onGround && !p.sliding && !p.belly && sp > 0.12, ph = p.phase || 0, amt = walking ? clamp(sp / 1.2, 0.3, 1) : 0;
+    const walking = onGround && !p.sliding && !p.belly && sp > 0.12, amt = walking ? clamp(sp / 1.2, 0.3, 1) : 0;
     const running = walking && sp > PA.run.at * maxSp;
+    // 그림용 걸음 위상: 발·뒤뚱·들썩·날개가 모두 같은 박자 (달리면 날개 파닥 박자)
+    { const dtA = clamp(t - (p.artPhT ?? t), 0, 0.1); p.artPhT = t;
+      if (walking) p.artPh = (p.artPh || 0) + dtA * Math.PI * 2 * (running ? PA.run.flapHz : Math.max(PA.walk.minHz, sp * PA.walk.cyclesPerUnit)); }
+    const ph = p.artPh || 0;
     const JP = PO.jump;
     if (p.air && !p.wasAir) p.jumpV0 = Math.max(0.1, p.vz);
     if (!p.air && p.wasAir) p.landAt = t;
@@ -3261,7 +3290,7 @@
     const flapK = inW && p.flapAt != null && t - p.flapAt < PA.flap.time ? 1 - (t - p.flapAt) / PA.flap.time : 0;
     g.save();
     g.scale(PA.scale, PA.scale);
-    if (walking) g.rotate((p.wobble || 0) * (p.mode === 'island' ? PA.walk.wobbleMulSand : PA.walk.wobbleMul));
+    if (walking) g.rotate(Math.sin(ph) * deg(p.mode === 'island' ? PA.walk.waddleDegSand : PA.walk.waddleDeg) * amt);   // 뒤뚱: 발 박자와 같이
     if (swimLift > 0) {
       let top = 0, bot = 0; for (const q of F.parts) { top = Math.min(top, q.y); bot = Math.max(bot, q.y + q.h); }
       const fh = bot - top;
@@ -3286,7 +3315,6 @@
       if (q.kind === 'foot') {
         const e = footI++ ? Math.PI : 0;
         if (walking) {   // 한 발씩
-          const ph = running && PA.run.feetSync ? t * PA.run.flapHz * Math.PI * 2 : (p.phase || 0);   // 달리기: 날개 박자에 맞춰 빠르게. 들어서(위) 앞으로 내딛고(−x = 앞), 디딘 발은 뒤로
           const sw = Math.sin(ph + e);
           const st = PA.walk.footStride * (running ? PA.run.strideMul : 1), cx = -Math.cos(ph + e);
           dy = -Math.max(0, sw) * PA.walk.footLift * amt; dx = (cx > 0 ? cx * PA.walk.backMul : cx) * st * amt; ang = -sw * deg(PA.walk.footSwingDeg) * amt * (running ? 0.6 : 1);   // 뒤로는 덜 (뒤꿈치가 몸에서 떨어져 보이지 않게)
@@ -3326,15 +3354,19 @@
     const L = C.PENGUIN_ART.light; if (!L || !L.enabled) return;
     G.save(); G.setTransform(kpx, 0, 0, kpx, -X0 * kpx, -Y0 * kpx); G.globalCompositeOperation = 'source-atop';
     const fx = -side;                                           // 화면에서 앞쪽(머리) 방향 부호: side −1(왼쪽 봄) → 앞 = −x
+    // 빛 방향: 달 쪽 (화면). 없으면 왼쪽 위
+    let lx = -0.8, ly = -0.6;
+    if (L.moon) { const m = moonScreen(), pc = project(p.x, p.y, p.z); if (m) { const dx = m[0] - pc[0], dy = m[1] - (pc[1] - 0.5 * u); const l = Math.hypot(dx, dy) || 1; lx = dx / l; ly = dy / l; } }
+    const cx0 = 0, cy0 = -0.5 * u;
     const sh = inW ? L.shade.water : p.mode === 'island' ? L.shade.land : L.shade.ice;
-    if (sh > 0) {   // 그늘: 앞·위(빛) → 뒤·아래(그늘)
-      const gr = G.createLinearGradient(fx * 0.4 * u, -1.0 * u, -fx * 0.45 * u, 0.05 * u);
+    if (sh > 0) {   // 그늘: 달 쪽(밝음) → 반대쪽(어둠)
+      const gr = G.createLinearGradient(cx0 + lx * 0.55 * u, cy0 + ly * 0.55 * u, cx0 - lx * 0.55 * u, cy0 - ly * 0.55 * u);
       gr.addColorStop(0, `rgba(${L.shade.color.join(',')},0)`); gr.addColorStop(0.55, `rgba(${L.shade.color.join(',')},${(sh * 0.45).toFixed(3)})`); gr.addColorStop(1, `rgba(${L.shade.color.join(',')},${sh.toFixed(3)})`);
       G.fillStyle = gr; G.fillRect(X0, Y0, RW, RH);
     }
     if (L.key > 0) {   // 위·앞 은은한 빛
-      const r = G.createRadialGradient(fx * 0.2 * u, -0.95 * u, 0, fx * 0.2 * u, -0.95 * u, 0.75 * u);
-      r.addColorStop(0, `rgba(255,255,255,${L.key})`); r.addColorStop(1, 'rgba(255,255,255,0)'); G.fillStyle = r; G.fillRect(X0, Y0, RW, RH);
+      const kx = cx0 + lx * 0.5 * u, ky = cy0 + ly * 0.5 * u, r = G.createRadialGradient(kx, ky, 0, kx, ky, 0.8 * u);   // 달빛이 닿는 쪽 은은하게
+      r.addColorStop(0, `rgba(${L.keyColor},${L.key})`); r.addColorStop(1, `rgba(${L.keyColor},0)`); G.fillStyle = r; G.fillRect(X0, Y0, RW, RH);
     }
     // 얼굴: 눈 위치 둘레를 밝게
     const eq = F.parts.find((q) => q.kind === 'eye'), wq = F.parts.find((q) => q.kind === 'whole' && q.eye);
@@ -4059,6 +4091,7 @@
     updateRig();
     drawSky();
     drawStars();
+    drawMoon();
     // 수면에 붙은 것: 잔물결 → 파문·항적 → 흐름선 → 반영
     drawWaterTone();
     drawShallows();

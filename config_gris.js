@@ -373,10 +373,10 @@ const PENGUIN_ART = {
   submerged: { alphaMul: 0.45, blur: 0.22, hideDeep: true },   // hideDeep: 깊은 바다에선 물속 몸 안 그림 (얕은 물만)
   reflectBlur: 1,               // 물에 비친 모습 흐림 (1 = 원래대로 선명. 흐리게 하면 버그가 있어 되돌림)
   // 캐릭터 빛 (그림 위에만): 그늘 = 아래·등 쪽 어둡게(땅에서 더), key = 위·앞 은은한 빛, face = 얼굴 밝게, firefly = 가까운 반딧불이 색이 비침
-  light: { enabled: true, shade: { color: [22, 30, 48], ice: 0.26, land: 0.42, water: 0.18 }, key: 0.12, face: 0.35,
+  light: { enabled: true, moon: true, shade: { color: [22, 30, 48], ice: 0.24, land: 0.34, water: 0.16 }, key: 0.07, keyColor: '226,234,255', face: 0.12,   // moon: 달 방향에서 빛 (달 쪽 밝게, 반대쪽 그늘). 은은하게
     firefly: { range: 3.2, radius: 0.85, alpha: 0.55, sea: '63,180,255', land: '255,200,90', landMul: 1.2 } },   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
-  walk: { wobbleMul: 0.35, wobbleMulSand: 0.15, footLift: 0.035, footStride: 0.07, backMul: 0.45, footSwingDeg: 16, bob: 0.01, flipperSwayDeg: 6 },   // 모래(섬)에선 덜 뒤뚱 · 느릿 걸을 때 날개 살짝 흔들림   // 뒤뚱 기울기 · 발 들림 · 발 앞뒤 보폭 · 발 각도 · 몸 들썩 (발이 이동거리만큼 움직이게)
-  run: { at: 0.85, flipperUpDeg: 34, flapHz: 5, feetSync: true, strideMul: 0.6 },   // 달릴 때 보폭은 짧게 (빠른 박자라 뒤꿈치가 멀리 안 가게)   // feetSync: 달릴 때 발도 날개 박자에 맞춰 빠르게   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
+  walk: { waddleDeg: 3, waddleDegSand: 2.2, cyclesPerUnit: 1.25, minHz: 1.2, footLift: 0.022, footStride: 0.03, backMul: 0.4, footSwingDeg: 7, bob: 0.01, flipperSwayDeg: 5 },   // 뒤뚱 각도(빙하·모래) · 이동 1당 걸음 박자(빠를수록 빨리 뒤뚱) · 발 들림·보폭·각도(작게: 몸에서 안 떨어지게) · 들썩 · 날개 흔들
+  run: { at: 0.85, flipperUpDeg: 34, flapHz: 4.5, feetSync: true, strideMul: 0.8 },   // 달릴 때 보폭은 짧게 (빠른 박자라 뒤꿈치가 멀리 안 가게)   // feetSync: 달릴 때 발도 날개 박자에 맞춰 빠르게   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
   idle: { breathDeg: 1.5, breathHz: 0.35 },
   air: { flutterDeg: 7 },       // 점프 중 날개 떨림 (포즈 자체가 날개를 펼침)
   swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 5, flipperHz: 1.2 },
@@ -679,6 +679,15 @@ const FOOTPRINTS = {
 // ── 그리기 품질 (GRIS): 오프스크린 해상도 = 기본값 × 기기 픽셀비(최대 dprMax) × 품질 단계 ─────
 // 프레임이 떨어지면(downFps 아래로 downAfter 초) 한 단계 낮추고, 넉넉하면(upFps 위로 upAfter 초) 올림
 // ── 별 (GRIS): 하늘에 아주 작은 별이 반짝임 ─────
+// ── 초승달 (GRIS): 하늘에 작게. 펭귄 명암은 달 쪽이 밝고 반대쪽이 어두움 (기본: 화면 왼쪽 위 → 왼쪽 밝고 오른쪽 어둠) ─────
+const MOON = {
+  u: 0.43, elev: 0.25,         // 하늘 위치: 별과 같은 가로 좌표(0~1, 카메라가 돌면 같이 흐름) · 수평선 위 높이 (화면 높이 비율)
+  radius: 9, phase: 0.62,      // 반지름(px) · 초승달 굵기 (가리는 원이 옆으로 비킨 정도, 0.5 = 얇음 ~ 1 = 반달 이상)
+  tilt: -35,                   // 초승달이 기운 각도 (도)
+  color: [236, 240, 250], alpha: 0.92,
+  glow: { radius: 5, alpha: 0.12 },   // 둘레 은은한 번짐 (반지름 배수)
+};
+
 const STARS = {
   count: 160, seed: 5,
   size: [0.3, 1.0],            // 반지름 (px)
@@ -803,7 +812,7 @@ FIREFLY.guide.shoreMinDepth = ISLAND_TERRAIN.sea.fireflyMinDepth;   // 반딧불
 window.CONFIG = {
   ISLAND_TERRAIN,
   LAND_FIREFLY,
-  SNOW_PUFF, INTRO_HINT, SWIM_SPRAY, SWIM_FEET, PENGUIN_RIG, PENGUIN_ART,
+  SNOW_PUFF, MOON, INTRO_HINT, SWIM_SPRAY, SWIM_FEET, PENGUIN_RIG, PENGUIN_ART,
   SPLASH_DROPS,
   STARS,
   palette: PALETTE,
