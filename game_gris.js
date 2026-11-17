@@ -965,8 +965,7 @@
       let jumpMul = 1, blocked = false;
       if (inW && deep) { jumpMul = WP.deepJumpMul; if (kind === 'super' || S.time < (p.waterJumpCD || 0)) blocked = true; }
       else if (inW && shallow) jumpMul = WP.shallowJumpMul;
-      const BL = WP.bellyLaunch, bellyOn = BL && BL.enabled && inW && WP.waterJump === 'belly';
-      if (inW && WP.waterJump === 'flap') { blocked = true; if (S.time > (p.flapAt || -9) + 0.25) { p.flapAt = S.time; splashDrops(p.x, p.y, 1.2); log('waterFlap'); } }
+      const BL = WP.bellyLaunch, bellyOn = BL && BL.enabled && inW && (WP.waterJump === 'belly' || WP.waterJump === 'auto');
       let bellyT = null;
       if (bellyOn) {   // 배치기 상륙: 앞쪽에 올라설 곳이 있는지 (입력 방향, 없으면 바라보는 방향)
         // 링을 밀고 있으면 그 방향 ±BL.fanDeg 안에서, 아니면 사방에서 가장 가까운 가장자리를 찾음
@@ -977,6 +976,9 @@
             if (su.mode !== 'water') { if (!bellyT || d < bellyT.edge) { const td = d + BL.inward, s2 = surfaceAt(p.x + dx * td, p.y + dy * td); bellyT = { dir, edge: d, d: s2.mode !== 'water' ? td : d + 0.15, z: s2.mode !== 'water' ? s2.z : su.z }; } break; } }
         }
         if (!bellyT || S.time < (p.waterJumpCD || 0)) blocked = true;
+      }
+      if (inW && (WP.waterJump === 'flap' || (WP.waterJump === 'auto' && !bellyT))) {   // 올라설 곳이 없으면 날개만 파닥
+        blocked = true; bellyT = null; if (S.time > (p.flapAt || -9) + 0.25) { p.flapAt = S.time; splashDrops(p.x, p.y, 1.2); log('waterFlap'); }
       }
       if (kind === 'super' && p.air && p.superUsed && P.superJump.oncePerAir) { blocked = true; log('superChainBlocked'); }   // 공중에서 슈퍼점프 연속 금지 (둥둥 뜨는 느낌 방지)
       else if (bellyT && !blocked && !p.air) {
@@ -1123,7 +1125,16 @@
       }
     } else if (p.mode === 'water') {
       if (islandAt(p.x, p.y)) setMode('island');
-      else { const o = floeAt(p.x, p.y, P.water.climbAt ?? 0.88); if (o) setMode('floe', o, 0); }   // 빙하 가장자리에 닿으면 바로 올라섬 (안쪽까지 헤엄쳐 들어가 빙하를 뚫어 보이지 않게)
+      else { const o = floeAt(p.x, p.y, P.water.climbAt ?? 0.88);
+        if (o) {
+          const top = floeTopAt(o, p.x - o.x, p.y - o.y);
+          if (P.water.autoClimbMax != null && top > P.water.autoClimbMax) {   // 높은 가장자리: 벽처럼 막힘 (점프하면 배치기로 올라감)
+            let nx = p.x - o.x, ny = p.y - o.y; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+            for (let i = 0; i < 40 && floeAt(p.x, p.y, P.water.climbAt ?? 0.88); i++) { p.x += nx * 0.03; p.y += ny * 0.03; }
+            const vn = p.vx * nx + p.vy * ny; if (vn < 0) { p.vx -= vn * nx; p.vy -= vn * ny; }
+            p.wallFloe = o; p.wallAt = S.time;
+          } else setMode('floe', o, 0);   // 낮은 가장자리: 그대로 배치기로 퐁 올라섬
+        } }   // 빙하 가장자리에 닿으면 바로 올라섬 (안쪽까지 헤엄쳐 들어가 빙하를 뚫어 보이지 않게)
     } else if (p.mode === 'island') {
       if (!islandAt(p.x, p.y)) { const o = floeAt(p.x, p.y); setMode(o ? 'floe' : 'water', o, -1); }
     }

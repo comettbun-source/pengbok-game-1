@@ -48,7 +48,7 @@ const WATER_CALM = {
   },
   // 수면 물결 3겹: ① 너울 띠 ② 중간 물결선(어두운 선 + 밝은 선 쌍) ③ 미세 반짝
   swell: {                    // ① 아주 옅은 명암 띠가 천천히 지나감
-    count: 4,
+    count: 0,                 // (4 → 0) 실제로 쓰는 WATER_CALM: 화면을 가로지르는 긴 띠로 보여서 끔
     width: [0.3, 0.6],        // 띠 길이 = 화면 폭 × 이 범위
     alpha: [0.04, 0.07],
     period: [8, 14],          // 한 띠가 지나가는 주기 (초)
@@ -56,7 +56,7 @@ const WATER_CALM = {
     travel: 6,                // 한 주기 동안 이동 거리 (월드)
   },
   streams: {                  // ② 노이즈 유동장을 따라 흐르는 곡선. 짧은 선 70% + 긴 선 30%
-    max: 70,                  // 풀 (미세 반짝과 합쳐 전체 최대 90)
+    max: 0,                   // (70 → 0) 실제로 쓰는 WATER_CALM: 낮은 카메라에서 가는 가로선으로 보여서 끔. 풀 (미세 반짝과 합쳐 전체 최대 90)
     shortShare: 0.7,
     shortLen: [0.6, 2.2], longLen: [2.2, 4.5],   // 길이 (월드)
     stepLen: 0.2,
@@ -89,7 +89,7 @@ const WATER_CALM = {
     life: 1.8,                // 사라지기까지 (초)
     spacing: [0.45, 1.0],     // 느릴 때 ~ 빠를 때 호 간격 (월드)
     arcDeg: [14, 34],         // 느릴 때 ~ 빠를 때 호 길이 (도)
-    alphaMax: 0.3,            // 최고 속도일 때 시작 불투명도
+    alphaMax: 0,              // 최고 속도일 때 시작 불투명도
     lineWidth: 1.1,
     maxParticles: 40,         // 풀 크기 (프레임 저하 시 자동으로 줄어듦)
   },
@@ -139,7 +139,7 @@ const WATER_NORMAL = {
   glints: { max: 20, rate: 20, life: 0.6, alpha: [0.14, 0.26], depth: [2, 22] },
   tone: { amp: 0.05, period: 18, scale: 0.35 },
   contours: { rings: 3, life: 2.6, spread: 1.1, alpha: 0.26, width: 1.3, noise: 0.14, gaps: 0.3 },
-  wake: { halfAngleDeg: 19, life: 2.4, spacing: [0.4, 0.9], arcDeg: [18, 42], alphaMax: 0.42, lineWidth: 1.3, maxParticles: 40 },
+  wake: { halfAngleDeg: 19, life: 2.4, spacing: [0.4, 0.9], arcDeg: [18, 42], alphaMax: 0,  /* (0.42 → 0) 카메라가 낮아 V자 항적 호가 바다를 가로지르는 긴 직선으로 보여서 끔 */ lineWidth: 1.3, maxParticles: 40 },
   flowLines: { count: 3, alpha: 0.24, lengthSec: 0.6 },
   inertiaTilt: { accelDeg: 3, stopDeg: 2.2, accelRef: 3 },
   settle: { dampingRatio: 0.4, maxPx: 6 },
@@ -454,13 +454,14 @@ const PHYSICS = {
     layTime: 0.3, standTime: 1.0,  // 눕는 데 / 멈춰서 다시 일어서는 데 걸리는 시간 (초)
     deepJumpMul: 0.25, shallowJumpMul: 0.6,   // 물에서 점프 높이 배율 (깊은 물은 슈퍼점프 불가)
     deepJumpCooldown: 0.8,    // 깊은 물 점프 연타 방지 (초)
+    autoClimbMax: 0.36,       // 이 높이까지의 낮은 빙하 가장자리는 헤엄쳐 닿으면 저절로 올라섬. 더 높으면 벽처럼 막히고, 점프하면 배치기로 올라감
     climbAt: 1.0,             // 물 → 빙하 올라서는 지점 (빙하 크기 배율). 0.88 이었을 땐 빙하 안쪽까지 헤엄쳐 들어가 뚫어 보였음
     // 물에서 점프 = 배치기 상륙만 (GRIS): 앞쪽 가까이에 빙하·섬이 있을 때만 배를 내밀고 '통' 튀어올라 그 위에 배로 착지 → 잠깐 미끄러짐.
     // 근처에 올라설 곳이 없으면 점프 안 됨 (작은 파문만). enabled: false 면 예전 물 점프
-    waterJump: 'flap',        // 물에서 점프: 'flap' = 못 뛰어오르고 날개만 파닥 (빙하엔 헤엄쳐 부딪히면 올라섬) / 'belly' = 아래 배치기 상륙
+    waterJump: 'auto',  /* 'auto': 앞에 올라설 빙하·섬이 있으면 배치기, 없으면 날개 파닥 */        // 물에서 점프: 'flap' = 못 뛰어오르고 날개만 파닥 (빙하엔 헤엄쳐 부딪히면 올라섬) / 'belly' = 아래 배치기 상륙
     bellyLaunch: {
       enabled: true,
-      reach: 2.2,             // 앞쪽으로 이 거리 안에 빙하·섬 가장자리가 있어야 함
+      reach: 1.2,             // 앞쪽으로 이 거리 안에 빙하·섬 가장자리가 있어야 함
       fanDeg: 40,             // 링을 민 방향 ± 이 각도 안에서 찾음 (링을 안 밀면 사방에서 가장 가까운 곳)
       inward: 0.55,           // 가장자리에서 이만큼 안쪽에 착지
       clearance: 0.32,        // 착지면보다 이만큼 더 높이 솟음
