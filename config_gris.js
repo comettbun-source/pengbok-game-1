@@ -219,6 +219,7 @@ const FIREFLY = {
       rest: 2.4, gain: 0.45,  // (원본 3.6 / 0.9) GRIS: 앞쪽 바다는 카메라에 가까워 화면에서 크게 벌어지므로 짧게. lead = clamp(rest + gain × 펭귄 속도, min, max)
       min: 2.2, max: 3.6,     // (원본 2.8 / 6.5) 가장 멀어도 화면 안에 보이게
       catchUp: 4,             // (원본 1.5) lead 보다 뒤처졌을 때 따라잡는 세기. 점프·슬라이딩 뒤에도 앞서 있게
+      followGain: 1.6,        // 군집 중심이 목표를 따라가는 빠르기에 + 펭귄 속도 × 이 값 (빨리 헤엄쳐도 뒤처지지 않게)
       minScreen: 0,           // (원본 0.12) GRIS: 가로로 앞서 있어 화면에서 겹치지 않으므로 세로 간격 조건은 끔
       screenMaxLead: 8,       // 화면 간격 때문에 늘어나는 lead 의 상한 (월드). 기본 카메라(23°)에서 12% 를 다 채우려면 약 30 이 필요해서 막아 둠
     },
@@ -357,7 +358,7 @@ const PENGUIN_ART = {
   enabled: true,
   scale: 1.2,                   // 키 배율 (원화 서 있는 키 = 펭귄 키 × 이 값)
   rimMul: 0.35,                 // 물에 있을 때 몸 둘레 흰 림 빛 배율 (흰 몸엔 약하게)
-  edge: { color: 'rgba(14, 20, 30, 0.38)', blur: 0.03, onIce: true, inWater: false, parts: ['body', 'foot', 'front'] },   // 몸 바깥쪽에만 아주 옅은 어두운 번짐
+  edge: { color: 'rgba(14, 20, 30, 0.38)', blur: 0.03, onIce: true, inWater: false, parts: ['body', 'foot', 'front', 'whole'] },   // 몸 바깥쪽에만 아주 옅은 어두운 번짐
   pose: {
     idle: 8,                    // 가만히: 똑바로 선 자세 (source_idle.png)
     stand: 2,                   // 걷기 (날개 붙인 포즈, 사진 1)
@@ -369,9 +370,10 @@ const PENGUIN_ART = {
   // 가만히 있으면 앉음 (정면 그림 source_front.png): 멈춘 뒤 delay 초 → 정면으로 서서 standTime → 앉음. 움직이면 정면으로 일어섰다(standTime) 옆으로 걸음
   sit: { enabled: false,   /* 정면 그림 사용 안 함 (true 로 바꾸면 다시 앉기) */ maxDrift: 0.6, delay: 1.0, standTime: 0.22, breath: 0.012, breathHz: 0.4, scale: 1.0 },
   waterline: { swim: 0.5, cutFit: 1.05 },   // cutFit: 수면 가림·수면 선을 그림 몸 폭에 맞춤 (예전 도형 폭 대신)
-  submerged: { alphaMul: 0.45, blur: 0.22 },   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
-  walk: { wobbleMul: 0.35, wobbleMulSand: 0.15, footLift: 0.035, footStride: 0.07, footSwingDeg: 16, bob: 0.01, flipperSwayDeg: 6 },   // 모래(섬)에선 덜 뒤뚱 · 느릿 걸을 때 날개 살짝 흔들림   // 뒤뚱 기울기 · 발 들림 · 발 앞뒤 보폭 · 발 각도 · 몸 들썩 (발이 이동거리만큼 움직이게)
-  run: { at: 0.85, flipperUpDeg: 34, flapHz: 5, feetSync: true },   // feetSync: 달릴 때 발도 날개 박자에 맞춰 빠르게   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
+  submerged: { alphaMul: 0.45, blur: 0.22, hideDeep: true },   // hideDeep: 깊은 바다에선 물속 몸 안 그림 (얕은 물만)
+  reflectBlur: 0.25,            // 물에 비친 모습 흐림 (줄였다 키우는 배율, 작을수록 흐림. 1 = 선명)   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
+  walk: { wobbleMul: 0.35, wobbleMulSand: 0.15, footLift: 0.035, footStride: 0.07, backMul: 0.45, footSwingDeg: 16, bob: 0.01, flipperSwayDeg: 6 },   // 모래(섬)에선 덜 뒤뚱 · 느릿 걸을 때 날개 살짝 흔들림   // 뒤뚱 기울기 · 발 들림 · 발 앞뒤 보폭 · 발 각도 · 몸 들썩 (발이 이동거리만큼 움직이게)
+  run: { at: 0.85, flipperUpDeg: 34, flapHz: 5, feetSync: true, strideMul: 0.6 },   // 달릴 때 보폭은 짧게 (빠른 박자라 뒤꿈치가 멀리 안 가게)   // feetSync: 달릴 때 발도 날개 박자에 맞춰 빠르게   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
   idle: { breathDeg: 1.5, breathHz: 0.35 },
   air: { flutterDeg: 7 },       // 점프 중 날개 떨림 (포즈 자체가 날개를 펼침)
   swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 5, flipperHz: 1.2 },

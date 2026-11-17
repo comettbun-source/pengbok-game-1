@@ -1411,7 +1411,7 @@
       tgt = { x: pt.x + (is ? is.side : 0) * ff.swayS, y: pt.y };
     } else tgt = { x: pt.x + nx * G.sway * Math.sin(ff.s * 0.8 + S.time * 0.25), y: pt.y + ny * G.sway * Math.sin(ff.s * 0.8 + S.time * 0.25) };
     keepInWater(tgt);
-    const k = snap ? ease(8, dt) : ease(ff.mode === 'shore' ? 1.2 : 2.2, dt);   // 모드가 바뀌어도 같은 빠르기로 따라가 덜컥거리지 않게
+    const k = snap ? ease(8, dt) : ease((ff.mode === 'shore' ? 1.2 : 2.2) + spd * (LD.followGain || 0), dt);   // 펭귄이 빠를수록 빨리 따라감   // 모드가 바뀌어도 같은 빠르기로 따라가 덜컥거리지 않게
     ff.cx += (tgt.x - ff.cx) * k; ff.cy += (tgt.y - ff.cy) * k;
     const c0 = { x: ff.cx, y: ff.cy }; keepInWater(c0); ff.cx = c0.x; ff.cy = c0.y;
     ff.x = ff.cx; ff.y = ff.cy;
@@ -1435,14 +1435,14 @@
         m.woy = (m.woy + (-gr[1] * WF.slope + Math.sin(fa) * WF.curl) * dt) * Math.exp(-WF.decay * dt);
         tx = ff.cx + stx * ca + sty * sa + m.wox; ty = ff.cy + sty * ca - stx * sa + m.woy;
       } else {
-        const back = Math.round(m.delay * P.hz) % 64, hi = ((ff.histI - back) % 64 + 64) % 64;
+        const back = Math.round(m.delay / (1 + spd * (LD.followGain || 0) * 0.4) * P.hz) % 64, hi = ((ff.histI - back) % 64 + 64) % 64;   // 빠르면 반응 지연도 짧게
         // 원을 그리며 돌지 않고(로딩 표시처럼 보여서) 각자 느리게 떠다님: 축마다 다른 박자의 노이즈
         const wf = 0.1 + Math.abs(m.w) * 0.35, tt = S.time * wf;
         const along = noise1(tt + m.ph * 3.1) * m.rad * 1.5 + m.rad * 0.6 * SEP.frontBias, lat = noise1(tt * 0.83 + m.ph * 5.7 + 31) * m.rad * 1.4;
         tx = ff.hist[hi * 2] + pt.tx * along + nx * lat + Math.sin(S.time * 0.3 + m.ph) * m.wob;
         ty = ff.hist[hi * 2 + 1] + pt.ty * along + ny * lat + Math.cos(S.time * 0.27 + m.ph) * m.wob;
       }
-      const km = ease(2.2, dt); m.x += (tx - m.x) * km; m.y += (ty - m.y) * km;
+      const km = ease(2.2 + spd * (LD.followGain || 0), dt); m.x += (tx - m.x) * km; m.y += (ty - m.y) * km;   // 펭귄이 빠를수록 점들도 빨리 따라옴
       // 점별 분리: 펭귄 반경 + memberGap 안으로는 못 들어옴
       const ddx = m.x - p.x, ddy = m.y - p.y, dd = Math.hypot(ddx, ddy);
       if (dd < penR) { const ux = dd > 1e-3 ? ddx / dd : pt.tx, uy = dd > 1e-3 ? ddy / dd : pt.ty; m.x = p.x + ux * penR; m.y = p.y + uy * penR; }
@@ -3238,7 +3238,7 @@
     else p.artPose += Math.sign(target - p.artPose) * Math.min(Math.abs(target - p.artPose), PO.blendRate * (t - (p.artT || t)));
     p.artT = t;
     const poseI = clamp(Math.round(p.artPose), 0, D.frames.length - 1), F = D.frames[poseI];
-    { const bq = F.parts.find((q) => q.kind === 'body'); if (bq) p.artHalfW = bq.w / 2 * PA.scale; }   // 수면 가림 폭
+    { const bq = F.parts.find((q) => q.kind === 'body' || q.kind === 'whole'); if (bq) p.artHalfW = bq.w / 2 * PA.scale; }   // 수면 가림 폭
     const swimLift = clamp((p.artPose - 3) / 3, 0, 1) * (deepW ? 1 : 0);   // 헤엄 포즈일수록 물 위로 띄움
     // 앉기: 땅에서 멈춰 있으면 정면으로 앉음, 움직이면 일어섬
     const SIT = PA.sit, still = onGround && !inW && !p.sliding && !p.belly && sp < SIT.maxDrift && t - (p.inputAt ?? -9) > 0.15 && D.front;   // 입력 없음 (빙하 위 미끄러짐은 무시)
@@ -3277,7 +3277,8 @@
         if (walking) {   // 한 발씩
           const ph = running && PA.run.feetSync ? t * PA.run.flapHz * Math.PI * 2 : (p.phase || 0);   // 달리기: 날개 박자에 맞춰 빠르게. 들어서(위) 앞으로 내딛고(−x = 앞), 디딘 발은 뒤로
           const sw = Math.sin(ph + e);
-          dy = -Math.max(0, sw) * PA.walk.footLift * amt; dx = -Math.cos(ph + e) * PA.walk.footStride * amt; ang = -sw * deg(PA.walk.footSwingDeg) * amt;
+          const st = PA.walk.footStride * (running ? PA.run.strideMul : 1), cx = -Math.cos(ph + e);
+          dy = -Math.max(0, sw) * PA.walk.footLift * amt; dx = (cx > 0 ? cx * PA.walk.backMul : cx) * st * amt; ang = -sw * deg(PA.walk.footSwingDeg) * amt * (running ? 0.6 : 1);   // 뒤로는 덜 (뒤꿈치가 몸에서 떨어져 보이지 않게)
         }
         else if (deepW && (p.sliding || sp > 0.3)) ang = Math.sin(t * PA.swim.paddleHz * (p.sliding ? 1.6 : 1) * Math.PI * 2 + e) * deg(PA.swim.paddleDeg);   // 물: 발바닥 파닥파닥
         else if ((p.sliding && p.mode === 'island') || p.belly) ang = -(p.tobKick || 0) * deg(PA.toboggan.kickDeg) * (e ? 0.8 : 1);
@@ -3288,6 +3289,11 @@
         else if (deepW) ang = Math.sin(t * PA.swim.flipperHz * Math.PI * 2) * deg(PA.swim.flipperDeg);
         else if (walking) ang = Math.sin(ph) * deg(PA.walk.flipperSwayDeg) * (1 - 0.5 * amt);   // 느릿 걸을 때 날개 살짝 흔들
         else ang = Math.sin(t * PA.idle.breathHz * Math.PI * 2) * deg(PA.idle.breathDeg);
+      } else if (q.kind === 'whole') {
+        g.drawImage(artImg, rx, ry, rw, rh, x, y, w, h);
+        if (blink && q.eye) { const E = q.eye; g.shadowColor = 'rgba(0,0,0,0)'; g.fillStyle = `rgb(${E.face.join(',')})`; g.beginPath(); g.ellipse(E.x * u, E.y * u, E.rx * 1.8 * u, E.ry * 1.6 * u, 0, 0, Math.PI * 2); g.fill();
+          g.strokeStyle = '#151515'; g.lineWidth = Math.max(0.7, E.ry * 0.6 * u); g.lineCap = 'round'; g.beginPath(); g.moveTo((E.x - E.rx * 1.1) * u, E.y * u); g.quadraticCurveTo(E.x * u, (E.y + E.ry * 0.8) * u, (E.x + E.rx * 1.1) * u, E.y * u); g.stroke(); }
+        continue;
       } else if (q.kind === 'eye' && blink) {
         g.drawImage(artImg, rx, ry + rh * 0.45, rw, Math.max(1, rh * 0.15), x, y + h * 0.45, w, Math.max(1, h * 0.15)); continue;
       }
@@ -3414,7 +3420,7 @@
       ctx.restore();
     };
     ringHalf(false);
-    if (p.sink > 0.01 && cut) drawSubmerged(sx, sy, u, v, cut);   // 잠긴 몸: 푸른 회색, 아래로 옅어지고 굴절로 일렁임
+    if (p.sink > 0.01 && cut && !(artReady() && C.PENGUIN_ART.submerged.hideDeep && p.depth === 'deep')) drawSubmerged(sx, sy, u, v, cut);   // 깊은 바다에선 물속 몸 안 보임   // 잠긴 몸: 푸른 회색, 아래로 옅어지고 굴절로 일렁임
     if (cut) waterlineArc(cut, sx, sy, false);
     // 림 라이트: 물에 있을 때만 몸 윤곽 바깥으로 번지는 얇은 흰 빛 (검은 바다에 묻히지 않게). 빙하·땅 위에선 꺼짐
     { const PP = PAL.penguin, want = p.mode === 'water' ? 1 : 0;
@@ -3478,6 +3484,13 @@
   const subCv = document.createElement('canvas'), subG = subCv.getContext('2d');
   const blur2Cv = document.createElement('canvas'), blur2G = blur2Cv.getContext('2d');
   function compCanvas2(w, h) { if (blur2Cv.width < w || blur2Cv.height < h) { blur2Cv.width = Math.max(blur2Cv.width, w); blur2Cv.height = Math.max(blur2Cv.height, h); } return blur2G; }
+  // 캔버스 한 영역을 줄였다 키워서 흐리게 (두 번 거쳐 더 부드럽게)
+  function blurInPlace(G, cv, pw, ph, f) {
+    const bw = Math.max(1, Math.round(pw * f)), bh = Math.max(1, Math.round(ph * f)), B = compCanvas2(bw * 2 + 2, bh * 2 + 2);
+    B.setTransform(1, 0, 0, 1, 0, 0); B.clearRect(0, 0, blur2Cv.width, blur2Cv.height); B.imageSmoothingEnabled = true;
+    B.drawImage(cv, 0, 0, pw, ph, 0, 0, bw * 2, bh * 2); B.drawImage(blur2Cv, 0, 0, bw * 2, bh * 2, bw * 2 + 2, 0, bw, bh);
+    G.save(); G.setTransform(1, 0, 0, 1, 0, 0); G.clearRect(0, 0, pw, ph); G.imageSmoothingEnabled = true; G.drawImage(blur2Cv, bw * 2 + 2, 0, bw, bh, 0, 0, pw, ph); G.restore();
+  }
   function drawSubmerged(sx, sy, u, v, cut) {
     const RS = C.reflect.submerged, RR = C.reflect.refract, p = S.p;
     const w = Math.ceil(u * 2.4), top = Math.ceil(cut.ry + 2), dep = Math.ceil(u * RS.depth), h = top + dep + 2;
@@ -3567,6 +3580,7 @@
     const N = RF.slices, RR = RF.refract, ppu = Math.max(1, pxPerUnit(camSpace(p.x, p.y, 0)[1]) * Math.max(0.2, rig.sp));
     const cw = w + 8, chh = oy + 2, G2 = compCanvas(cw, chh);
     G2.save(); G2.translate(ox + 4, 0); G2.scale(1, -1); G2.drawImage(off, 0, 0, pw, ph, -ox, -oy, w, oy); G2.restore();
+    if (!onLand && artReady() && C.PENGUIN_ART.reflectBlur < 1) blurInPlace(G2, compCv, Math.ceil(cw * DPR), Math.ceil(chh * DPR), C.PENGUIN_ART.reflectBlur);   // 원화: 거울상을 흐리게
     if (!onLand) {
       bandBlit(cw, chh, sx - ox - 4, wy, RF.alpha, N, (yc) => {
         const fr = clamp(yc / oy, 0, 1), dw = yc / ppu;

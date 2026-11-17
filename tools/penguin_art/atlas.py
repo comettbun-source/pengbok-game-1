@@ -38,6 +38,12 @@ for e in M + [IDLE]:   # 포즈 0~7 + 8 = 가만히 서 있음 (source_idle.png,
         d = dict(kind=kind, i=idx, x=(at[1] - anchor[1]) / unit, y=(at[0] - anchor[0]) / unit, w=P.shape[1] / unit, h=P.shape[0] / unit)
         if pivot is not None: d['px'] = pivot[0] / P.shape[1]; d['py'] = pivot[1] / P.shape[0]
         fr['parts'].append(d)
+    if e is IDLE:   # 가만히: 원본 합성 그림 한 장 그대로 (조각 재조립 시 발이 어긋나 보여서) + 눈 위치(깜빡임)
+        add('whole', e['comp'], [y0, x0])
+        ep = [p for p in e['parts'] if p['kind'] == 'eye'][0]; E = get(ep['src']); ea = E[..., 3] > 100; eyy, exx = np.nonzero(ea)
+        P0 = im[y0:y1, x0:x1]; face = P0[..., :3][(P0[..., 3] > 250) & (P0[..., :3].mean(-1) > 225)].mean(0).astype(int).tolist()
+        fr['parts'][-1]['eye'] = dict(x=(ep['at'][1] + exx.mean() - anchor[1]) / unit, y=(ep['at'][0] + eyy.mean() - anchor[0]) / unit, rx=(exx.max() - exx.min() + 1) / 2 / unit, ry=(eyy.max() - eyy.min() + 1) / 2 / unit, face=face)
+        frames.append(fr); continue
     for p in e['parts']:
         if p['kind'] == 'foot':
             P = get(p['src']); a = P[..., 3] > 60; yy, xx = np.nonzero(a); top = yy.min() + 0.15 * (yy.max() - yy.min())
@@ -83,10 +89,10 @@ for name, d in front.items():
     d['out'] = dict(i=len(pieces) - 1, x=-d['cx'] / FU, y=-d['bottom'] / FU, w=P.shape[1] / FU, h=P.shape[0] / FU, eyes=eyes, face=face)
     print('front', name, 'eyes', len(eyes), 'h', round(d['h'] / FU, 3))
 # 아틀라스로 묶기 (선반 배치)
-W = 1024; x = y = sh = 0; rects = []
+W = 1024; GAP = 12; x = y = sh = 0; rects = []   # GAP: 조각 사이 여백 (줄여 그릴 때 이웃 조각이 번져 가로선으로 보이지 않게)
 for img in pieces:
-    if x + img.width + 2 > W: x = 0; y += sh + 2; sh = 0
-    rects.append((x, y, img.width, img.height)); x += img.width + 2; sh = max(sh, img.height)
+    if x + img.width + GAP > W: x = 0; y += sh + GAP; sh = 0
+    rects.append((x, y, img.width, img.height)); x += img.width + GAP; sh = max(sh, img.height)
 H = y + sh
 atlas = Image.new('RGBA', (W, H))
 for img, r in zip(pieces, rects): atlas.paste(img, (r[0], r[1]))
