@@ -118,6 +118,7 @@ const WATER_CALM = {
     widthFrom: 2, widthTo: 0.5,   // 선 굵기 (px, 가까운 거리 기준)
     fadeIn: 0.1,              // 나타나는 시간, 이후 길게 사라짐
     alpha: 0.32,
+    bigFade: [0.6, 1.8],      // 반지름이 이 범위로 커지면 옅어져 사라짐 (낮은 카메라에서 큰 고리가 긴 가로선처럼 보여서)
     wobble: 0.06,             // 노이즈 일그러짐 (반지름 비율)
     thickVar: 0.4,            // 링 가장자리 두께가 물결처럼 변하는 정도
     breaks: 0.22,             // 끊어진 부분 비율
@@ -384,7 +385,7 @@ const PENGUIN_ART = {
   air: { flutterDeg: 7 },       // 점프 중 날개 떨림 (포즈 자체가 날개를 펼침)
   swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 5, flipperHz: 1.2 },
   flap: { time: 0.7, deg: 32, hz: 6 },   // 물에서 점프 = 날개 파닥 (최대 각도 작게: 반투명 부분이 안 보이게)
-  toboggan: { kickDeg: 22, footDownDeg: 18, footDrop: 1.0, kickBack: 0.08 },   // footDrop: 발 아래끝을 바닥(0)까지 내림 비율 · kickBack: 찰 때 뒤로 뻗는 거리   // 육지 배 슬라이딩: 발끝을 아래로(땅에 닿게) · 찰 때 뒤로
+  toboggan: { kickDeg: 22, footDownDeg: 18, footDrop: 1.0, kickBack: 0.08, flipperDeg: 10 },   // flipperDeg: 발 박자에 맞춰 날개 살짝   // footDrop: 발 아래끝을 바닥(0)까지 내림 비율 · kickBack: 찰 때 뒤로 뻗는 거리   // 육지 배 슬라이딩: 발끝을 아래로(땅에 닿게) · 찰 때 뒤로
   climb: { time: 0.42, hop: 0.32, riseIn: 0.22, bellyUntil: 0.75 },   // 물 → 빙하 배치기로 퐁: 걸리는 시간 · 솟는 높이 · 빙하 윗면 높이까지 오르는 데 쓰는 비율(짧을수록 옆면을 빨리 지나감) · 배 자세 유지 비율   // 물 → 빙하 기어오름 (그림만): 걸리는 시간 · 살짝 들썩 · 이 비율까지 배를 대고
   blink: { every: [2.5, 5], time: 0.13 },
 };
@@ -438,6 +439,7 @@ const PHYSICS = {
     friction: { sand: 2.4, forest: 3.0 },  // 감쇠 (1/초). 이전 흙 6 → 금방 멈추지 않고 쭉 미끄러짐
     kick: { period: 0.42, impulse: 0.9, needInput: false },   // 0.42초마다 발로 차서 +0.9 속도 (링을 안 밀어도 누르고 있으면 참)
     maxSpeed: 2.6,                         // 섬 슬라이딩 최고 속도
+    splash: { count: [6, 10], speed: [0.6, 1.6], up: [0.9, 1.9], spread: 1.1, size: [0.004, 0.009] },   // 젖은 모래·얕은 물에서 발로 찰 때 뒤로 튀는 물방울 (챱챱)
     groove: { every: 0.06, life: 2.2, alpha: 0.42, width: 0.17, color: [6, 7, 9], max: 60, fadeTime: 0.5, taper: 5 },   // (수명 7 → 2.2초, fadeTime 1.6 → 0.5) 짧게 남고 빨리 흐려짐.   // 배가 지나간 홈: 배 근처 진하게 → fadeTime(초)마다 연해짐 · 양끝 taper 점에 걸쳐 뾰족하게   // 모래에 배가 지나간 홈 (간격 초 · 수명 · 진하기 · 폭)
     puff: { count: [7, 11], color: [128, 130, 136] },   // 발로 찰 때마다 튀는 모래 알갱이 (SNOW_PUFF 재사용, 색만 모래 회색)
     feet: { rest: 14, plant: 62, kick: -18, reach: 0.12, tuck: 0.05, length: 0.16 },   // 그림 (도): 평소 · 딛기 직전 발끝이 바닥에 닿는 각 · 뒤로 빵 찬 각 (− = 위) · 찰 때 뻗는 길이 · 딛을 때 당기는 길이 · 다리 길이

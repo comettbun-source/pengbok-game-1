@@ -1043,11 +1043,12 @@
       // 슬라이딩: 지면 마찰로 감속. 링을 밀면 그 방향으로 힘 + 방향이 부드럽게 따라감
       let dir = sp0 > 0.01 ? Math.atan2(p.vy, p.vx) : p.face, s = sp0;
       if (mag > 0.01) { dir += angDiff(dir, Math.atan2(wy, wx)) * ease(P.slideTurnRate, dt); s += P.slideForce * mag / pm.mass * dt; }
-      const TB = P.toboggan && P.toboggan.enabled && p.mode === 'island' ? P.toboggan : null;
+      const TB = P.toboggan && P.toboggan.enabled && (p.mode === 'island' || (p.mode === 'water' && shallow)) ? P.toboggan : null;   // 해안 얕은 물에서도 배로 미끄러지며 발로 참
       if (TB) {   // 육지 터보건: 배로 미끄러지며 주기적으로 발로 차서 밀고 나감
         const inl = IT ? inlandDist(p.x, p.y) : 0, onSand = !IT || inl < IT.zones[0].to;
         p.tobT = (p.tobT || 0) + dt;
-        if (p.tobT >= TB.kick.period && (!TB.kick.needInput || mag > 0.1)) { p.tobT = 0; p.tobKick = 1; s += TB.kick.impulse; tobPuff(p.x - Math.cos(dir) * 0.25, p.y - Math.sin(dir) * 0.25, p.z); }
+        if (p.tobT >= TB.kick.period && (!TB.kick.needInput || mag > 0.1)) { p.tobT = 0; p.tobKick = 1; s += TB.kick.impulse; const kx = p.x - Math.cos(dir) * 0.25, ky = p.y - Math.sin(dir) * 0.25;
+          if (p.mode === 'water' || wetAt(p.x, p.y) > 0.15) tobSplash(kx, ky, dir); else tobPuff(kx, ky, p.z); }   // 젖은 곳: 발 챱챱 물방울
         s *= Math.exp(-(onSand ? TB.friction.sand : TB.friction.forest) * dt);
         s = Math.min(s, TB.maxSpeed);
         const GR = TB.groove; p.grT = (p.grT || 0) + dt;   // 배가 지나간 홈
@@ -2142,7 +2143,7 @@
         const wob = 1 + RP.wobble * noise1(r.ph + j * 3 + tj * 0.5);
         const cc = camSpace(r.x, r.y, 0);
         if (cc[1] < rig.near + 0.3 || rad < 0.03) continue;
-        drawGroundImage(shadeRing, r.x, r.y, Math.cos(r.ph), Math.sin(r.ph), rad * wob, rad / wob, a * (1 - fogAt(cc[1])));
+        drawGroundImage(shadeRing, r.x, r.y, Math.cos(r.ph), Math.sin(r.ph), rad * wob, rad / wob, a * (1 - fogAt(cc[1])) * (1 - smooth(RP.bigFade ? RP.bigFade[0] : 99, RP.bigFade ? RP.bigFade[1] : 100, rad)));   // 큰 고리는 납작하게 눌려 긴 선으로 보이므로 옅게
       }
     }
     // 헤엄: 앞쪽 밝은 물 덩어리, 양옆·뒤 어두운 골, 뒤로 길쭉한 얼룩 (명암 면, pitch 에 맞게 납작)
@@ -2689,6 +2690,17 @@
   }
 
   // ── 눈가루: 빙하에 오르내릴 때 발밑에서 흩날림 ───────────
+  // 터보건: 젖은 모래·얕은 물에서 발로 찰 때 뒤로 튀는 물방울
+  function tobSplash(x, y, dir) {
+    const TB = C.PHYSICS.toboggan, SD = C.SPLASH_DROPS, W2 = TB.splash; if (!SD || !W2) return;
+    S.drops = S.drops || [];
+    const n = Math.round(lerp(W2.count[0], W2.count[1], Math.random()));
+    for (let i = 0; i < n; i++) {
+      if (S.drops.length >= SD.max) S.drops.shift();
+      const a = dir + Math.PI + (Math.random() - 0.5) * W2.spread, sp = lerp(W2.speed[0], W2.speed[1], Math.random());
+      S.drops.push({ x: x + (Math.random() - 0.5) * 0.12, y: y + (Math.random() - 0.5) * 0.12, z: 0.03, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: lerp(W2.up[0], W2.up[1], Math.random()), size: lerp(W2.size[0], W2.size[1], Math.random()), t: 0 });
+    }
+  }
   // 터보건: 발로 찰 때 모래 알갱이 (눈가루 입자 재사용, 색만 다르게)
   function tobPuff(x, y, z) {
     const TB = C.PHYSICS.toboggan, SP = C.SNOW_PUFF; if (!SP || !TB) return;
@@ -3284,7 +3296,7 @@
     let target = PO.stand;
     const idleNow = onGround && !p.sliding && !p.belly && t - (p.inputAt ?? -9) > 0.25 && sp < 0.6 && !(p.landAt != null && t - p.landAt < JP.landTime);
     const climbK = p.climbAt != null && PA.climb ? (t - p.climbAt) / PA.climb.time : 1;
-    if (p.belly || (p.sliding && !inW) || climbK < PA.climb?.bellyUntil) target = PO.belly;   // 기어오르는 동안 배로
+    if (p.belly || (p.sliding && !deepW) || climbK < PA.climb?.bellyUntil) target = PO.belly;   // 얕은 물(해안)에서도 슬라이딩이면 배로   // 기어오르는 동안 배로
     else if (p.air) target = p.vz > JP.topAt * (p.jumpV0 || 1) ? JP.rise : p.vz > -JP.topAt * (p.jumpV0 || 1) ? (p.superUsed || !JP.lowNoTop ? JP.top : JP.rise) : JP.fall;   // 낮은 점프는 날개 펼친 꼭대기 포즈 없이
     else if (deepW) target = p.sliding ? PO.swimSlide : PO.swim;
     else if (p.landAt != null && t - p.landAt < JP.landTime) target = JP.crouch;
@@ -3341,13 +3353,14 @@
           dy = -Math.max(0, sw) * PA.walk.footLift * amt; dx = (cx > 0 ? cx * PA.walk.backMul : cx) * st * amt; ang = -sw * deg(PA.walk.footSwingDeg) * amt * (running ? 0.6 : 1);   // 뒤로는 덜 (뒤꿈치가 몸에서 떨어져 보이지 않게)
         }
         else if (deepW && (p.sliding || sp > 0.3)) ang = Math.sin(t * PA.swim.paddleHz * (p.sliding ? 1.6 : 1) * Math.PI * 2 + e) * deg(PA.swim.paddleDeg);   // 물: 발바닥 파닥파닥
-        else if ((p.sliding && p.mode === 'island') || p.belly) {   // 발끝을 땅에 대고(아래로 내려 바닥에 닿게), 찰 때 뒤로 쭉
+        else if ((p.sliding && !deepW) || p.belly) {   // 발끝을 땅에 대고(아래로 내려 바닥에 닿게), 찰 때 뒤로 쭉
           const TB = PA.toboggan, kk = p.tobKick || 0, bot = q.y + q.h;
           dy = Math.max(0, -bot) * TB.footDrop - kk * 0.02; dx = kk * TB.kickBack * (e ? 0.8 : 1); ang = deg(TB.footDownDeg) - kk * deg(TB.kickDeg) * (e ? 0.8 : 1);
         }
       } else if (q.kind === 'flipper') {
         if (flapK > 0) ang = -deg(PA.flap.deg) * (0.5 + 0.5 * Math.sin(t * PA.flap.hz * Math.PI * 2)) * Math.min(1, flapK * 2);   // 물에서 점프: 날개 파닥
         else if (p.air) ang = Math.sin(t * 16) * deg(PA.air.flutterDeg);
+        else if (p.sliding && !deepW && !p.belly) ang = -(p.tobKick || 0) * deg(PA.toboggan.flipperDeg) + Math.sin(((p.tobT || 0) / C.PHYSICS.toboggan.kick.period) * Math.PI * 2) * deg(PA.toboggan.flipperDeg) * 0.3;   // 발 박자에 맞춰 날개 살짝
         else if (running) ang = -deg(PA.run.flipperUpDeg) * (0.8 + 0.2 * Math.sin(t * PA.run.flapHz * Math.PI * 2));   // 달리기: 날개 살짝 들고 파닥
         else if (deepW) ang = Math.sin(t * PA.swim.flipperHz * Math.PI * 2) * deg(PA.swim.flipperDeg);
         else if (walking) ang = Math.sin(ph) * deg(PA.walk.flipperSwayDeg) * (1 - 0.5 * amt);   // 느릿 걸을 때 날개 살짝 흔들
@@ -4064,18 +4077,18 @@
   const fitCv = (cv, w, h) => { if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; } };
   // 한 겹: 타일을 스크롤해 깔고, 세로 띠 모양으로 잘라 냄
   function drawClumpLayer(dst, L, li, w, h) {
-    const hz = rig.horizon / H, tw = Math.max(4, L.scale * w), th = tw;
+    const hz = rig.horizon / H, tw = Math.max(4, Math.round(L.scale * w)), th = tw;   // 정수 픽셀 타일 (이음매가 가로선으로 보이지 않게)
     layG.setTransform(1, 0, 0, 1, 0, 0); layG.globalCompositeOperation = 'source-over'; layG.clearRect(0, 0, w, h);
     const ox = ((-(S.time * L.speed * w) - cam.yaw / (Math.PI * 2) * w * 2.2 * (1 / L.scale)) % tw + tw) % tw - tw;
     const oy = ((S.time * L.speed * w * 0.15 + li * 37) % th + th) % th - th;
-    layG.globalAlpha = L.alpha;
-    for (let x = ox; x < w; x += tw) for (let y = oy; y < h; y += th) layG.drawImage(fogTile[li % fogTile.length], x, y, tw + 0.5, th + 0.5);
-    layG.globalAlpha = 1; layG.globalCompositeOperation = 'destination-in';
+    const ox0 = Math.round(ox), oy0 = Math.round(oy);   // 불투명하게 1px 겹쳐 깔고 (겹친 줄이 진해지지 않게), 진하기는 마지막에 한 번만
+    for (let x = ox0; x < w; x += tw) for (let y = oy0; y < h; y += th) { const T = fogTile[li % fogTile.length], N = T.width; layG.drawImage(T, 0.5, 0.5, N - 1, N - 1, x, y, tw + 1, th + 1); }   // 가장자리 반 픽셀은 빼고 (투명 바깥이 섞여 이음매가 생기지 않게)
+    layG.globalCompositeOperation = 'destination-in';
     const cy = (hz + L.y) * h, hh = L.height * h / 2, gr = layG.createLinearGradient(0, cy - hh, 0, cy + hh);
     gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(0.35, 'rgba(0,0,0,1)'); gr.addColorStop(0.65, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     layG.fillStyle = gr; layG.fillRect(0, 0, w, h);
     layG.globalCompositeOperation = 'source-over';
-    dst.drawImage(layCv, 0, 0);
+    const ga = dst.globalAlpha; dst.globalAlpha = ga * L.alpha; dst.drawImage(layCv, 0, 0); dst.globalAlpha = ga;
   }
   // 먼 층 (먼 산·섬을 가렸다 드러냄): 펭귄·가까운 빙하보다 먼저
   function drawFogLayers() {
@@ -4156,7 +4169,11 @@
     for (const f of fl) {
       const d = camSpace(f.x, f.y, 0)[1];
       // 펭귄이 올라선 빙하는 항상 펭귄보다 먼저 (빙하가 발을 덮지 않게)
-      const sd = f === p.floe && !p.air ? Math.max(d, pd + 0.01) : d;
+      let sd = f === p.floe && !p.air ? Math.max(d, pd + 0.01) : d;
+      if (sd === d && !p.air && p.mode !== 'floe') {   // 빙하 바로 옆 물·땅의 펭귄: 펭귄 쪽 빙하 가장자리보다 앞이면 펭귄을 나중에 (빙하가 펭귄을 덮지 않게)
+        const dx = p.x - f.x, dy = p.y - f.y, dl = Math.hypot(dx, dy);
+        if (dl < f.R * 1.6) { const q = camSpace(f.x + dx / (dl || 1) * f.R, f.y + dy / (dl || 1) * f.R, 0)[1]; if (pd <= q + 0.05) sd = Math.min(d, pd - 0.01); }
+      }
       if (d > -f.R) items.push({ d: sd, draw: () => drawFloe(f, Math.max(d, 0)) });
     }
     mountainItems(items);
