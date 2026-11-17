@@ -924,6 +924,8 @@ window.CONFIG = {
     holdUntilWater: true,     // 그리고 펭귄이 물에 처음 들어올 때까지 물속에서 둥글게 맴돌며 기다림
     rippleRadius: 2.4,
     fadeIn: 2,                // 군집이 밝아지는 시간 (초)
+    startSide: 'left',        // 시작 때 펭귄이 바라보는 방향: 'left' / 'right' = 화면 옆모습, null = 예전처럼 화면 안쪽(뒷모습)
+    watchFirefly: false,      // true 면 앉아서 반딧불이 쪽으로 몸을 돌림 (옆모습이 3/4로 바뀜)
   },
 
   world: {

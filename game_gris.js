@@ -393,7 +393,7 @@
     S.lastCamTouch = -99;
     S.p = {
       x: 0, y: 0, z: C.floe.topHeight, vx: 0, vy: 0, vz: 0, cvx: 0, cvy: 0,
-      face: Math.atan2(sfy, sfx), mode: 'floe', floe: null, lx: 0, ly: 0, air: false,
+      face: C.intro.startSide === 'left' ? Math.atan2(-sfx, sfy) : C.intro.startSide === 'right' ? Math.atan2(sfx, -sfy) : Math.atan2(sfy, sfx), mode: 'floe', floe: null, lx: 0, ly: 0, air: false,   // face: 시작 옆모습 (intro.startSide)
       sliding: false, sit: true, sink: 0, wobble: 0, phase: 0, idleRing: 0, ripple: 0,
       heave: { h: 0, v: 0 }, dive: { h: 0, v: 0 }, driftAng: Math.random() * 6.28, lean: { h: 0, v: 0 }, peakSpeed: 0, prevSpeed: 0, aLong: 0, lastEmit: null,
     };
@@ -1059,7 +1059,7 @@
       const s = Math.hypot(p.vx, p.vy), mxs = maxSp * (p.inWash ? C.SHORE_WASH.slowMul : 1);
       if (s > mxs) { const ns = sp0 > mxs ? Math.max(mxs, Math.min(s, sp0) * Math.exp(-3 * dt)) : mxs; p.vx *= ns / s; p.vy *= ns / s; }
       if (mag > 0.01) { p.sit = false; p.face += angDiff(p.face, Math.atan2(wy, wx)) * ease(P.turnRate, dt); }
-      else if (p.sit && S.intro.started && S.intro.t < C.intro.delay + 4) {          // 앉아서 빛을 바라봄
+      else if (p.sit && C.intro.watchFirefly !== false && S.intro.started && S.intro.t < C.intro.delay + 4) {          // 앉아서 빛을 바라봄
         p.face += angDiff(p.face, Math.atan2(S.ff.y - p.y, S.ff.x - p.x)) * ease(3, dt);
       }
       // 물에서 가만히 있으면 느리게 떠다님 (방향은 천천히 바뀜). 입력을 주면 자연히 사라짐
