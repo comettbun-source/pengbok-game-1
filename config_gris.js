@@ -355,7 +355,9 @@ const PENGUIN_RIG = {
 // enabled: false 면 임시 도형(PENGUIN_RIG)으로 돌아감
 const PENGUIN_ART = {
   enabled: true,
-  scale: 1.0,                   // 키 배율 (원화 서 있는 키 = 펭귄 키)
+  scale: 1.2,                   // 키 배율 (원화 서 있는 키 = 펭귄 키 × 이 값). 1.0 → 1.2: 흰 빙하 위에서도 잘 보이게
+  rimMul: 0.35,                 // 물에 있을 때 몸 둘레 흰 림 빛 배율 (검은 임시 펭귄용 → 흰 몸엔 약하게)
+  edge: { color: 'rgba(14, 20, 30, 0.55)', blur: 0.035, onIce: true, inWater: false },   // 흰 몸 둘레 아주 옅은 어두운 번짐 (흰 빙하·눈과 구분). blur = 키 대비
   pose: {
     idle: 0, walk: 0, air: 2, fall: 1,   // 땅: 서 있음 · 걷기 · 뛰어오를 때 · 떨어질 때
     belly: 7,                   // 배로 미끄러짐 · 배치기 · 터보건

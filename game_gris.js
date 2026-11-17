@@ -3236,6 +3236,8 @@
     }
     if (walking) g.translate(0, -Math.abs(Math.sin(ph)) * PA.walk.bob * amt * u);
     g.scale(-side, 1);                                          // side = −1(왼쪽) → 그대로
+    const ED = PA.edge;
+    if (ED && (inW ? ED.inWater : ED.onIce)) { g.shadowColor = ED.color; g.shadowBlur = ED.blur * u * PA.scale; g.shadowOffsetX = 0; g.shadowOffsetY = 0; }   // 흰 몸 테두리 번짐
     // 눈 깜빡임
     if (!p.blinkAt || t > p.blinkAt + PA.blink.time) p.blinkAt = (p.blinkAt ? t : t + 1) + lerp(PA.blink.every[0], PA.blink.every[1], Math.random());   // 다음 깜빡임
     const blink = t >= p.blinkAt && t < p.blinkAt + PA.blink.time;
@@ -3373,7 +3375,7 @@
         const bw = Math.max(1, u * PP.rimWidth);
         ctx.save(); ctx.imageSmoothingEnabled = true;
         for (const [rad, al] of [[bw, 0.5], [bw * 2, 0.3], [bw * 3.2, 0.2]]) {
-          ctx.globalAlpha = PP.rimAlpha * p.rimK * al / 3;
+          ctx.globalAlpha = PP.rimAlpha * p.rimK * al / 3 * (artReady() ? C.PENGUIN_ART.rimMul : 1);   // 흰 원화는 림 빛을 약하게
           for (let t = 0; t < 8; t++) { const an = t * 0.7854; ctx.drawImage(rimCv, 0, 0, pw, ph, sx - rw / 2 + Math.cos(an) * rad, sy - (rh - u * 0.45) + Math.sin(an) * rad, rw, rh); }
         }
         ctx.restore();
