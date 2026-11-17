@@ -2367,7 +2367,7 @@
         const x0 = k / NS * ow, x1 = (k + 1) / NS * ow, xm = (x0 + x1) / 2;
         let cy = wl; for (let q = 1; q < curve.length; q++) if (curve[q][0] >= xm) { const a2 = curve[q - 1], b2 = curve[q], tq = (xm - a2[0]) / Math.max(1e-6, b2[0] - a2[0]); cy = a2[1] + (b2[1] - a2[1]) * tq; break; }
         RG.save(); RG.beginPath(); RG.rect(x0 - 0.5, cy - 1, x1 - x0 + 1, oh); RG.clip(); RG.translate(0, cy * 2); RG.scale(1, -1);
-        RG.drawImage(IMG.blur, rx + rw * (x0 / ow), ry, rw * ((x1 - x0) / ow), rh * (sp.wl / sp.h), x0, cy - wl, x1 - x0, wl); RG.restore(); }
+        RG.drawImage(FA.reflectSharp ? IMG : IMG.blur, rx + rw * (x0 / ow), ry, rw * ((x1 - x0) / ow), rh * (sp.wl / sp.h), x0, cy - wl, x1 - x0, wl); RG.restore(); }
       const RF = FA.reflectRipple, rowH = Math.max(1, RF.row * DPR), y0p = Math.floor(wl * DPR), tot = ph - y0p;
       G.save(); pathBelow(); G.clip(); G.setTransform(1, 0, 0, 1, 0, 0);
       for (let y = y0p; y < ph; y += rowH) {   // 가로 띠마다 좌우로 흔들림 (아래로 갈수록 크게) + 띠마다 밝기 다르게
