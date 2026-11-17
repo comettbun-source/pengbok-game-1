@@ -166,7 +166,7 @@ const FOG = {
       { scale: 0.75, speed: 0.024, alpha: 0.26, y: 0.12, height: 0.9, near: true },  // 가까운 층: 빠르고 작게, 펭귄 앞을 지나감
     ],
   },
-  penguinClear: { radius: 0.24, keep: 0.2 },     // 펭귄 중심 반경(화면 높이 비율)에서 가까운 층 농도를 20% 로 (60% → 20%: 펭귄 얼굴이 안개에 묻혀 어둡지 않게)
+  penguinClear: { radius: 0.24, keep: 0.2, far: 0.15 },   /* far: 펭귄이 멀리 있을 때(시작 장면) 먼 안개도 펭귄 자리는 15% 만 */     // 펭귄 중심 반경(화면 높이 비율)에서 가까운 층 농도를 20% 로 (60% → 20%: 펭귄 얼굴이 안개에 묻혀 어둡지 않게)
   resolution: 0.25,           // (0.125 → 0.25) 안개 오프스크린 해상도 (화면 대비). 부드러운 게 맞아 낮게 두고, 고품질 보간 + 디더로 띠·계단을 숨김
   keepClearDepth: 9,          // 이보다 가까운 것은 먼 안개 층 위에 그림
 };
@@ -374,11 +374,9 @@ const PENGUIN_ART = {
   reflectDrop: 0.7,             // 물에 비친 모습 시작선을 수면 타원 앞쪽(보이는 몸 아래끝)으로 내림 (반지름 배율)
   reflectBlur: 1,               // 물에 비친 모습 흐림 (1 = 원래대로 선명. 흐리게 하면 버그가 있어 되돌림)
   // 캐릭터 빛 (그림 위에만): 그늘 = 아래·등 쪽 어둡게(땅에서 더), key = 위·앞 은은한 빛, face = 얼굴 밝게, firefly = 가까운 반딧불이 색이 비침
-  light: { enabled: true, source: 'floe', upWeight: 0.35,   // source: 'floe' = 빙하와 같은 왼쪽 빛 / 'moon' = 달 방향 · upWeight: 빛의 위쪽 성분 비중 (작을수록 좌우 명암)
-    shade: { color: [26, 34, 52], ice: 0.46, land: 0.5, water: 0.26, edge: [0.4, 0.66] },   // 그늘 진하기 · edge = 그늘이 시작·짙어지는 위치
-    lit: { ice: 0.75, land: 0.55, water: 0.4 },   // 빛 쪽 절반의 밝은 부분을 더 하얗게 (color-dodge: 검은 머리는 그대로)
-    key: 0.06, keyColor: '226,234,255', face: 0.5, faceStart: 0.5, faceRadius: 0.26,   // face: 흰 얼굴 밝게 (color-dodge, 검은 머리는 그대로) · faceStart: 물에 들어가기 전(시작) 추가
-    form: { blurScale: 0.3, shadeShift: 0.16, shadeShrink: 1.0, litShift: 0.12, litShrink: 1.0, broad: 0.35 },   // 굴곡 명암: 실루엣 흐림 · 그늘/하이라이트가 가장자리에서 들어오는 폭 · 넓은 방향 그늘 비율   // 빛 쪽 은은한 빛 · 얼굴 밝게
+  light: { enabled: true, source: 'floe', upWeight: 0.35,   // source: 'floe' = 빙하와 같은 왼쪽 빛 / 'moon' = 달 방향 · upWeight: 빛의 위쪽 성분 비중
+    shade: { color: [26, 34, 52], ice: 0.46, land: 0.5, water: 0.26, edge: [0.4, 0.66] },   // 그늘 진하기 · edge = 그늘이 시작·짙어지는 위치 (직전 버전 명암)
+    faceStart: 0.6, faceRadius: 0.26,   // 시작 장면(물에 들어가기 전) 흰 얼굴 밝게 (검은 머리는 그대로)
     firefly: { range: 3.2, radius: 0.85, alpha: 0.4, sea: '63,180,255', land: '255,200,90', landMul: 0.45 } },   // landMul: 노란 반딧불이는 은은하게   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
   walk: { waddleDeg: 3, waddleDegSand: 2.2, cyclesPerUnit: 1.25, minHz: 1.2, footLift: 0.022, footStride: 0.03, backMul: 0.4, footSwingDeg: 7, bob: 0.01, flipperSwayDeg: 5 },   // 뒤뚱 각도(빙하·모래) · 이동 1당 걸음 박자(빠를수록 빨리 뒤뚱) · 발 들림·보폭·각도(작게: 몸에서 안 떨어지게) · 들썩 · 날개 흔들
   run: { at: 0.85, flipperUpDeg: 34, flapHz: 4.5, feetSync: true, strideMul: 0.8 },   // 달릴 때 보폭은 짧게 (빠른 박자라 뒤꿈치가 멀리 안 가게)   // feetSync: 달릴 때 발도 날개 박자에 맞춰 빠르게   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
@@ -456,6 +454,7 @@ const PHYSICS = {
     layTime: 0.3, standTime: 1.0,  // 눕는 데 / 멈춰서 다시 일어서는 데 걸리는 시간 (초)
     deepJumpMul: 0.25, shallowJumpMul: 0.6,   // 물에서 점프 높이 배율 (깊은 물은 슈퍼점프 불가)
     deepJumpCooldown: 0.8,    // 깊은 물 점프 연타 방지 (초)
+    climbAt: 1.0,             // 물 → 빙하 올라서는 지점 (빙하 크기 배율). 0.88 이었을 땐 빙하 안쪽까지 헤엄쳐 들어가 뚫어 보였음
     // 물에서 점프 = 배치기 상륙만 (GRIS): 앞쪽 가까이에 빙하·섬이 있을 때만 배를 내밀고 '통' 튀어올라 그 위에 배로 착지 → 잠깐 미끄러짐.
     // 근처에 올라설 곳이 없으면 점프 안 됨 (작은 파문만). enabled: false 면 예전 물 점프
     waterJump: 'flap',        // 물에서 점프: 'flap' = 못 뛰어오르고 날개만 파닥 (빙하엔 헤엄쳐 부딪히면 올라섬) / 'belly' = 아래 배치기 상륙
