@@ -1,6 +1,6 @@
 # 펭귄 원화 → 게임 조각
 
-원본: `assets/penguin/source_sheet.png` (8개 포즈 × [합성 / 눈·날개·발 / 몸]).
+원본: `assets/penguin/source_sheet.png` (옆모습 8개 포즈 × [합성 / 눈·날개·발 / 몸]), `assets/penguin/source_front.png` (정면 앉음·서 있음, 합성 그림만 사용). 점프 참고: `assets/penguin/ref_jump.gif`.
 
 저장소 루트에서 차례로 실행 (numpy, scipy, Pillow 필요):
 

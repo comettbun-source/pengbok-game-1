@@ -357,21 +357,23 @@ const PENGUIN_ART = {
   enabled: true,
   scale: 1.2,                   // 키 배율 (원화 서 있는 키 = 펭귄 키 × 이 값)
   rimMul: 0.35,                 // 물에 있을 때 몸 둘레 흰 림 빛 배율 (흰 몸엔 약하게)
-  edge: { color: 'rgba(14, 20, 30, 0.38)', blur: 0.03, onIce: true, inWater: false, parts: ['body', 'foot'] },   // 몸 바깥쪽에만 아주 옅은 어두운 번짐 (얼굴·눈엔 안 생기게)
+  edge: { color: 'rgba(14, 20, 30, 0.38)', blur: 0.03, onIce: true, inWater: false, parts: ['body', 'foot', 'front'] },   // 몸 바깥쪽에만 아주 옅은 어두운 번짐
   pose: {
-    idle: 2,                    // 가만히: 날개 붙인 포즈 (사진 1 왼쪽)
-    walk: [2, 3],               // 걷기: 두 포즈를 걸음마다 번갈아 → 뒤뚱 (사진 1)
-    air: 0, fall: 1,            // 뛰어오를 때 날개 든 포즈 · 떨어질 때
+    stand: 2,                   // 옆으로 서 있음 · 걷기 (날개 붙인 포즈, 사진 1)
+    jump: { crouch: 3, rise: 1, top: 0, fall: 1, land: 2, topAt: 0.35, landTime: 0.12 },   // 점프 (참고 GIF): 웅크림 → 오름 → 꼭대기(날개 펼침) → 떨어짐 → 착지. topAt = 올라가는 속도가 처음의 이 비율 아래면 꼭대기 포즈
     belly: 7,                   // 배로 미끄러짐 · 배치기 · 터보건
-    swim: 6, swimSlide: 7,      // 물: 기본 헤엄 각도 (사진 2 왼쪽) · 슬라이딩 헤엄 (사진 2 오른쪽, 발 뒤로 뻗고 파닥)
+    swim: 6, swimSlide: 7,      // 물: 기본 헤엄 · 슬라이딩 헤엄 (발 뒤로 뻗고 파닥)
+    blendRate: 16,              // 큰 자세 변화(서기 ↔ 헤엄)를 사이 포즈로 이어 보이는 빠르기 (포즈/초) — 상륙·입수가 자연스럽게
   },
+  // 가만히 있으면 앉음 (정면 그림 source_front.png): 멈춘 뒤 delay 초 → 정면으로 서서 standTime → 앉음. 움직이면 정면으로 일어섰다(standTime) 옆으로 걸음
+  sit: { enabled: true, maxDrift: 0.6, delay: 1.0, standTime: 0.22, breath: 0.012, breathHz: 0.4, scale: 1.0 },
   waterline: { swim: 0.5 },     // 물에 떠 있을 때 그림 높이 중 물속 비율
-  walk: { wobbleMul: 0.4, footLift: 0.012, footSwingDeg: 4, bob: 0.008 },   // 뒤뚱 기울기 배율(물리 wobble × 이 값) · 발 들림 · 발 각도 · 몸 들썩 (작게)
-  run: { at: 0.85, flipperUpDeg: 72, flapHz: 5 },   // 최고 속도의 85% 이상 = 달리기: 날개를 들고 파닥 (화면을 끝까지 당기면 / 키보드는 항상 최고 속도)
-  idle: { breathDeg: 2, breathHz: 0.35 },
-  air: { flipperUpDeg: 30 },
-  swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 6, flipperHz: 1.2 },
-  flap: { time: 0.7, deg: 80, hz: 6 },   // 물에서 점프 = 날개 파닥 (시간 · 각도 · 빠르기)
+  walk: { wobbleMul: 0.35, footLift: 0.035, footStride: 0.07, footSwingDeg: 16, bob: 0.01 },   // 뒤뚱 기울기 · 발 들림 · 발 앞뒤 보폭 · 발 각도 · 몸 들썩 (발이 이동거리만큼 움직이게)
+  run: { at: 0.85, flipperUpDeg: 34, flapHz: 5 },   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
+  idle: { breathDeg: 1.5, breathHz: 0.35 },
+  air: { flutterDeg: 7 },       // 점프 중 날개 떨림 (포즈 자체가 날개를 펼침)
+  swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 5, flipperHz: 1.2 },
+  flap: { time: 0.7, deg: 32, hz: 6 },   // 물에서 점프 = 날개 파닥 (최대 각도 작게: 반투명 부분이 안 보이게)
   toboggan: { kickDeg: 30 },
   blink: { every: [2.5, 5], time: 0.13 },
 };
