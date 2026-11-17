@@ -4,7 +4,9 @@ from scipy import ndimage
 SRC = 'assets/penguin/source_sheet.png'
 OUT = 'tools/penguin_art/work/'
 REPO = './'
+WHITE = 218  # 레벨: 이 밝기 이상은 흰색으로 (원화 흰 몸 ≈ 205 → 게임 안개·밤빛 아래서도 얼굴이 하얗게). 검정은 그대로
 src = Image.open(SRC); im = np.array(src)
+im[..., :3] = np.clip(im[..., :3].astype(np.float32) * (255.0 / WHITE), 0, 255).astype(np.uint8)
 M = json.load(open(OUT + 'place.json'))
 S = 0.42   # 축소 배율 (원본 ≈ 600px 키 → 약 250px)
 def get(r):

@@ -958,7 +958,8 @@
       let jumpMul = 1, blocked = false;
       if (inW && deep) { jumpMul = WP.deepJumpMul; if (kind === 'super' || S.time < (p.waterJumpCD || 0)) blocked = true; }
       else if (inW && shallow) jumpMul = WP.shallowJumpMul;
-      const BL = WP.bellyLaunch, bellyOn = BL && BL.enabled && inW;
+      const BL = WP.bellyLaunch, bellyOn = BL && BL.enabled && inW && WP.waterJump === 'belly';
+      if (inW && WP.waterJump === 'flap') { blocked = true; if (S.time > (p.flapAt || -9) + 0.25) { p.flapAt = S.time; splashDrops(p.x, p.y, 1.2); log('waterFlap'); } }
       let bellyT = null;
       if (bellyOn) {   // 배치기 상륙: 앞쪽에 올라설 곳이 있는지 (입력 방향, 없으면 바라보는 방향)
         // 링을 밀고 있으면 그 방향 ±BL.fanDeg 안에서, 아니면 사방에서 가장 가까운 가장자리를 찾음
@@ -3215,45 +3216,51 @@
     const PA = C.PENGUIN_ART, D = window.PENGUIN_ART, PO = PA.pose, t = S.time;
     const sp = Math.hypot(p.vx, p.vy), inW = p.mode === 'water' && !p.air;
     // 포즈 고르기
-    let pose = PO.idle, swimK = 0;
-    if (p.sliding || p.belly) pose = PO.belly;
+    const maxSp = P.penguin.maxSpeed[surfKey(p.mode)] || 2;
+    const walking = !p.air && !inW && !p.sliding && !p.belly && sp > 0.12, ph = p.phase || 0, amt = walking ? clamp(sp / 1.2, 0.3, 1) : 0;
+    const running = walking && sp > PA.run.at * maxSp;
+    let pose = PO.idle;
+    if (p.sliding && !inW) pose = PO.belly;
+    else if (p.belly) pose = PO.belly;
     else if (p.air) pose = p.vz > 0 ? PO.air : PO.fall;
-    else if (inW) { swimK = clamp((p.lay || 0) / PO.swimMaxDeg, 0, 1); pose = Math.round(swimK * 7); }
-    else if (sp > 0.12) pose = PO.walk;
+    else if (inW) pose = p.sliding ? PO.swimSlide : PO.swim;
+    else if (walking) pose = PO.walk[Math.sin(ph) >= 0 ? 0 : 1];   // 걸음마다 두 포즈 번갈아
     const F = D.frames[clamp(pose, 0, D.frames.length - 1)];
     // 방향: 원화는 왼쪽을 봄 → 오른쪽을 보면 좌우 뒤집기. 정면·뒷모습 가까우면 마지막 옆 방향 유지
     if (Math.abs(v.fvx) > 0.15) p.artSide = v.fvx > 0 ? 1 : -1;
     const side = p.artSide || -1;
-    const walking = !p.air && !inW && !p.sliding && !p.belly && sp > 0.12, ph = p.phase || 0, amt = walking ? clamp(sp / 1.2, 0.3, 1) : 0;
+    const flapK = inW && p.flapAt != null && t - p.flapAt < PA.flap.time ? 1 - (t - p.flapAt) / PA.flap.time : 0;
     g.save();
     g.scale(PA.scale, PA.scale);
-    if (walking) g.rotate(p.wobble || 0);
+    if (walking) g.rotate((p.wobble || 0) * PA.walk.wobbleMul);
     // 물에 떠 있을 때: 그림 높이의 waterline 비율만큼만 물속에 (p.sink 만큼 내려가 있던 것을 되돌림)
     if (inW) {
       let top = 0, bot = 0; for (const q of F.parts) { top = Math.min(top, q.y); bot = Math.max(bot, q.y + q.h); }
-      const fh = bot - top, wl = lerp(PA.waterline.stand, PA.waterline.swim, swimK);
-      g.translate(0, (-(p.sink || 0) + fh * wl + Math.sin(t * 1.8) * 0.01) * u);
+      const fh = bot - top;
+      g.translate(0, (-(p.sink || 0) + fh * PA.waterline.swim + Math.sin(t * 1.8) * 0.01 - flapK * 0.03) * u);
     }
     if (walking) g.translate(0, -Math.abs(Math.sin(ph)) * PA.walk.bob * amt * u);
     g.scale(-side, 1);                                          // side = −1(왼쪽) → 그대로
-    const ED = PA.edge;
-    if (ED && (inW ? ED.inWater : ED.onIce)) { g.shadowColor = ED.color; g.shadowBlur = ED.blur * u * PA.scale; g.shadowOffsetX = 0; g.shadowOffsetY = 0; }   // 흰 몸 테두리 번짐
+    const ED = PA.edge, edgeOn = ED && (inW ? ED.inWater : ED.onIce);
     // 눈 깜빡임
     if (!p.blinkAt || t > p.blinkAt + PA.blink.time) p.blinkAt = (p.blinkAt ? t : t + 1) + lerp(PA.blink.every[0], PA.blink.every[1], Math.random());   // 다음 깜빡임
     const blink = t >= p.blinkAt && t < p.blinkAt + PA.blink.time;
     let footI = 0;
     for (const q of F.parts) {
       const [rx, ry, rw, rh] = q.r, x = q.x * u, y = q.y * u, w = q.w * u, h = q.h * u;
+      if (edgeOn && ED.parts.includes(q.kind)) { g.shadowColor = ED.color; g.shadowBlur = ED.blur * u * PA.scale; } else g.shadowColor = 'rgba(0,0,0,0)';
       let ang = 0, dy = 0;
       if (q.kind === 'foot') {
         const e = footI++ ? Math.PI : 0;
         if (walking) { dy = -Math.max(0, Math.sin(ph + e)) * PA.walk.footLift * amt; ang = Math.sin(ph + e) * deg(PA.walk.footSwingDeg) * amt; }
-        else if (inW && swimK > 0.3) ang = Math.sin(t * PA.swim.paddleHz * Math.PI * 2 + e) * deg(PA.swim.paddleDeg);
+        else if (inW && (p.sliding || sp > 0.3)) ang = Math.sin(t * PA.swim.paddleHz * (p.sliding ? 1.6 : 1) * Math.PI * 2 + e) * deg(PA.swim.paddleDeg);   // 물: 발바닥 파닥파닥
         else if ((p.sliding && p.mode === 'island') || p.belly) ang = -(p.tobKick || 0) * deg(PA.toboggan.kickDeg) * (e ? 0.8 : 1);
       } else if (q.kind === 'flipper') {
-        if (p.air) ang = -deg(PA.air.flipperUpDeg) * clamp(0.5 + p.vz / 4, 0, 1) - Math.sin(t * 14) * 0.15;
-        else if (walking) ang = Math.sin(ph) * deg(PA.walk.flipperSwingDeg) * amt;
-        else if (inW && swimK > 0.3) ang = Math.sin(t * PA.swim.flipperHz * Math.PI * 2) * deg(PA.swim.flipperDeg);
+        if (flapK > 0) ang = -deg(PA.flap.deg) * (0.5 + 0.5 * Math.sin(t * PA.flap.hz * Math.PI * 2)) * Math.min(1, flapK * 2);   // 물에서 점프: 날개 파닥
+        else if (p.air) ang = -deg(PA.air.flipperUpDeg) * clamp(0.5 + p.vz / 4, 0, 1) - Math.sin(t * 14) * 0.12;
+        else if (running) ang = -deg(PA.run.flipperUpDeg) * (0.8 + 0.2 * Math.sin(t * PA.run.flapHz * Math.PI * 2));   // 달리기: 날개 들고 파닥
+        else if (walking) ang = Math.sin(ph) * deg(2) * amt;        // 걷기: 날개는 붙인 채 아주 살짝
+        else if (inW) ang = Math.sin(t * PA.swim.flipperHz * Math.PI * 2) * deg(PA.swim.flipperDeg);
         else ang = Math.sin(t * PA.idle.breathHz * Math.PI * 2) * deg(PA.idle.breathDeg);
       } else if (q.kind === 'eye' && blink) {
         g.drawImage(artImg, rx, ry + rh * 0.45, rw, Math.max(1, rh * 0.15), x, y + h * 0.45, w, Math.max(1, h * 0.15)); continue;
@@ -3263,6 +3270,7 @@
         g.save(); g.translate(pxp, pyp + dy * u); g.rotate(ang); g.drawImage(artImg, rx, ry, rw, rh, x - pxp, y - pyp, w, h); g.restore();
       } else g.drawImage(artImg, rx, ry, rw, rh, x, y, w, h);
     }
+    g.shadowColor = 'rgba(0,0,0,0)';
     g.restore();
   }
 

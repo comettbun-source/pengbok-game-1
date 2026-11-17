@@ -355,21 +355,25 @@ const PENGUIN_RIG = {
 // enabled: false 면 임시 도형(PENGUIN_RIG)으로 돌아감
 const PENGUIN_ART = {
   enabled: true,
-  scale: 1.2,                   // 키 배율 (원화 서 있는 키 = 펭귄 키 × 이 값). 1.0 → 1.2: 흰 빙하 위에서도 잘 보이게
-  rimMul: 0.35,                 // 물에 있을 때 몸 둘레 흰 림 빛 배율 (검은 임시 펭귄용 → 흰 몸엔 약하게)
-  edge: { color: 'rgba(14, 20, 30, 0.55)', blur: 0.035, onIce: true, inWater: false },   // 흰 몸 둘레 아주 옅은 어두운 번짐 (흰 빙하·눈과 구분). blur = 키 대비
+  scale: 1.2,                   // 키 배율 (원화 서 있는 키 = 펭귄 키 × 이 값)
+  rimMul: 0.35,                 // 물에 있을 때 몸 둘레 흰 림 빛 배율 (흰 몸엔 약하게)
+  edge: { color: 'rgba(14, 20, 30, 0.38)', blur: 0.03, onIce: true, inWater: false, parts: ['body', 'foot'] },   // 몸 바깥쪽에만 아주 옅은 어두운 번짐 (얼굴·눈엔 안 생기게)
   pose: {
-    idle: 0, walk: 0, air: 2, fall: 1,   // 땅: 서 있음 · 걷기 · 뛰어오를 때 · 떨어질 때
+    idle: 2,                    // 가만히: 날개 붙인 포즈 (사진 1 왼쪽)
+    walk: [2, 3],               // 걷기: 두 포즈를 걸음마다 번갈아 → 뒤뚱 (사진 1)
+    air: 0, fall: 1,            // 뛰어오를 때 날개 든 포즈 · 떨어질 때
     belly: 7,                   // 배로 미끄러짐 · 배치기 · 터보건
-    swimMaxDeg: 80,             // 물에서 눕는 각도(0~80°)를 포즈 0~7 로 이어서 (헤엄 60° ≈ 포즈 5)
+    swim: 6, swimSlide: 7,      // 물: 기본 헤엄 각도 (사진 2 왼쪽) · 슬라이딩 헤엄 (사진 2 오른쪽, 발 뒤로 뻗고 파닥)
   },
-  waterline: { stand: 0.42, swim: 0.5 },   // 물에 떠 있을 때 그림 높이 중 물속 비율 (서서 떠 있음 · 헤엄)
-  walk: { footLift: 0.05, footSwingDeg: 14, flipperSwingDeg: 12, bob: 0.012 },   // 걸음마다 발 들림 · 발 각도 · 날개 흔들림 · 몸 들썩
-  idle: { breathDeg: 3, breathHz: 0.35 },
-  air: { flipperUpDeg: 35 },     // 뛸 때 날개를 위로 퍼덕
-  swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 8, flipperHz: 1.2 },
-  toboggan: { kickDeg: 40 },
-  blink: { every: [2.5, 5], time: 0.13 },   // 눈 깜빡임 간격 · 감는 시간 (초)
+  waterline: { swim: 0.5 },     // 물에 떠 있을 때 그림 높이 중 물속 비율
+  walk: { wobbleMul: 0.4, footLift: 0.012, footSwingDeg: 4, bob: 0.008 },   // 뒤뚱 기울기 배율(물리 wobble × 이 값) · 발 들림 · 발 각도 · 몸 들썩 (작게)
+  run: { at: 0.85, flipperUpDeg: 72, flapHz: 5 },   // 최고 속도의 85% 이상 = 달리기: 날개를 들고 파닥 (화면을 끝까지 당기면 / 키보드는 항상 최고 속도)
+  idle: { breathDeg: 2, breathHz: 0.35 },
+  air: { flipperUpDeg: 30 },
+  swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 6, flipperHz: 1.2 },
+  flap: { time: 0.7, deg: 80, hz: 6 },   // 물에서 점프 = 날개 파닥 (시간 · 각도 · 빠르기)
+  toboggan: { kickDeg: 30 },
+  blink: { every: [2.5, 5], time: 0.13 },
 };
 
 // ── 헤엄 발 (GRIS, 임시 도형): 헤엄칠 때 몸 뒤로 뻗은 두 발이 번갈아 파닥임 ─────
@@ -439,6 +443,7 @@ const PHYSICS = {
     deepJumpCooldown: 0.8,    // 깊은 물 점프 연타 방지 (초)
     // 물에서 점프 = 배치기 상륙만 (GRIS): 앞쪽 가까이에 빙하·섬이 있을 때만 배를 내밀고 '통' 튀어올라 그 위에 배로 착지 → 잠깐 미끄러짐.
     // 근처에 올라설 곳이 없으면 점프 안 됨 (작은 파문만). enabled: false 면 예전 물 점프
+    waterJump: 'flap',        // 물에서 점프: 'flap' = 못 뛰어오르고 날개만 파닥 (빙하엔 헤엄쳐 부딪히면 올라섬) / 'belly' = 아래 배치기 상륙
     bellyLaunch: {
       enabled: true,
       reach: 2.2,             // 앞쪽으로 이 거리 안에 빙하·섬 가장자리가 있어야 함
