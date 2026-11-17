@@ -371,9 +371,14 @@ const PENGUIN_ART = {
   sit: { enabled: false,   /* 정면 그림 사용 안 함 (true 로 바꾸면 다시 앉기) */ maxDrift: 0.6, delay: 1.0, standTime: 0.22, breath: 0.012, breathHz: 0.4, scale: 1.0 },
   waterline: { swim: 0.5, cutFit: 1.05 },   // cutFit: 수면 가림·수면 선을 그림 몸 폭에 맞춤 (예전 도형 폭 대신)
   submerged: { alphaMul: 0.45, blur: 0.22, hideDeep: true },   // hideDeep: 깊은 바다에선 물속 몸 안 그림 (얕은 물만)
+  reflectDrop: 0.7,             // 물에 비친 모습 시작선을 수면 타원 앞쪽(보이는 몸 아래끝)으로 내림 (반지름 배율)
   reflectBlur: 1,               // 물에 비친 모습 흐림 (1 = 원래대로 선명. 흐리게 하면 버그가 있어 되돌림)
   // 캐릭터 빛 (그림 위에만): 그늘 = 아래·등 쪽 어둡게(땅에서 더), key = 위·앞 은은한 빛, face = 얼굴 밝게, firefly = 가까운 반딧불이 색이 비침
-  light: { enabled: true, source: 'floe', upWeight: 0.35, shade: { color: [26, 34, 52], ice: 0.46, land: 0.5, water: 0.26, edge: [0.4, 0.66] },   // source: 'floe' = 빙하와 같은 왼쪽 빛 / 'moon' = 달 방향. upWeight: 빛의 위쪽 성분 비중(작을수록 좌우 명암). edge: 그늘이 시작·짙어지는 위치 key: 0.08, keyColor: '226,234,255', face: 0.24,   // moon: 달 방향에서 빛 (달 쪽 밝게, 반대쪽 그늘). 은은하게
+  light: { enabled: true, source: 'floe', upWeight: 0.35,   // source: 'floe' = 빙하와 같은 왼쪽 빛 / 'moon' = 달 방향 · upWeight: 빛의 위쪽 성분 비중 (작을수록 좌우 명암)
+    shade: { color: [26, 34, 52], ice: 0.46, land: 0.5, water: 0.26, edge: [0.4, 0.66] },   // 그늘 진하기 · edge = 그늘이 시작·짙어지는 위치
+    lit: { ice: 0.75, land: 0.55, water: 0.4 },   // 빛 쪽 절반의 밝은 부분을 더 하얗게 (color-dodge: 검은 머리는 그대로)
+    key: 0.06, keyColor: '226,234,255', face: 0.5, faceStart: 0.5, faceRadius: 0.26,   // face: 흰 얼굴 밝게 (color-dodge, 검은 머리는 그대로) · faceStart: 물에 들어가기 전(시작) 추가
+    form: { blurScale: 0.3, shadeShift: 0.16, shadeShrink: 1.0, litShift: 0.12, litShrink: 1.0, broad: 0.35 },   // 굴곡 명암: 실루엣 흐림 · 그늘/하이라이트가 가장자리에서 들어오는 폭 · 넓은 방향 그늘 비율   // 빛 쪽 은은한 빛 · 얼굴 밝게
     firefly: { range: 3.2, radius: 0.85, alpha: 0.4, sea: '63,180,255', land: '255,200,90', landMul: 0.45 } },   // landMul: 노란 반딧불이는 은은하게   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
   walk: { waddleDeg: 3, waddleDegSand: 2.2, cyclesPerUnit: 1.25, minHz: 1.2, footLift: 0.022, footStride: 0.03, backMul: 0.4, footSwingDeg: 7, bob: 0.01, flipperSwayDeg: 5 },   // 뒤뚱 각도(빙하·모래) · 이동 1당 걸음 박자(빠를수록 빨리 뒤뚱) · 발 들림·보폭·각도(작게: 몸에서 안 떨어지게) · 들썩 · 날개 흔들
   run: { at: 0.85, flipperUpDeg: 34, flapHz: 4.5, feetSync: true, strideMul: 0.8 },   // 달릴 때 보폭은 짧게 (빠른 박자라 뒤꿈치가 멀리 안 가게)   // feetSync: 달릴 때 발도 날개 박자에 맞춰 빠르게   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
@@ -381,7 +386,8 @@ const PENGUIN_ART = {
   air: { flutterDeg: 7 },       // 점프 중 날개 떨림 (포즈 자체가 날개를 펼침)
   swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 5, flipperHz: 1.2 },
   flap: { time: 0.7, deg: 32, hz: 6 },   // 물에서 점프 = 날개 파닥 (최대 각도 작게: 반투명 부분이 안 보이게)
-  toboggan: { kickDeg: 30 },
+  toboggan: { kickDeg: 22, footDownDeg: 18, footDrop: 1.0, kickBack: 0.08 },   // footDrop: 발 아래끝을 바닥(0)까지 내림 비율 · kickBack: 찰 때 뒤로 뻗는 거리   // 육지 배 슬라이딩: 발끝을 아래로(땅에 닿게) · 찰 때 뒤로
+  climb: { time: 0.6, hop: 0.1, bellyUntil: 0.55 },   // 물 → 빙하 기어오름 (그림만): 걸리는 시간 · 살짝 들썩 · 이 비율까지 배를 대고
   blink: { every: [2.5, 5], time: 0.13 },
 };
 
@@ -681,6 +687,7 @@ const FOOTPRINTS = {
 // ── 별 (GRIS): 하늘에 아주 작은 별이 반짝임 ─────
 // ── 초승달 (GRIS): 하늘에 작게. 펭귄 명암은 달 쪽이 밝고 반대쪽이 어두움 (기본: 화면 왼쪽 위 → 왼쪽 밝고 오른쪽 어둠) ─────
 const MOON = {
+  enabled: false,              // 달 끔
   u: 0.43, elev: 0.25,         // 하늘 위치: 별과 같은 가로 좌표(0~1, 카메라가 돌면 같이 흐름) · 수평선 위 높이 (화면 높이 비율)
   radius: 4, phase: 0.42,      // 반지름(px) · 초승달 굵기 (가리는 원이 옆으로 비킨 정도, 0.5 = 얇음 ~ 1 = 반달 이상)
   tilt: -35,                   // 초승달이 기운 각도 (도)

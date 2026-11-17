@@ -1253,6 +1253,7 @@
     if (mode === 'water') S.wentWater = true;
     if (mode === 'floe' && (prev !== 'floe' || vz < -1 || p.floe !== floe)) snowPuff(p.x, p.y, p.z, vz < -2.5);   // 빙하에 올라섬·착지: 눈가루
     else if (prev === 'floe' && mode !== 'floe') snowPuff(p.x, p.y, p.z, false);                       // 빙하에서 내려섬
+    if (mode === 'floe' && prev === 'water' && !p.air && C.PENGUIN_ART && C.PENGUIN_ART.climb) { p.climbAt = S.time; p.climbFromZ = p.z; }   // 그림: 물에서 빙하로 엉금 기어오름 (순간이동처럼 안 보이게)
     p.mode = mode;
     if (mode === 'floe') {
       const changed = p.floe !== floe;
@@ -1720,6 +1721,13 @@
       const lag = Math.round(WC().bob.penguinLag * P.hz), hist = p.floe.hist;
       h += hist[((S.stepN - lag) % 64 + 64) % 64];           // 빙하보다 0.25초 늦게 따라감
     }
+    const CL = C.PENGUIN_ART && C.PENGUIN_ART.climb;
+    if (CL && p.climbAt != null && p.mode === 'floe' && !p.air) {   // 기어오름: 그림 높이만 물 높이 → 빙하 위로 (작은 들썩)
+      const k = (S.time - p.climbAt) / CL.time;
+      if (k < 1) { const e = 1 - Math.pow(1 - k, 2.2), zv = p.z - (p.z - p.climbFromZ) * (1 - e) + CL.hop * Math.sin(Math.PI * k);
+        return -h + (project(p.x, p.y, zv)[1] - project(p.x, p.y, p.z)[1]); }
+      p.climbAt = null;
+    }
     return -h;
   }
   // 지면 위 원 → 화면 타원 (원근 근사)
@@ -1778,7 +1786,7 @@
   }
   let moonSpr = null;
   function drawMoon() {
-    const MO = C.MOON, m = moonScreen(); if (!MO || !m) return;
+    const MO = C.MOON, m = moonScreen(); if (!MO || !MO.enabled || !m) return;
     const r = MO.radius, R = Math.ceil(r * (MO.glow.radius + 0.5));
     if (!moonSpr || moonSpr.r !== r) {   // 초승달 스프라이트: 원 − 옆으로 비킨 원
       const cv = document.createElement('canvas'), k = 3; cv.width = cv.height = Math.ceil(r * 2.4 * k); const g = cv.getContext('2d'), c = cv.width / 2;
@@ -3264,7 +3272,8 @@
     p.wasAir = p.air;
     let target = PO.stand;
     const idleNow = onGround && !p.sliding && !p.belly && t - (p.inputAt ?? -9) > 0.25 && sp < 0.6 && !(p.landAt != null && t - p.landAt < JP.landTime);
-    if (p.belly || (p.sliding && !inW)) target = PO.belly;
+    const climbK = p.climbAt != null && PA.climb ? (t - p.climbAt) / PA.climb.time : 1;
+    if (p.belly || (p.sliding && !inW) || climbK < PA.climb?.bellyUntil) target = PO.belly;   // 기어오르는 동안 배로
     else if (p.air) target = p.vz > JP.topAt * (p.jumpV0 || 1) ? JP.rise : p.vz > -JP.topAt * (p.jumpV0 || 1) ? (p.superUsed || !JP.lowNoTop ? JP.top : JP.rise) : JP.fall;   // 낮은 점프는 날개 펼친 꼭대기 포즈 없이
     else if (deepW) target = p.sliding ? PO.swimSlide : PO.swim;
     else if (p.landAt != null && t - p.landAt < JP.landTime) target = JP.crouch;
@@ -3321,7 +3330,10 @@
           dy = -Math.max(0, sw) * PA.walk.footLift * amt; dx = (cx > 0 ? cx * PA.walk.backMul : cx) * st * amt; ang = -sw * deg(PA.walk.footSwingDeg) * amt * (running ? 0.6 : 1);   // 뒤로는 덜 (뒤꿈치가 몸에서 떨어져 보이지 않게)
         }
         else if (deepW && (p.sliding || sp > 0.3)) ang = Math.sin(t * PA.swim.paddleHz * (p.sliding ? 1.6 : 1) * Math.PI * 2 + e) * deg(PA.swim.paddleDeg);   // 물: 발바닥 파닥파닥
-        else if ((p.sliding && p.mode === 'island') || p.belly) ang = -(p.tobKick || 0) * deg(PA.toboggan.kickDeg) * (e ? 0.8 : 1);
+        else if ((p.sliding && p.mode === 'island') || p.belly) {   // 발끝을 땅에 대고(아래로 내려 바닥에 닿게), 찰 때 뒤로 쭉
+          const TB = PA.toboggan, kk = p.tobKick || 0, bot = q.y + q.h;
+          dy = Math.max(0, -bot) * TB.footDrop - kk * 0.02; dx = kk * TB.kickBack * (e ? 0.8 : 1); ang = deg(TB.footDownDeg) - kk * deg(TB.kickDeg) * (e ? 0.8 : 1);
+        }
       } else if (q.kind === 'flipper') {
         if (flapK > 0) ang = -deg(PA.flap.deg) * (0.5 + 0.5 * Math.sin(t * PA.flap.hz * Math.PI * 2)) * Math.min(1, flapK * 2);   // 물에서 점프: 날개 파닥
         else if (p.air) ang = Math.sin(t * 16) * deg(PA.air.flutterDeg);
@@ -3351,6 +3363,7 @@
 
   const artCv = document.createElement('canvas'), artG = artCv.getContext('2d');
   // 캐릭터 빛: ① 아래·등 쪽 그늘(명암) ② 위·앞 쪽 은은한 빛 ③ 얼굴 밝게 ④ 가까운 반딧불이 빛이 비침. 모두 그림 위에만(source-atop)
+  const tinySil = document.createElement('canvas'), tinySilG = tinySil.getContext('2d'), litCv = document.createElement('canvas'), litG = litCv.getContext('2d'), blurSil = document.createElement('canvas'), blurSilG = blurSil.getContext('2d');
   function lightPenguin(G, u, p, F, side, inW, X0, Y0, RW, RH, kpx) {
     const L = C.PENGUIN_ART.light; if (!L || !L.enabled) return;
     G.save(); G.setTransform(kpx, 0, 0, kpx, -X0 * kpx, -Y0 * kpx); G.globalCompositeOperation = 'source-atop';
@@ -3363,24 +3376,53 @@
       const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy); if (l > 1e-3) { lx = dx / l; ly = dy / l; } }
     const cx0 = 0, cy0 = -0.5 * u;
     const sh = inW ? L.shade.water : p.mode === 'island' ? L.shade.land : L.shade.ice;
-    if (sh > 0) {   // 그늘: 달 쪽(밝음) → 반대쪽(어둠)
-      const gr = G.createLinearGradient(cx0 + lx * 0.55 * u, cy0 + ly * 0.55 * u, cx0 - lx * 0.55 * u, cy0 - ly * 0.55 * u);
-      const sc = L.shade.color.join(','), E = L.shade.edge;   // 빙하 면처럼: 밝은 쪽은 거의 그대로, 가운데를 지나며 비교적 또렷하게 어두워짐
-      gr.addColorStop(0, `rgba(${sc},0)`); gr.addColorStop(E[0], `rgba(${sc},${(sh * 0.08).toFixed(3)})`); gr.addColorStop(E[1], `rgba(${sc},${(sh * 0.8).toFixed(3)})`); gr.addColorStop(1, `rgba(${sc},${sh.toFixed(3)})`);
-      G.fillStyle = gr; G.fillRect(X0, Y0, RW, RH);
+    const lit = inW ? L.lit.water : p.mode === 'island' ? L.lit.land : L.lit.ice;
+    // 굴곡 명암: 몸 실루엣을 흐리게 만든 뒤 빛 쪽/반대쪽으로 밀어, 겹치지 않는 가장자리만 남김 → 둥근 몸을 따라 휘는 그늘·하이라이트
+    const pw = artCv.width, ph = artCv.height, LY = litCv, LG = litG, BS = L.form.blurScale;
+    if (LY.width !== pw || LY.height !== ph) { LY.width = pw; LY.height = ph; }
+    const bw = Math.max(2, Math.round(pw * BS)), bh = Math.max(2, Math.round(ph * BS));
+    if (blurSil.width !== bw || blurSil.height !== bh) { blurSil.width = bw; blurSil.height = bh; }
+    { const tw = Math.max(2, Math.round(pw * BS * 0.35)), th = Math.max(2, Math.round(ph * BS * 0.35));   // 아주 작게 → 조금 키워 여러 번 겹침 = 부드러운 흐림 (계단 없음)
+      if (tinySil.width !== tw || tinySil.height !== th) { tinySil.width = tw; tinySil.height = th; }
+      tinySilG.clearRect(0, 0, tw, th); tinySilG.imageSmoothingEnabled = true; tinySilG.drawImage(artCv, 0, 0, pw, ph, 0, 0, tw, th);
+      blurSilG.globalCompositeOperation = 'source-over'; blurSilG.clearRect(0, 0, bw, bh); blurSilG.imageSmoothingEnabled = true;
+      const jx = bw / tw * 0.6, jy = bh / th * 0.6;
+      for (const [a2, b2] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]]) { blurSilG.globalAlpha = 0.28; blurSilG.drawImage(tinySil, 0, 0, tw, th, a2 * jx, b2 * jy, bw, bh); }
+      blurSilG.globalAlpha = 1; }
+    const layer = (color, shiftK, blurMul) => {   // 실루엣(color) − 흐린 실루엣(빛 방향으로 shiftK 만큼 밀림)
+      LG.setTransform(1, 0, 0, 1, 0, 0); LG.globalCompositeOperation = 'source-over'; LG.globalAlpha = 1; LG.clearRect(0, 0, pw, ph);
+      LG.drawImage(artCv, 0, 0); if (color) { LG.globalCompositeOperation = 'source-in'; LG.fillStyle = color; LG.fillRect(0, 0, pw, ph); }   // color 없으면 그림 그대로 (하이라이트용)
+      LG.globalCompositeOperation = 'destination-out'; LG.imageSmoothingEnabled = true;
+      const ox = lx * shiftK * u * kpx, oy = ly * shiftK * u * kpx, gw = pw * blurMul, gh = ph * blurMul;
+      LG.drawImage(blurSil, 0, 0, bw, bh, ox - (gw - pw) / 2, oy - (gh - ph) / 2, gw, gh);
+      LG.globalCompositeOperation = 'source-over';
+    };
+    G.setTransform(1, 0, 0, 1, 0, 0);
+    if (sh > 0) {   // 그늘: 빛 반대쪽 가장자리를 따라 둥글게
+      layer(`rgb(${L.shade.color.join(',')})`, L.form.shadeShift, L.form.shadeShrink);
+      G.globalCompositeOperation = 'source-atop'; G.globalAlpha = sh; G.drawImage(LY, 0, 0); G.globalAlpha = 1;
+      // 넓은 방향 그늘 (옅게): 몸 전체가 빛 반대쪽으로 조금 어두워짐
+      G.setTransform(kpx, 0, 0, kpx, -X0 * kpx, -Y0 * kpx);
+      const gr = G.createLinearGradient(cx0 + lx * 0.55 * u, cy0 + ly * 0.55 * u, cx0 - lx * 0.55 * u, cy0 - ly * 0.55 * u), sc = L.shade.color.join(',');
+      gr.addColorStop(0, `rgba(${sc},0)`); gr.addColorStop(0.5, `rgba(${sc},${(sh * L.form.broad * 0.3).toFixed(3)})`); gr.addColorStop(1, `rgba(${sc},${(sh * L.form.broad).toFixed(3)})`);
+      G.fillStyle = gr; G.fillRect(X0, Y0, RW, RH); G.setTransform(1, 0, 0, 1, 0, 0);
     }
-    if (L.key > 0) {   // 위·앞 은은한 빛
-      const kx = cx0 + lx * 0.5 * u, ky = cy0 + ly * 0.5 * u, r = G.createRadialGradient(kx, ky, 0, kx, ky, 0.8 * u);   // 달빛이 닿는 쪽 은은하게
-      r.addColorStop(0, `rgba(${L.keyColor},${L.key})`); r.addColorStop(1, `rgba(${L.keyColor},0)`); G.fillStyle = r; G.fillRect(X0, Y0, RW, RH);
+    if (lit > 0) {   // 하이라이트: 빛 쪽 가장자리. color-dodge = 흰 부분만 밝아지고 검은 머리는 그대로 (실루엣 밖엔 아무것도 안 그림)
+      layer(null, -L.form.litShift, L.form.litShrink);   // 그림 자체를 screen: 흰 부분은 크게, 검은 부분은 거의 안 밝아짐
+      G.globalCompositeOperation = 'screen'; G.globalAlpha = lit; G.drawImage(LY, 0, 0); G.globalAlpha = 1;
     }
-    // 얼굴: 눈 위치 둘레를 밝게
+    // 얼굴: 흰 얼굴 부분을 밝게 (color-dodge, 실루엣으로 가린 둥근 빛). 시작할 때 더 밝게
     const eq = F.parts.find((q) => q.kind === 'eye'), wq = F.parts.find((q) => q.kind === 'whole' && q.eye);
     const ex = eq ? (eq.x + eq.w / 2) : wq ? wq.eye.x : null, ey = eq ? (eq.y + eq.h / 2) : wq ? wq.eye.y : null;
-    if (ex != null && L.face > 0) {
-      const cy = ey * u + 0.04 * u;   // 원화 x 는 왼쪽 봄 기준 → 화면 = x × (−side)
-      const r = G.createRadialGradient(-side * ex * u, cy, 0, -side * ex * u, cy, 0.28 * u);
-      r.addColorStop(0, `rgba(255,255,255,${L.face})`); r.addColorStop(1, 'rgba(255,255,255,0)'); G.fillStyle = r; G.fillRect(X0, Y0, RW, RH);
+    const faceK = L.face + (S.wentWater ? 0 : L.faceStart);
+    if (ex != null && faceK > 0) {
+      const fxp = (-side * ex * u - X0) * kpx, fyp = (ey * u + 0.03 * u - Y0) * kpx, R = L.faceRadius * u * kpx;
+      LG.setTransform(1, 0, 0, 1, 0, 0); LG.globalCompositeOperation = 'source-over'; LG.clearRect(0, 0, pw, ph);
+      const r = LG.createRadialGradient(fxp, fyp, 0, fxp, fyp, R); r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.55, 'rgba(255,255,255,0.6)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+      LG.drawImage(artCv, 0, 0); LG.globalCompositeOperation = 'destination-in'; LG.fillStyle = r; LG.fillRect(0, 0, pw, ph); LG.globalCompositeOperation = 'source-over';
+      G.globalCompositeOperation = 'screen'; G.globalAlpha = Math.min(1, faceK); G.drawImage(LY, 0, 0); G.globalAlpha = 1;
     }
+    G.globalCompositeOperation = 'source-atop'; G.setTransform(kpx, 0, 0, kpx, -X0 * kpx, -Y0 * kpx);
     // 반딧불이 빛: 가까울수록 그쪽 몸에 색이 비침
     const FL = L.firefly; if (FL && FL.alpha > 0) {
       const pc = project(p.x, p.y, p.z), py0 = pc[1] + penOffset(), sc = C.PENGUIN_ART.scale;
@@ -3650,8 +3692,9 @@
     const v = penguinView(), dy = penOffset(), inWater = p.mode === 'water' && !p.air;
     const [sx, sy0, d] = project(p.x, p.y, p.z), sy = sy0 + dy, u = penScale(d);
     // 반사 기준면: 실제 수면 (물 엔진 높이 = 물 가림과 같은 선). 땅 위는 발밑 지면
-    const [, wy0] = project(p.x, p.y, onLand ? p.z : 0), wy = wy0 + (onLand ? dy : 0) - (inWater ? penLiftPx(d) : 0);
+    const [, wy0] = project(p.x, p.y, onLand ? p.z : 0); let wy = wy0 + (onLand ? dy : 0) - (inWater ? penLiftPx(d) : 0);
     const cut = inWater ? waterCut(sx, sy) : null;
+    if (cut && artReady()) wy += cut.ry * C.PENGUIN_ART.reflectDrop;   // 원화: 보이는 몸 아래끝(수면 앞쪽 호)에서 거울상이 시작 (몸 뒤로 비쳐 올라오지 않게)
     const rise = Math.max(0, wy - sy);                        // 발(빙하 위·공중)이 수면에서 떠 있는 높이 (px)
     const reach = rise + u * RF.fadeLength;                   // 거울상 길이 = 빙하 높이 + 몸 높이 × 0.9
     const w = Math.ceil(u * 2.4), oy = Math.ceil(Math.min(rise + u * 1.1, reach + 2)), ox = w / 2;
