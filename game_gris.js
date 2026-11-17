@@ -3795,7 +3795,7 @@
   function compCanvas2(w, h) { if (blur2Cv.width < w || blur2Cv.height < h) { blur2Cv.width = Math.max(blur2Cv.width, w); blur2Cv.height = Math.max(blur2Cv.height, h); } return blur2G; }
   // 캔버스 한 영역을 줄였다 키워서 흐리게 (두 번 거쳐 더 부드럽게)
   function blurInPlace(G, cv, pw, ph, f) {
-    const bw = Math.max(1, Math.round(pw * f)), bh = Math.max(1, Math.round(ph * f)), B = compCanvas2(bw * 2 + 2, bh * 2 + 2);
+    const bw = Math.max(1, Math.round(pw * f)), bh = Math.max(1, Math.round(ph * f)), B = compCanvas2(bw * 3 + 4, bh * 2 + 2);   // (작은 사본을 bw*2+2 오른쪽에 그리므로 폭 3배 필요)
     B.setTransform(1, 0, 0, 1, 0, 0); B.clearRect(0, 0, blur2Cv.width, blur2Cv.height); B.imageSmoothingEnabled = true;
     B.drawImage(cv, 0, 0, pw, ph, 0, 0, bw * 2, bh * 2); B.drawImage(blur2Cv, 0, 0, bw * 2, bh * 2, bw * 2 + 2, 0, bw, bh);
     G.save(); G.setTransform(1, 0, 0, 1, 0, 0); G.clearRect(0, 0, pw, ph); G.imageSmoothingEnabled = true; G.drawImage(blur2Cv, bw * 2 + 2, 0, bw, bh, 0, 0, pw, ph); G.restore();
