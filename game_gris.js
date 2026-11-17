@@ -1967,10 +1967,11 @@
       toneG.putImageData(img, 0, 0);
     }
     ctx.imageSmoothingEnabled = true; ctx.globalAlpha = 0.85;
-    ctx.drawImage(toneCv, 0, hz + H * 0.04, W, H - hz);
-    const gr = ctx.createLinearGradient(0, hz, 0, hz + H * 0.1);            // 수평선 쪽은 자연스럽게 이어지게
-    gr.addColorStop(0, `rgba(${rgbS(PAL.skyHorizon)},1)`); gr.addColorStop(1, `rgba(${rgbS(PAL.skyHorizon)},0)`);
-    ctx.globalAlpha = 1; ctx.fillStyle = gr; ctx.fillRect(0, hz, W, H * 0.1);
+    ctx.drawImage(toneCv, 0, hz, W, H - hz);   // (예전: hz + 4% 에서 시작 → 그 윗변이 화면을 가로지르는 선으로 보임)
+    const gr = ctx.createLinearGradient(0, hz, 0, hz + H * 0.14);            // 수평선 쪽은 자연스럽게 이어지게 (윗변은 완전히 덮고 서서히)
+    const hc = rgbS(PAL.skyHorizon);
+    gr.addColorStop(0, `rgba(${hc},1)`); gr.addColorStop(0.15, `rgba(${hc},0.92)`); gr.addColorStop(0.5, `rgba(${hc},0.4)`); gr.addColorStop(1, `rgba(${hc},0)`);
+    ctx.globalAlpha = 1; ctx.fillStyle = gr; ctx.fillRect(0, hz, W, H * 0.14);
   }
 
   // 빙하·펭귄 둘레: 윤곽을 따라 번지는 가는 등고선 링 2~3겹 (노이즈로 일렁이고 끊어진 호)

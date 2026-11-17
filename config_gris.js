@@ -373,8 +373,8 @@ const PENGUIN_ART = {
   submerged: { alphaMul: 0.45, blur: 0.22, hideDeep: true },   // hideDeep: 깊은 바다에선 물속 몸 안 그림 (얕은 물만)
   reflectBlur: 1,               // 물에 비친 모습 흐림 (1 = 원래대로 선명. 흐리게 하면 버그가 있어 되돌림)
   // 캐릭터 빛 (그림 위에만): 그늘 = 아래·등 쪽 어둡게(땅에서 더), key = 위·앞 은은한 빛, face = 얼굴 밝게, firefly = 가까운 반딧불이 색이 비침
-  light: { enabled: true, moon: true, shade: { color: [22, 30, 48], ice: 0.24, land: 0.34, water: 0.16 }, key: 0.07, keyColor: '226,234,255', face: 0.12,   // moon: 달 방향에서 빛 (달 쪽 밝게, 반대쪽 그늘). 은은하게
-    firefly: { range: 3.2, radius: 0.85, alpha: 0.55, sea: '63,180,255', land: '255,200,90', landMul: 1.2 } },   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
+  light: { enabled: true, moon: true, shade: { color: [22, 30, 48], ice: 0.34, land: 0.44, water: 0.22 }, key: 0.08, keyColor: '226,234,255', face: 0.24,   // moon: 달 방향에서 빛 (달 쪽 밝게, 반대쪽 그늘). 은은하게
+    firefly: { range: 3.2, radius: 0.85, alpha: 0.4, sea: '63,180,255', land: '255,200,90', landMul: 0.45 } },   // landMul: 노란 반딧불이는 은은하게   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
   walk: { waddleDeg: 3, waddleDegSand: 2.2, cyclesPerUnit: 1.25, minHz: 1.2, footLift: 0.022, footStride: 0.03, backMul: 0.4, footSwingDeg: 7, bob: 0.01, flipperSwayDeg: 5 },   // 뒤뚱 각도(빙하·모래) · 이동 1당 걸음 박자(빠를수록 빨리 뒤뚱) · 발 들림·보폭·각도(작게: 몸에서 안 떨어지게) · 들썩 · 날개 흔들
   run: { at: 0.85, flipperUpDeg: 34, flapHz: 4.5, feetSync: true, strideMul: 0.8 },   // 달릴 때 보폭은 짧게 (빠른 박자라 뒤꿈치가 멀리 안 가게)   // feetSync: 달릴 때 발도 날개 박자에 맞춰 빠르게   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
   idle: { breathDeg: 1.5, breathHz: 0.35 },
@@ -682,10 +682,10 @@ const FOOTPRINTS = {
 // ── 초승달 (GRIS): 하늘에 작게. 펭귄 명암은 달 쪽이 밝고 반대쪽이 어두움 (기본: 화면 왼쪽 위 → 왼쪽 밝고 오른쪽 어둠) ─────
 const MOON = {
   u: 0.43, elev: 0.25,         // 하늘 위치: 별과 같은 가로 좌표(0~1, 카메라가 돌면 같이 흐름) · 수평선 위 높이 (화면 높이 비율)
-  radius: 9, phase: 0.62,      // 반지름(px) · 초승달 굵기 (가리는 원이 옆으로 비킨 정도, 0.5 = 얇음 ~ 1 = 반달 이상)
+  radius: 5.5, phase: 0.5,      // 반지름(px) · 초승달 굵기 (가리는 원이 옆으로 비킨 정도, 0.5 = 얇음 ~ 1 = 반달 이상)
   tilt: -35,                   // 초승달이 기운 각도 (도)
   color: [236, 240, 250], alpha: 0.92,
-  glow: { radius: 5, alpha: 0.12 },   // 둘레 은은한 번짐 (반지름 배수)
+  glow: { radius: 4, alpha: 0.07 },   // 둘레 은은한 번짐 (반지름 배수)
 };
 
 const STARS = {
@@ -708,7 +708,7 @@ const QUALITY = {
 
 const SHADOW_BLUR = {
   ratio: 0.25,                // 경계 번짐 폭 = 그림자 크기 × 이 값 (20~30%)
-  layers: 5,                  // 다각형 그림자를 크기를 바꿔 겹쳐 그리는 횟수 (클수록 부드럽게)
+  layers: 14,  /* (5 → 14) 낮은 카메라에선 겹이 가로 띠(계단)로 보여서 촘촘하게 */                 // 다각형 그림자를 크기를 바꿔 겹쳐 그리는 횟수 (클수록 부드럽게)
   facetTexture: 96,           // 빙하 윗면 음영 캐시 크기 (px)
   facetDownscale: 6,          // 음영을 이만큼 줄였다 키워 경계를 흐림 (생성 때 한 번)
   wetResolution: 0.4,         // 젖은 땅·물막 오프스크린 해상도 (낮을수록 경계가 부드럽게 번짐)
@@ -803,7 +803,7 @@ const WATER_SIM = {
     floeLightMul: 0.5, floeLightRadius: 1.2,    // 빙하 반지름 × floeLightRadius 안에서는 밝은 면을 이 배율로
     dark: PALETTE.simDark, darkAlpha: PALETTE.simDarkAlpha,     // 그늘진 면
     // 물마루를 따라가는 반투명 흰 선: 수면이 볼록하게 솟고(곡률) 평평한(기울기 0) 마루에만. 물결이 있을 때만 조금
-    line: { color: PALETTE.crest, alpha: 0.4, curv: [0.35, 1.6], flat: 0.07 },   // curv = [보이기 시작, 가장 진함] 곡률, flat = 마루로 보는 기울기 한계
+    line: { color: PALETTE.crest, alpha: 0,  /* (0.4 → 0) 카메라가 낮아 물마루 선이 화면을 가로지르는 가는 직선으로 보여서 끔 */ curv: [0.35, 1.6], flat: 0.07 },   // curv = [보이기 시작, 가장 진함] 곡률, flat = 마루로 보는 기울기 한계
   },
 };
 
