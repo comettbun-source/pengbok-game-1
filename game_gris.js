@@ -2310,6 +2310,7 @@
   const floeHalo = (() => { const FF = C.FOG.floe, col = (FF ? FF.color : [28, 35, 45]).join(','); return makeSprite([[0, `rgba(${col},0.9)`], [0.4, `rgba(${col},0.6)`], [0.7, `rgba(${col},0.22)`], [1, `rgba(${col},0)`]]); })();
   const maskCv = document.createElement('canvas'), maskG = maskCv.getContext('2d');
   const floeCv = document.createElement('canvas'), floeG = floeCv.getContext('2d');
+  const belowCv = document.createElement('canvas'), belowG = belowCv.getContext('2d'), maskCv2 = document.createElement('canvas');
   let floeImg = null, floeSrc = null; const LC = document.createElement('canvas'), reflCv = document.createElement('canvas'), reflG = reflCv.getContext('2d');
   function drawFloeArt(f, d) {   // 원화 빙하: 수면선은 빙하 둘레를 따라 둥글게 (앞쪽 호), 그 아래는 수면에 비친 모습 (옅게 아래로 사라짐). 먼 것은 안개색
     const FA = C.FLOE_ART, D = window.FLOE_ART; if (!floeImg) { floeImg = new Image(); floeImg.src = D.img; }
@@ -2319,6 +2320,9 @@
       const id = g2.getImageData(0, 0, cv.width, cv.height), dd = id.data, k = FA.saturation;
       for (let i = 0; i < dd.length; i += 4) { const l = dd[i] * 0.3 + dd[i + 1] * 0.59 + dd[i + 2] * 0.11; dd[i] = l + (dd[i] - l) * k; dd[i + 1] = l + (dd[i + 1] - l) * k; dd[i + 2] = l + (dd[i + 2] - l) * k; }
       g2.putImageData(id, 0, 0); floeSrc = cv; floeSrc.sat = k;
+      const bf = FA.belowBlur, sw = Math.max(1, Math.round(cv.width * bf)), sh = Math.max(1, Math.round(cv.height * bf)), t1 = document.createElement('canvas'); t1.width = sw; t1.height = sh;   // 흐린 사본 (물속·비침용)
+      const tg = t1.getContext('2d'); tg.imageSmoothingEnabled = true; tg.drawImage(cv, 0, 0, sw, sh);
+      const t2 = document.createElement('canvas'); t2.width = cv.width; t2.height = cv.height; const g3 = t2.getContext('2d'); g3.imageSmoothingEnabled = true; g3.drawImage(t1, 0, 0, cv.width, cv.height); floeSrc.blur = t2;
     }
     const IMG = floeSrc;
     const A = f.art, sp = A.sp, [rx, ry, rw, rh] = sp.r, a = floeAlpha(f), hm = A.A.heightMul ?? 1;
@@ -2345,7 +2349,7 @@
     const pathBelow = () => { G.beginPath(); G.moveTo(0, oh + 1); G.lineTo(ow, oh + 1); for (let k = NC; k >= 0; k--) G.lineTo(curve[k][0], curve[k][1]); G.closePath(); };
     // ① 물 위 부분
     G.drawImage(IMG, rx, ry, rw, rh, 0, 0, ow, h);   // 자르지 않고 그림 전체 (물속 부분은 아래에서 깊어질수록 사라지게)
-    { G.save(); pathBelow(); G.clip(); G.globalCompositeOperation = 'source-atop';   // 물속: 바다색으로 물들고
+    { G.save(); pathBelow(); G.clip(); G.clearRect(0, wl - 2, ow, oh); G.drawImage(IMG.blur, rx, ry, rw, rh, 0, 0, ow, h); G.globalCompositeOperation = 'source-atop';   // 물속: 흐린 그림으로 바꾸고, 바다색으로 물들고
       const gt = G.createLinearGradient(0, wl, 0, wl + bulge + FA.sinkFade * wl); gt.addColorStop(0, `rgba(${FA.sinkColor.join(',')},${FA.sinkTint[0]})`); gt.addColorStop(1, `rgba(${FA.sinkColor.join(',')},${FA.sinkTint[1]})`);
       G.fillStyle = gt; G.fillRect(0, wl - 2, ow, oh); G.globalCompositeOperation = 'destination-out';   // 깊어질수록 안 보이게
       const gd = G.createLinearGradient(0, wl, 0, wl + bulge + FA.sinkFade * wl); gd.addColorStop(0, `rgba(0,0,0,${1 - FA.sinkAlpha})`); gd.addColorStop(1, 'rgba(0,0,0,1)');
@@ -2363,7 +2367,7 @@
         const x0 = k / NS * ow, x1 = (k + 1) / NS * ow, xm = (x0 + x1) / 2;
         let cy = wl; for (let q = 1; q < curve.length; q++) if (curve[q][0] >= xm) { const a2 = curve[q - 1], b2 = curve[q], tq = (xm - a2[0]) / Math.max(1e-6, b2[0] - a2[0]); cy = a2[1] + (b2[1] - a2[1]) * tq; break; }
         RG.save(); RG.beginPath(); RG.rect(x0 - 0.5, cy - 1, x1 - x0 + 1, oh); RG.clip(); RG.translate(0, cy * 2); RG.scale(1, -1);
-        RG.drawImage(IMG, rx + rw * (x0 / ow), ry, rw * ((x1 - x0) / ow), rh * (sp.wl / sp.h), x0, cy - wl, x1 - x0, wl); RG.restore(); }
+        RG.drawImage(IMG.blur, rx + rw * (x0 / ow), ry, rw * ((x1 - x0) / ow), rh * (sp.wl / sp.h), x0, cy - wl, x1 - x0, wl); RG.restore(); }
       const RF = FA.reflectRipple, rowH = Math.max(1, RF.row * DPR), y0p = Math.floor(wl * DPR), tot = ph - y0p;
       G.save(); pathBelow(); G.clip(); G.setTransform(1, 0, 0, 1, 0, 0);
       for (let y = y0p; y < ph; y += rowH) {   // 가로 띠마다 좌우로 흔들림 (아래로 갈수록 크게) + 띠마다 밝기 다르게
@@ -2376,6 +2380,22 @@
     G.save(); G.globalCompositeOperation = 'destination-out';
     const gf = G.createLinearGradient(0, wl, 0, wl + bulge + refl); gf.addColorStop(0, 'rgba(0,0,0,0)'); gf.addColorStop(0.15, 'rgba(0,0,0,0.25)'); gf.addColorStop(1, 'rgba(0,0,0,1)');
     G.fillStyle = gf; pathBelow(); G.fill(); G.restore();
+    // 물속 부분 + 비친 모습: 흐리게 하고 양옆 끝은 옅게 (깔끔한 선이 두 줄로 보이지 않게)
+    if (false) {
+      const BC = belowCv, BG = belowG; if (BC.width < pw || BC.height < ph) { BC.width = Math.max(BC.width, pw); BC.height = Math.max(BC.height, ph); }
+      BG.setTransform(1, 0, 0, 1, 0, 0); BG.clearRect(0, 0, BC.width, BC.height); BG.drawImage(floeCv, 0, 0);
+      blurInPlace(BG, BC, pw, ph, FA.belowBlur);
+      G.save(); G.setTransform(DPR, 0, 0, DPR, 0, 0); const top0 = wl + bulge * 0.7;   // 수면선 바로 아래부터 부드럽게 섞음 (빙하가 물에 닿는 선은 또렷하게)
+      G.beginPath(); G.rect(0, top0, ow, oh); G.clip(); G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'destination-out'; G.fillStyle = '#000';
+      G.fillRect(0, (wl + bulge * 1.3) * DPR, pw, ph); G.globalCompositeOperation = 'source-over';
+      const MK = maskCv2, MG = MK.getContext('2d'); if (MK.width < pw || MK.height < ph) { MK.width = Math.max(MK.width, pw); MK.height = Math.max(MK.height, ph); }
+      MG.setTransform(1, 0, 0, 1, 0, 0); MG.clearRect(0, 0, MK.width, MK.height); MG.drawImage(BC, 0, 0); MG.globalCompositeOperation = 'destination-in';
+      const gy = MG.createLinearGradient(0, top0 * DPR, 0, (wl + bulge * 1.3) * DPR); gy.addColorStop(0, 'rgba(0,0,0,0)'); gy.addColorStop(1, 'rgba(0,0,0,1)'); MG.fillStyle = gy; MG.fillRect(0, 0, pw, ph);
+      MG.globalCompositeOperation = 'destination-out'; const sf = FA.sideFade * ow * DPR, gx = MG.createLinearGradient(0, 0, pw, 0);
+      gx.addColorStop(0, 'rgba(0,0,0,1)'); gx.addColorStop(Math.min(0.49, sf / pw), 'rgba(0,0,0,0)'); gx.addColorStop(Math.max(0.51, 1 - sf / pw), 'rgba(0,0,0,0)'); gx.addColorStop(1, 'rgba(0,0,0,1)');
+      MG.fillStyle = gx; MG.fillRect(0, (wl + bulge * 0.3) * DPR, pw, ph); MG.globalCompositeOperation = 'source-over';
+      G.drawImage(MK, 0, 0); G.restore();
+    }
     // ③ 수면선 둘레 옅은 흰 띠 (원래 빙하의 수면 링처럼)
     G.save(); G.strokeStyle = `rgba(${FA.lineColor.join(',')},${FA.lineAlpha})`; G.lineWidth = Math.max(0.8, FA.lineWidth * ppu); G.lineCap = 'round';
     { const lg = G.createLinearGradient(xL, 0, xR, 0); lg.addColorStop(0, 'rgba(0,0,0,0)'); lg.addColorStop(0.12, 'rgba(0,0,0,1)'); lg.addColorStop(0.88, 'rgba(0,0,0,1)'); lg.addColorStop(1, 'rgba(0,0,0,0)');
