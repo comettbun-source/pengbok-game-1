@@ -1132,13 +1132,17 @@
       else {
         // 몸 둘레(wallRadius)로 빙하에 닿는지: 몸이 빙하에 겹쳐 들어가 보이지 않게
         const WR = P.water.wallRadius || 0, hit = (x, y) => floeAt(x, y, P.water.climbAt ?? 0.88);
-        let o = hit(p.x, p.y);
-        if (!o && WR > 0) for (let k = 0; k < 8 && !o; k++) { const a = k / 8 * Math.PI * 2; o = hit(p.x + Math.cos(a) * WR, p.y + Math.sin(a) * WR); }
+        // 몸 윤곽 점들: 그림은 화면 가로로 길쭉 (머리·꼬리 = 카메라 오른쪽 축 ±reach, 앞뒤 = 깊이 축 ±WR)
+        const RX = (P.water.wallReach || WR) * penH() / 0.975, body = [[0, 0]];
+        for (let i = -3; i <= 3; i++) for (let j = -2; j <= 2; j++) body.push([i / 3 * RX, j / 2 * WR]);   // 몸 사각 범위 전체 (앞뒤로 비켜도 겹치지 않게)
+        const wp = (q) => [p.x + rig.R[0] * q[0] + rig.F[0] * q[1], p.y + rig.R[1] * q[0] + rig.F[1] * q[1]];
+        const touching = () => { for (const q of body) { const [x, y] = wp(q); const h = hit(x, y); if (h) return h; } return null; };
+        let o = touching();
         if (o) {
           let nx = p.x - o.x, ny = p.y - o.y; const nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
-          const ex = p.x - nx * WR, ey = p.y - ny * WR, top = floeTopAt(o, ex - o.x, ey - o.y);   // 몸이 닿은 쪽 가장자리 높이
+          const ex = p.x - nx * Math.min(RX, Math.hypot(p.x - o.x, p.y - o.y) * 0.3), ey = p.y - ny * Math.min(RX, Math.hypot(p.x - o.x, p.y - o.y) * 0.3), top = floeTopAt(o, ex - o.x, ey - o.y);   // 몸이 닿은 쪽 가장자리 높이
           if (P.water.autoClimbMax != null && top > P.water.autoClimbMax) {   // 수면보다 높은 가장자리: 머리가 닿고 막힘 (점프하면 배치기로 올라감)
-            for (let i = 0; i < 60 && (hit(p.x, p.y) || hit(p.x - nx * WR, p.y - ny * WR)); i++) { p.x += nx * 0.02; p.y += ny * 0.02; }
+            for (let i = 0; i < 80 && touching(); i++) { p.x += nx * 0.02; p.y += ny * 0.02; }   // 이마(몸 윤곽)가 가장자리에 딱 닿을 때까지만
             const vn = p.vx * nx + p.vy * ny; if (vn < 0) { p.vx -= vn * nx; p.vy -= vn * ny; }
             p.wallFloe = o; p.wallAt = S.time;
           } else if (hit(p.x, p.y)) setMode('floe', o, 0);   // 수면과 높이가 맞는 가장자리만 그대로 퐁 올라섬
@@ -3369,7 +3373,7 @@
       } else if (q.kind === 'flipper') {
         if (flapK > 0) ang = -deg(PA.flap.deg) * (0.5 + 0.5 * Math.sin(t * PA.flap.hz * Math.PI * 2)) * Math.min(1, flapK * 2);   // 물에서 점프: 날개 파닥
         else if (p.air) ang = Math.sin(t * 16) * deg(PA.air.flutterDeg);
-        else if (p.sliding && !deepW && !p.belly) ang = -(p.tobKick || 0) * deg(PA.toboggan.flipperDeg) + Math.sin(((p.tobT || 0) / C.PHYSICS.toboggan.kick.period) * Math.PI * 2) * deg(PA.toboggan.flipperDeg) * 0.3;   // 발 박자에 맞춰 날개 살짝
+        else if (p.sliding && !deepW && !p.belly) { const TB = PA.toboggan; ang = -(p.tobKick || 0) * deg(TB.flipperDeg) + Math.sin(t * Math.PI * 2 * (TB.paddleHz + sp * TB.paddlePerSpeed) + 0.6) * deg(TB.flipperDeg) * 0.35; }   // 날개: 발 파닥 박자와 같이
         else if (running) ang = -deg(PA.run.flipperUpDeg) * (0.8 + 0.2 * Math.sin(t * PA.run.flapHz * Math.PI * 2));   // 달리기: 날개 살짝 들고 파닥
         else if (deepW) ang = Math.sin(t * PA.swim.flipperHz * Math.PI * 2) * deg(PA.swim.flipperDeg);
         else if (walking) ang = Math.sin(ph) * deg(PA.walk.flipperSwayDeg) * (1 - 0.5 * amt);   // 느릿 걸을 때 날개 살짝 흔들
@@ -4181,7 +4185,7 @@
       let sd = f === p.floe && !p.air ? Math.max(d, pd + 0.01) : d;
       if (sd === d && !p.air && p.mode !== 'floe') {   // 빙하 바로 옆 물·땅의 펭귄: 펭귄 쪽 빙하 가장자리보다 앞이면 펭귄을 나중에 (빙하가 펭귄을 덮지 않게)
         const dx = p.x - f.x, dy = p.y - f.y, dl = Math.hypot(dx, dy);
-        if (dl < f.R * 1.6) { const q = camSpace(f.x + dx / (dl || 1) * f.R, f.y + dy / (dl || 1) * f.R, 0)[1]; if (pd <= q + 0.05) sd = Math.min(d, pd - 0.01); }
+        if (dl < f.R * 1.8) sd = Math.min(d, pd - 0.01);   // 빙하 옆 물의 펭귄은 항상 빙하 뒤에 그려 가려지지 않게 (몸이 빙하 윤곽에 닿기 전에 막히므로 겹쳐 보이지 않음)
       }
       if (d > -f.R) items.push({ d: sd, draw: () => drawFloe(f, Math.max(d, 0)) });
     }
