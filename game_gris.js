@@ -1724,7 +1724,7 @@
     const CL = C.PENGUIN_ART && C.PENGUIN_ART.climb;
     if (CL && p.climbAt != null && p.mode === 'floe' && !p.air) {   // 기어오름: 그림 높이만 물 높이 → 빙하 위로 (작은 들썩)
       const k = (S.time - p.climbAt) / CL.time;
-      if (k < 1) { const e = 1 - Math.pow(1 - k, 2.2), zv = p.z - (p.z - p.climbFromZ) * (1 - e) + CL.hop * Math.sin(Math.PI * k);
+      if (k < 1) { const e = smooth(0, CL.riseIn, k), zv = p.z - (p.z - p.climbFromZ) * (1 - e) + CL.hop * Math.sin(Math.PI * Math.min(1, k / 0.85));   // 퐁: 아주 빨리 윗면 높이로 + 위로 솟았다 배로 착지
         return -h + (project(p.x, p.y, zv)[1] - project(p.x, p.y, p.z)[1]); }
       p.climbAt = null;
     }
@@ -3544,7 +3544,7 @@
         }
         ctx.restore();
       } }
-    const climbClip = p.climbAt != null && p.mode === 'floe' && C.PENGUIN_ART && C.PENGUIN_ART.climb;   // 기어오르는 동안: 빙하 윗면 선 위로만 그림 (옆면을 뚫고 올라오는 것처럼 보이지 않게)
+    const climbClip = false;   // 기어오르는 동안: 빙하 윗면 선 위로만 그림 (옆면을 뚫고 올라오는 것처럼 보이지 않게)
     ctx.save(); if (climbClip) { const ty = project(p.x, p.y, p.z)[1] + 1; ctx.beginPath(); ctx.rect(-W, -H, W * 3, ty + H); ctx.clip(); }
     ctx.translate(sx, sy); drawPenguinFigure(ctx, u, v, 'above', cut); ctx.restore();
     if (cut) waterlineArc(cut, sx, sy, true);

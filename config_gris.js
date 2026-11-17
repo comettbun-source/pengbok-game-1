@@ -134,7 +134,7 @@ const WATER_CALM = {
 const WATER_NORMAL = {
   bob: { periods: [2.6, 4.1], ampsPx: [2.4, 1.6], maxPx: 5, lightBoost: 1.4, tiltDeg: 1.6, penguinLag: 0.25, phaseSpread: 6.28 },
   swell: { count: 0,  /* (5 → 0) 화면을 가로지르는 긴 직선 띠로 보여서 끔 */ width: [0.3, 0.6], alpha: [0.06, 0.1], period: [6, 10], thick: 0.6, travel: 8 },
-  streams: { max: 70, shortShare: 0.6, shortLen: [0.8, 2.6], longLen: [2.6, 5], stepLen: 0.2, life: [2, 5], alpha: [0.12, 0.2], width: 1.5, pairGap: 2.5, pairAlpha: 0.8,
+  streams: { max: 0,  /* (70 → 0) 카메라가 낮아 물결 흐름 선이 곳곳에 가는 가로선으로 보여서 끔 */ shortShare: 0.6, shortLen: [0.8, 2.6], longLen: [2.6, 5], stepLen: 0.2, life: [2, 5], alpha: [0.12, 0.2], width: 1.5, pairGap: 2.5, pairAlpha: 0.8,
     fieldScale: 0.13, curl: 2.4, morph: 0.07, dirSpread: 60, speed: [0.1, 0.25], depth: [3, 45], avoid: 1.5, eddyAlpha: 0.16 },
   glints: { max: 20, rate: 20, life: 0.6, alpha: [0.14, 0.26], depth: [2, 22] },
   tone: { amp: 0.05, period: 18, scale: 0.35 },
@@ -385,7 +385,7 @@ const PENGUIN_ART = {
   swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 5, flipperHz: 1.2 },
   flap: { time: 0.7, deg: 32, hz: 6 },   // 물에서 점프 = 날개 파닥 (최대 각도 작게: 반투명 부분이 안 보이게)
   toboggan: { kickDeg: 22, footDownDeg: 18, footDrop: 1.0, kickBack: 0.08 },   // footDrop: 발 아래끝을 바닥(0)까지 내림 비율 · kickBack: 찰 때 뒤로 뻗는 거리   // 육지 배 슬라이딩: 발끝을 아래로(땅에 닿게) · 찰 때 뒤로
-  climb: { time: 0.6, hop: 0.1, bellyUntil: 0.55 },   // 물 → 빙하 기어오름 (그림만): 걸리는 시간 · 살짝 들썩 · 이 비율까지 배를 대고
+  climb: { time: 0.42, hop: 0.32, riseIn: 0.22, bellyUntil: 0.75 },   // 물 → 빙하 배치기로 퐁: 걸리는 시간 · 솟는 높이 · 빙하 윗면 높이까지 오르는 데 쓰는 비율(짧을수록 옆면을 빨리 지나감) · 배 자세 유지 비율   // 물 → 빙하 기어오름 (그림만): 걸리는 시간 · 살짝 들썩 · 이 비율까지 배를 대고
   blink: { every: [2.5, 5], time: 0.13 },
 };
 
