@@ -702,7 +702,7 @@
 
   function pickRole(x, y) {
     const rg = layout.ring, a = layout.action;
-    if (C.ui.ring.hidden) return Math.hypot(x - a.x, y - a.y) <= C.ui.action.hitRadius ? 'action' : 'ring';   // GRIS: 발바닥 말고는 전부 이동
+    if (C.ui.ring.hidden) return Math.hypot(x - a.x, y - a.y) <= C.ui.action.hitRadius ? 'action' : 'ring';   // pengbok: 발바닥 말고는 전부 이동
     if (Math.hypot(x - rg.x, y - rg.y) <= C.ui.ring.hitRadius) return 'ring';
     if (Math.hypot(x - a.x, y - a.y) <= C.ui.action.hitRadius) return 'action';
     const p = S.p;
@@ -745,13 +745,13 @@
     if (!ptr) return;
     const dx = e.clientX - ptr.x, dy = e.clientY - ptr.y;
     ptr.x = e.clientX; ptr.y = e.clientY;
-    if (ptr.role === 'ring' && C.ui.ring.hidden) {          // GRIS: 기준점이 손가락을 따라옴 → 아무리 길게 끌어도 계속 이동
+    if (ptr.role === 'ring' && C.ui.ring.hidden) {          // pengbok: 기준점이 손가락을 따라옴 → 아무리 길게 끌어도 계속 이동
       const R = C.ui.ring, ddx = ptr.x - ptr.ox, ddy = ptr.y - ptr.oy, l = Math.hypot(ddx, ddy);
       if (l > R.maxPush) { ptr.ox = ptr.x - ddx / l * R.maxPush; ptr.oy = ptr.y - ddy / l * R.maxPush; }
     } else if (ptr.role === 'camera') {
       S.lastCamTouch = S.time;
-      if (C.camera.lockRotation) return;                       // GRIS: 각도 고정
-      cam.yawT = clamp(cam.yawT + dx * C.camera.rotateSensX, -deg(C.camera.yawLockDeg), deg(C.camera.yawLockDeg));   // GRIS: 좌우 ±yawLockDeg 안에서만
+      if (C.camera.lockRotation) return;                       // pengbok: 각도 고정
+      cam.yawT = clamp(cam.yawT + dx * C.camera.rotateSensX, -deg(C.camera.yawLockDeg), deg(C.camera.yawLockDeg));   // pengbok: 좌우 ±yawLockDeg 안에서만
       cam.pitchT = clamp(cam.pitchT + dy * C.camera.rotateSensY, deg(C.camera.pitchMinDeg), deg(C.camera.pitchMaxDeg));
     } else if (ptr.role === 'drag' && ptr.floe && ptr.floe.grab) {
       const [wx, wy] = screenDeltaToWorld(dx, dy, [S.p.x, S.p.y]);
@@ -793,7 +793,7 @@
     const k = KEYMAP[e.key.toLowerCase()]; if (k) keys.delete(k);
   });
 
-  // GRIS: 좌우만 — 위아래 입력은 버림 (화면 기준 → yaw 0 이라 월드 ±x)
+  // pengbok: 좌우만 — 위아래 입력은 버림 (화면 기준 → yaw 0 이라 월드 ±x)
   function readMove() { const m = readMove2D(); return C.lane ? [m[0], 0] : m; }
   function readMove2D() {
     const R = C.ui.ring;
@@ -1137,7 +1137,7 @@
       p.x += (p.vx + (p.air ? p.cvx : 0)) * dt; p.y += (p.vy + (p.air ? p.cvy : 0)) * dt;
     }
 
-    // GRIS: 이동 선(lane) 근처로 부드럽게 되밀기 (공중 제외, 빙하 위에서도)
+    // pengbok: 이동 선(lane) 근처로 부드럽게 되밀기 (공중 제외, 빙하 위에서도)
     if (C.lane && !p.air) {
       const LN = C.lane, off = p.y - LN.y, ex = Math.abs(off) - LN.halfWidth;
       if (ex > 0) p.vy -= Math.sign(off) * ex * LN.push * dt;
@@ -1409,7 +1409,7 @@
   // 경로 진행도 s 의 군집 중심이 화면에서 펭귄 머리보다 minScreen 이상 위에 보이는 최소 lead
   function screenLead(sPen, lead) {
     const ff = S.ff, p = S.p, LD = C.FIREFLY.guide.lead, [, py, pd] = project(p.x, p.y, p.z), head = py + penOffset() - penScale(pd) - LD.minScreen * H;
-    if (!(LD.minScreen > 0)) return lead;                    // 화면 간격 조건 끔 (GRIS: 앞쪽 바다라 늘 머리보다 아래에 보임)
+    if (!(LD.minScreen > 0)) return lead;                    // 화면 간격 조건 끔 (pengbok: 앞쪽 바다라 늘 머리보다 아래에 보임)
     let l = lead;
     while (l < LD.screenMaxLead && sPen + l < ff.L) {
       const q = pathAt(sPen + l), c = camSpace(q.x, q.y, -0.15);
@@ -1426,7 +1426,7 @@
     const sPen = projectOnPath(p.x, p.y);
     // lead: 속도에 비례, 화면 간격과 월드 간격 중 큰 쪽
     const lead = screenLead(sPen, clamp(LD.rest + LD.gain * spd, LD.min, LD.max));
-    // GRIS: 시작 연출 동안은 정면 바다에서 밝아질 때까지 기다림 (펭귄이 lead 안으로 다가오면 평소처럼 물러남)
+    // pengbok: 시작 연출 동안은 정면 바다에서 밝아질 때까지 기다림 (펭귄이 lead 안으로 다가오면 평소처럼 물러남)
     const waitWater = C.intro.holdUntilWater && !S.wentWater;   // 펭귄이 물에 들어올 때까지 둥글게 맴돌며 기다림
     ff.hold = waitWater;
     const hold = (C.intro.holdFirefly && introVis() < 0.95 && dist > G.fleeTrigger) || waitWater;
@@ -1461,7 +1461,7 @@
       if (ff.mode === 'flee') {
         const rem = ff.sTarget - ff.s;
         let v = Math.min(Math.max(ff.speed, spd), Math.max(0.3, rem * 2.5));
-        if (ff.s < sMin) v = Math.max(v, spd * SEP.retreatMul + (sMin - ff.s) * (LD.catchUp ?? 1.5));   // GRIS: 점프로 확 앞질러도 바로 따라잡게   // lead 보다 가까우면 펭귄보다 빠르게 따라잡아 앞섬
+        if (ff.s < sMin) v = Math.max(v, spd * SEP.retreatMul + (sMin - ff.s) * (LD.catchUp ?? 1.5));   // pengbok: 점프로 확 앞질러도 바로 따라잡게   // lead 보다 가까우면 펭귄보다 빠르게 따라잡아 앞섬
         ff.s = Math.min(ff.sTarget, ff.s + v * dt);           // 단조 증가
         if (ff.sTarget - ff.s < 0.02) ff.mode = ff.s >= ff.L - 0.05 ? 'shore' : 'mill';
       }
@@ -2422,7 +2422,7 @@
     if (f.art) { drawFloeArt(f, d); return; }
     const a = floeAlpha(f);
     if (a <= 0.01) return;
-    const FF = C.FOG.floe, FL = C.floe, dy = floeOffset(f), fog = FF ? FF.max * smooth(FF.start, FF.end, d) : fogAt(d), shp = f.shape;   // GRIS: 빙하 전용 안개
+    const FF = C.FOG.floe, FL = C.floe, dy = floeOffset(f), fog = FF ? FF.max * smooth(FF.start, FF.end, d) : fogAt(d), shp = f.shape;   // pengbok: 빙하 전용 안개
     const tilt = (x, y) => f.tilt.x * x + f.tilt.y * y;
     const poly = (scale, zf, shift = dy) => projPoly(shp.map(([x, y]) => [f.x + x * scale, f.y + y * scale, zf(x * scale, y * scale)])).map(([sx, sy]) => [sx, sy + shift]);
     // 접촉 그림자 (수면, 출렁임에 반만 따라감)
@@ -2536,7 +2536,7 @@
         }
       }
     }
-    // GRIS: 먼 빙하는 안개색(수평선 안개)으로 녹아 흐려지고, 둘레를 부드러운 안개가 감쌈
+    // pengbok: 먼 빙하는 안개색(수평선 안개)으로 녹아 흐려지고, 둘레를 부드러운 안개가 감쌈
     if (FF && fog > 0.02) {
       const outline2 = projPoly(shp.map(([x, y]) => [f.x + x, f.y + y, 0])).map(([sx, sy]) => [sx, sy + dy]);
       if (outline2.length > 2) {
@@ -3113,7 +3113,7 @@
         const wv = (a.wet[k] + b.wet[k]) / 2;
         // 올라오는 물 앞쪽 밝은 막(해안 쪽으로 갈수록 투명) + 빠진 뒤 남는 얇은 막
         const reach = (a.reach + b.reach) / 2, front = SHT ? 0 : reach > d0 ? Wsh.waterAlpha * clamp(d1 / Math.max(reach, 0.01), 0, 1) : 0;
-        const fv = Math.max(front, (SHT ? SHT.residue : Wsh.filmAlpha) * smooth(0, 1, (a.film[k] + b.film[k]) / 2) * (SHT && reach > d1 ? 0 : 1));   // GRIS: 칸 단위 막은 빠진 뒤 남는 얇은 막만
+        const fv = Math.max(front, (SHT ? SHT.residue : Wsh.filmAlpha) * smooth(0, 1, (a.film[k] + b.film[k]) / 2) * (SHT && reach > d1 ? 0 : 1));   // pengbok: 칸 단위 막은 빠진 뒤 남는 얇은 막만
         if (wv < 0.01 && fv < 0.01) continue;
         const pts = [at(a, d0), at(b, d0), at(b, d1), at(a, d1)];
         if (pts.some((c) => c[1] < rig.near)) continue;
@@ -3159,7 +3159,7 @@
         }
       }
     }
-    // GRIS: 올라온 물막 — 물가(투명) → 앞선(은은하게)으로 이어지는 얇은 면 + 군데군데 끊기는 가는 앞선 테두리
+    // pengbok: 올라온 물막 — 물가(투명) → 앞선(은은하게)으로 이어지는 얇은 면 + 군데군데 끊기는 가는 앞선 테두리
     if (SHT) {
       const n = SHT.strips, quad = (a, b, da0, da1, db0, db1) => {
         const pts = [at(a, da0), at(b, db0), at(b, db1), at(a, da1)];
@@ -3182,7 +3182,7 @@
     if (anyW) { ctx.globalAlpha = Wsh.wetAlpha * (1 - fog); ctx.drawImage(wetCv, 0, 0, W, H); }
     if (anyF) { ctx.globalAlpha = (SHT ? 1 : Math.max(Wsh.waterAlpha, Wsh.filmAlpha)) * (1 - fog); ctx.drawImage(filmCv, 0, 0, W, H); }
     // 거품: 물막 앞선의 흰 띠 + 그 뒤 성긴 띠 (노이즈로 끊김). 올라올 때 진하고 빠지면서 사라짐
-    if (SHT) {                                                 // GRIS: 거품 = 앞선을 따라 가늘게 끊기는 레이스 조각 (구간을 쪼개 무늬를 잘게)
+    if (SHT) {                                                 // pengbok: 거품 = 앞선을 따라 가늘게 끊기는 레이스 조각 (구간을 쪼개 무늬를 잘게)
       const FO = Wsh.foam, L = SHT.lace, fr = offRes(SHT.resolution), fw = Math.max(8, Math.ceil(W * fr)), fh = Math.max(8, Math.ceil(H * fr));
       fitCv(crestCv, fw, fh); crestG.setTransform(1, 0, 0, 1, 0, 0); crestG.globalCompositeOperation = 'source-over'; crestG.clearRect(0, 0, fw, fh); crestG.setTransform(fr, 0, 0, fr, 0, 0);
       crestG.fillStyle = `rgb(${rgbS(FO.color)})`;
@@ -4076,7 +4076,7 @@
     const R = C.ui.ring, rg = layout.ring;
     let active = null;
     for (const ptr of pointers.values()) if (ptr.role === 'ring') { active = ptr; break; }
-    if (R.hidden) active = null;                               // GRIS: 링 그림 없음
+    if (R.hidden) active = null;                               // pengbok: 링 그림 없음
     else {
     ctx.lineWidth = R.lineWidth;
     ctx.strokeStyle = uiColor(lum.ring, active ? 1.4 : 1);
@@ -4144,7 +4144,7 @@
     return set;
   }
   // 발자국 하나: 찍힐 때 흐림 → 선명, 사라질 때 선명 → 흐림으로 교차 페이드
-  // GRIS 섬 발자국: 모래는 깊게 (진한 안쪽 + 빛 쪽으로 살짝 밀려난 밝은 테), 숲·언덕은 옅게. 해안 그림과 따로 그려 숲에서도 보임
+  // pengbok 섬 발자국: 모래는 깊게 (진한 안쪽 + 빛 쪽으로 살짝 밀려난 밝은 테), 숲·언덕은 옅게. 해안 그림과 따로 그려 숲에서도 보임
   function drawIslandPrints() {
     const FP = C.FOOTPRINTS; if (!IT || !FP.sand) return;
     const GR = C.PHYSICS.toboggan && C.PHYSICS.toboggan.groove;

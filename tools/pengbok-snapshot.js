@@ -1,13 +1,13 @@
-// GRIS 물리 스냅샷: 60Hz 고정 단계로 3초 전진(왼쪽) → 점프 → 입수 → 슬라이딩 헤엄 → 상륙
+// pengbok 물리 스냅샷: 60Hz 고정 단계로 3초 전진(왼쪽) → 점프 → 입수 → 슬라이딩 헤엄 → 상륙
 // 30단계(0.5초)마다 펭귄 좌표·속도·높이와 활성 빙하 기울기를 기록. 그림·UI 수정 전후 비교용
-// 사용: python3 -m http.server 8123 &  →  node tools/gris-snapshot.js out.json   (비교: node tools/gris-snapshot.js out2.json out.json)
+// 사용: python3 -m http.server 8123 &  →  node tools/pengbok-snapshot.js out.json   (비교: node tools/pengbok-snapshot.js out2.json out.json)
 const { chromium } = require('playwright');
 const fs = require('fs');
 (async () => {
   const browser = await chromium.launch();
   const page = await (await browser.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 1 })).newPage();
   await page.addInitScript(() => { let s = 12345; Math.random = () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); window.requestAnimationFrame = () => 0; });
-  await page.goto('http://localhost:8123/index_gris.html');
+  await page.goto('http://localhost:8123/index_pengbok.html');
   const rec = await page.evaluate(() => {
     const g = window.__game, S = g.S, r5 = (v) => +v.toFixed(5), out = [];
     g.reset(); S.p.driftAng = 1;

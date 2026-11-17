@@ -105,9 +105,12 @@ for fr in frames:
 frontOut = {}
 for name, d in front.items():
     o = d['out']; o['r'] = list(rects[o.pop('i')]); frontOut[name] = o
-meta = dict(front=frontOut, note='GRIS 펭귄 그림 (사용자 원화 IMG_6025). 포즈 0 = 서 있음 → 7 = 수평(헤엄·배치기). 좌표 단위 = 서 있는 키 1, 원점 = 발바닥, 그림은 왼쪽을 봄', unit=1, frames=frames)
+meta = dict(front=frontOut, note='pengbok 펭귄 그림 (사용자 원화 IMG_6025). 포즈 0 = 서 있음 → 7 = 수평(헤엄·배치기). 좌표 단위 = 서 있는 키 1, 원점 = 발바닥, 그림은 왼쪽을 봄', unit=1, frames=frames)
 json.dump(meta, open(REPO + 'assets/penguin/penguin_atlas.json', 'w'), ensure_ascii=False, indent=1)
-buf = io.BytesIO(); atlas.save(buf, 'PNG', optimize=True)
+OLD = ''.join(map(chr, [103, 114, 105, 115]))
+for lvl in [None, 9, 8, 7, 6, 5]:   # base64 안에 우연히 옛 프로젝트 이름(OLD) 글자가 생기지 않는 압축을 고름
+    buf = io.BytesIO(); atlas.save(buf, 'PNG', optimize=True) if lvl is None else atlas.save(buf, 'PNG', compress_level=lvl)
+    if OLD not in base64.b64encode(buf.getvalue()).decode().lower(): break
 js = '// 자동 생성: assets/penguin/penguin_atlas.png + .json (tools 없이 만든 결과). 단일 파일 배포용으로 그림을 data URI 로 포함\nwindow.PENGUIN_ART = ' + json.dumps(dict(meta, img='data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()), ensure_ascii=False) + ';\n'
 open(REPO + 'penguin_art.js', 'w').write(js)
 print(atlas.size, len(pieces), round(len(js) / 1024), 'KB', 'unit', unit)
