@@ -166,7 +166,7 @@ const FOG = {
       { scale: 0.75, speed: 0.024, alpha: 0.26, y: 0.12, height: 0.9, near: true },  // 가까운 층: 빠르고 작게, 펭귄 앞을 지나감
     ],
   },
-  penguinClear: { radius: 0.24, keep: 0.6 },     // 펭귄 중심 반경(화면 높이 비율)에서 가까운 층 농도를 60% 로
+  penguinClear: { radius: 0.24, keep: 0.2 },     // 펭귄 중심 반경(화면 높이 비율)에서 가까운 층 농도를 20% 로 (60% → 20%: 펭귄 얼굴이 안개에 묻혀 어둡지 않게)
   resolution: 0.25,           // (0.125 → 0.25) 안개 오프스크린 해상도 (화면 대비). 부드러운 게 맞아 낮게 두고, 고품질 보간 + 디더로 띠·계단을 숨김
   keepClearDepth: 9,          // 이보다 가까운 것은 먼 안개 층 위에 그림
 };
@@ -371,7 +371,10 @@ const PENGUIN_ART = {
   sit: { enabled: false,   /* 정면 그림 사용 안 함 (true 로 바꾸면 다시 앉기) */ maxDrift: 0.6, delay: 1.0, standTime: 0.22, breath: 0.012, breathHz: 0.4, scale: 1.0 },
   waterline: { swim: 0.5, cutFit: 1.05 },   // cutFit: 수면 가림·수면 선을 그림 몸 폭에 맞춤 (예전 도형 폭 대신)
   submerged: { alphaMul: 0.45, blur: 0.22, hideDeep: true },   // hideDeep: 깊은 바다에선 물속 몸 안 그림 (얕은 물만)
-  reflectBlur: 0.25,            // 물에 비친 모습 흐림 (줄였다 키우는 배율, 작을수록 흐림. 1 = 선명)   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
+  reflectBlur: 1,               // 물에 비친 모습 흐림 (1 = 원래대로 선명. 흐리게 하면 버그가 있어 되돌림)
+  // 캐릭터 빛 (그림 위에만): 그늘 = 아래·등 쪽 어둡게(땅에서 더), key = 위·앞 은은한 빛, face = 얼굴 밝게, firefly = 가까운 반딧불이 색이 비침
+  light: { enabled: true, shade: { color: [22, 30, 48], ice: 0.26, land: 0.42, water: 0.18 }, key: 0.12, face: 0.35,
+    firefly: { range: 3.2, radius: 0.85, alpha: 0.55, sea: '63,180,255', land: '255,200,90', landMul: 1.2 } },   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
   walk: { wobbleMul: 0.35, wobbleMulSand: 0.15, footLift: 0.035, footStride: 0.07, backMul: 0.45, footSwingDeg: 16, bob: 0.01, flipperSwayDeg: 6 },   // 모래(섬)에선 덜 뒤뚱 · 느릿 걸을 때 날개 살짝 흔들림   // 뒤뚱 기울기 · 발 들림 · 발 앞뒤 보폭 · 발 각도 · 몸 들썩 (발이 이동거리만큼 움직이게)
   run: { at: 0.85, flipperUpDeg: 34, flapHz: 5, feetSync: true, strideMul: 0.6 },   // 달릴 때 보폭은 짧게 (빠른 박자라 뒤꿈치가 멀리 안 가게)   // feetSync: 달릴 때 발도 날개 박자에 맞춰 빠르게   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
   idle: { breathDeg: 1.5, breathHz: 0.35 },
@@ -957,6 +960,7 @@ window.CONFIG = {
     holdUntilWater: true,     // 그리고 펭귄이 물에 처음 들어올 때까지 물속에서 둥글게 맴돌며 기다림
     rippleRadius: 2.4,
     fadeIn: 2,                // 군집이 밝아지는 시간 (초)
+    startSpot: { maxR: 0.55, slopeW: 0.5, centerW: 0.05 },   // 시작 자리: 빙하 안쪽(반경 비율 ≤ maxR)에서 낮고(높이) 평평한(slopeW × 기울기) 곳
     startSide: 'left',        // 시작 때 펭귄이 바라보는 방향: 'left' / 'right' = 화면 옆모습, null = 예전처럼 화면 안쪽(뒷모습)
     watchFirefly: false,      // true 면 앉아서 반딧불이 쪽으로 몸을 돌림 (옆모습이 3/4로 바뀜)
   },

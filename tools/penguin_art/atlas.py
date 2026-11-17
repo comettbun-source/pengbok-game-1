@@ -11,7 +11,10 @@ M = json.load(open(OUT + 'place.json'))
 S = 0.42   # 축소 배율 (원본 ≈ 600px 키 → 약 250px)
 def get(r, opaque=False):
     y0, x0, y1, x1 = r; P = im[y0:y1, x0:x1].copy()
-    if opaque: P[..., 3] = np.clip(P[..., 3].astype(np.float32) * 2.6, 0, 255).astype(np.uint8)   # 날개: 반투명 부분을 불투명하게 (들어 올려도 비치지 않게)
+    if opaque:
+        P[..., 3] = np.clip(P[..., 3].astype(np.float32) * 2.6, 0, 255).astype(np.uint8)   # 날개: 반투명 부분을 불투명하게 (들어 올려도 비치지 않게)
+        core = ndimage.binary_erosion(P[..., 3] > 128, iterations=6); band = (P[..., 3] > 0) & ~core   # 날개 가장자리 띠의 어두운 윤곽선 → 밝게 (가로 날개일 때 가로선으로 보임)
+        P[..., :3][band] = np.maximum(P[..., :3][band], 214)
     lab, n = ndimage.label(ndimage.binary_dilation(P[..., 3] > 8, iterations=3))
     if n > 1:
         sizes = ndimage.sum(np.ones_like(lab), lab, range(1, n + 1)); keep = 1 + int(np.argmax(sizes)); P[lab != keep] = 0

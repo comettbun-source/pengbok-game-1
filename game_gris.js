@@ -399,6 +399,12 @@
     };
     manageField();
     S.p.floe = S.cands[0].floe;
+    { const f = S.p.floe, SP = C.intro.startSpot;   // 시작: 빙하 꼭대기 말고 낮고 평평한 곳에 안정적으로
+      if (f && f.relief && SP) { let best = null;
+        for (let a = 0; a < 24; a++) for (let r = 0; r <= SP.maxR; r += 0.12) {
+          const lx = Math.cos(a / 24 * Math.PI * 2) * r * f.rx, ly = Math.sin(a / 24 * Math.PI * 2) * r * f.ry, gr = reliefAt(f, lx, ly);
+          const sc = gr.h + SP.slopeW * Math.hypot(gr.gx, gr.gy) + SP.centerW * r; if (!best || sc < best.sc) best = { sc, lx, ly }; }
+        if (best) { S.p.lx = best.lx; S.p.ly = best.ly; S.p.x = f.x + best.lx; S.p.y = f.y + best.ly; S.p.z = floeTopAt(f, best.lx, best.ly); } } }
     S.ripples = []; S.swimShade = []; S.softRipples = []; S.vortex = []; S.prints = []; S.printI = 0; S.icePrints = []; S.icePrintI = 0; S.slideTrail = []; S.grooves = []; S.washRipples = []; S.wash = null; S.camGroundZ = 0;
     S.wake = Array.from({ length: WC().wake.maxParticles }, () => ({ on: false }));
     S.streams = []; S.glints = []; S.swell = null;
@@ -3262,7 +3268,13 @@
       g.translate(0, ((-(p.sink || 0) + fh * PA.waterline.swim) * swimLift + Math.sin(t * 1.8) * 0.01 - flapK * 0.03) * u);
     }
     if (walking) g.translate(0, -Math.abs(Math.sin(ph)) * PA.walk.bob * amt * u);
-    g.scale(-side, 1);                                          // side = −1(왼쪽) → 그대로
+    // 그림을 오프스크린에 그린 뒤 빛(명암·얼굴·반딧불이)을 입혀 한 번에 올림
+    const X0 = -0.9 * u, Y0 = -1.35 * u, RW = 1.8 * u, RH = 1.7 * u, kpx = Math.min(3, DPR * PA.scale * 1.05);
+    const opw = Math.ceil(RW * kpx), oph = Math.ceil(RH * kpx);
+    if (artCv.width < opw || artCv.height < oph) { artCv.width = Math.max(artCv.width, opw); artCv.height = Math.max(artCv.height, oph); }
+    const G = artG; G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.globalAlpha = 1; G.shadowColor = 'rgba(0,0,0,0)'; G.clearRect(0, 0, opw + 2, oph + 2);
+    G.setTransform(kpx, 0, 0, kpx, -X0 * kpx, -Y0 * kpx); G.imageSmoothingEnabled = true;
+    G.scale(-side, 1);                                          // side = −1(왼쪽) → 그대로
     const ED = PA.edge, edgeOn = ED && (inW ? ED.inWater : ED.onIce);
     // 눈 깜빡임
     if (!p.blinkAt || t > p.blinkAt + PA.blink.time) p.blinkAt = (p.blinkAt ? t : t + 1) + lerp(PA.blink.every[0], PA.blink.every[1], Math.random());   // 다음 깜빡임
@@ -3270,7 +3282,6 @@
     let footI = 0;
     for (const q of F.parts) {
       const [rx, ry, rw, rh] = q.r, x = q.x * u, y = q.y * u, w = q.w * u, h = q.h * u;
-      if (edgeOn && ED.parts.includes(q.kind)) { g.shadowColor = ED.color; g.shadowBlur = ED.blur * u * PA.scale; } else g.shadowColor = 'rgba(0,0,0,0)';
       let ang = 0, dy = 0, dx = 0;
       if (q.kind === 'foot') {
         const e = footI++ ? Math.PI : 0;
@@ -3290,22 +3301,65 @@
         else if (walking) ang = Math.sin(ph) * deg(PA.walk.flipperSwayDeg) * (1 - 0.5 * amt);   // 느릿 걸을 때 날개 살짝 흔들
         else ang = Math.sin(t * PA.idle.breathHz * Math.PI * 2) * deg(PA.idle.breathDeg);
       } else if (q.kind === 'whole') {
-        g.drawImage(artImg, rx, ry, rw, rh, x, y, w, h);
-        if (blink && q.eye) { const E = q.eye; g.shadowColor = 'rgba(0,0,0,0)'; g.fillStyle = `rgb(${E.face.join(',')})`; g.beginPath(); g.ellipse(E.x * u, E.y * u, E.rx * 1.8 * u, E.ry * 1.6 * u, 0, 0, Math.PI * 2); g.fill();
-          g.strokeStyle = '#151515'; g.lineWidth = Math.max(0.7, E.ry * 0.6 * u); g.lineCap = 'round'; g.beginPath(); g.moveTo((E.x - E.rx * 1.1) * u, E.y * u); g.quadraticCurveTo(E.x * u, (E.y + E.ry * 0.8) * u, (E.x + E.rx * 1.1) * u, E.y * u); g.stroke(); }
+        G.drawImage(artImg, rx, ry, rw, rh, x, y, w, h);
+        if (blink && q.eye) { const E = q.eye; G.shadowColor = 'rgba(0,0,0,0)'; G.fillStyle = `rgb(${E.face.join(',')})`; G.beginPath(); G.ellipse(E.x * u, E.y * u, E.rx * 1.8 * u, E.ry * 1.6 * u, 0, 0, Math.PI * 2); G.fill();
+          G.strokeStyle = '#151515'; G.lineWidth = Math.max(0.7, E.ry * 0.6 * u); G.lineCap = 'round'; G.beginPath(); G.moveTo((E.x - E.rx * 1.1) * u, E.y * u); G.quadraticCurveTo(E.x * u, (E.y + E.ry * 0.8) * u, (E.x + E.rx * 1.1) * u, E.y * u); G.stroke(); }
         continue;
       } else if (q.kind === 'eye' && blink) {
-        g.drawImage(artImg, rx, ry + rh * 0.45, rw, Math.max(1, rh * 0.15), x, y + h * 0.45, w, Math.max(1, h * 0.15)); continue;
+        G.drawImage(artImg, rx, ry + rh * 0.45, rw, Math.max(1, rh * 0.15), x, y + h * 0.45, w, Math.max(1, h * 0.15)); continue;
       }
       if (ang || dy || dx) {
         const pxp = x + (q.px ?? 0.5) * w, pyp = y + (q.py ?? 0.5) * h;
-        g.save(); g.translate(pxp + dx * u, pyp + dy * u); g.rotate(ang); g.drawImage(artImg, rx, ry, rw, rh, x - pxp, y - pyp, w, h); g.restore();
-      } else g.drawImage(artImg, rx, ry, rw, rh, x, y, w, h);
+        G.save(); G.translate(pxp + dx * u, pyp + dy * u); G.rotate(ang); G.drawImage(artImg, rx, ry, rw, rh, x - pxp, y - pyp, w, h); G.restore();
+      } else G.drawImage(artImg, rx, ry, rw, rh, x, y, w, h);
     }
+    lightPenguin(G, u, p, F, side, inW, X0, Y0, RW, RH, kpx);
+    if (edgeOn) { g.shadowColor = ED.color; g.shadowBlur = ED.blur * u * PA.scale; }
+    g.drawImage(artCv, 0, 0, opw, oph, X0, Y0, opw / kpx, oph / kpx);
     g.shadowColor = 'rgba(0,0,0,0)';
     g.restore();
   }
 
+  const artCv = document.createElement('canvas'), artG = artCv.getContext('2d');
+  // 캐릭터 빛: ① 아래·등 쪽 그늘(명암) ② 위·앞 쪽 은은한 빛 ③ 얼굴 밝게 ④ 가까운 반딧불이 빛이 비침. 모두 그림 위에만(source-atop)
+  function lightPenguin(G, u, p, F, side, inW, X0, Y0, RW, RH, kpx) {
+    const L = C.PENGUIN_ART.light; if (!L || !L.enabled) return;
+    G.save(); G.setTransform(kpx, 0, 0, kpx, -X0 * kpx, -Y0 * kpx); G.globalCompositeOperation = 'source-atop';
+    const fx = -side;                                           // 화면에서 앞쪽(머리) 방향 부호: side −1(왼쪽 봄) → 앞 = −x
+    const sh = inW ? L.shade.water : p.mode === 'island' ? L.shade.land : L.shade.ice;
+    if (sh > 0) {   // 그늘: 앞·위(빛) → 뒤·아래(그늘)
+      const gr = G.createLinearGradient(fx * 0.4 * u, -1.0 * u, -fx * 0.45 * u, 0.05 * u);
+      gr.addColorStop(0, `rgba(${L.shade.color.join(',')},0)`); gr.addColorStop(0.55, `rgba(${L.shade.color.join(',')},${(sh * 0.45).toFixed(3)})`); gr.addColorStop(1, `rgba(${L.shade.color.join(',')},${sh.toFixed(3)})`);
+      G.fillStyle = gr; G.fillRect(X0, Y0, RW, RH);
+    }
+    if (L.key > 0) {   // 위·앞 은은한 빛
+      const r = G.createRadialGradient(fx * 0.2 * u, -0.95 * u, 0, fx * 0.2 * u, -0.95 * u, 0.75 * u);
+      r.addColorStop(0, `rgba(255,255,255,${L.key})`); r.addColorStop(1, 'rgba(255,255,255,0)'); G.fillStyle = r; G.fillRect(X0, Y0, RW, RH);
+    }
+    // 얼굴: 눈 위치 둘레를 밝게
+    const eq = F.parts.find((q) => q.kind === 'eye'), wq = F.parts.find((q) => q.kind === 'whole' && q.eye);
+    const ex = eq ? (eq.x + eq.w / 2) : wq ? wq.eye.x : null, ey = eq ? (eq.y + eq.h / 2) : wq ? wq.eye.y : null;
+    if (ex != null && L.face > 0) {
+      const cy = ey * u + 0.04 * u;   // 원화 x 는 왼쪽 봄 기준 → 화면 = x × (−side)
+      const r = G.createRadialGradient(-side * ex * u, cy, 0, -side * ex * u, cy, 0.28 * u);
+      r.addColorStop(0, `rgba(255,255,255,${L.face})`); r.addColorStop(1, 'rgba(255,255,255,0)'); G.fillStyle = r; G.fillRect(X0, Y0, RW, RH);
+    }
+    // 반딧불이 빛: 가까울수록 그쪽 몸에 색이 비침
+    const FL = L.firefly; if (FL && FL.alpha > 0) {
+      const pc = project(p.x, p.y, p.z), py0 = pc[1] + penOffset(), sc = C.PENGUIN_ART.scale;
+      const glow = (wx, wy, wz, col, b) => {
+        const d = Math.hypot(wx - p.x, wy - p.y, (wz - p.z) * 0.6), k = Math.pow(clamp(1 - d / FL.range, 0, 1), 1.6) * b;
+        if (k < 0.01) return;
+        const q = project(wx, wy, wz); let lx = (q[0] - pc[0]) / sc, ly = (q[1] - py0) / sc;
+        const ll = Math.hypot(lx, ly + 0.5 * u) || 1, m = Math.min(1, (0.75 * u) / ll); lx *= m; ly = (ly + 0.5 * u) * m - 0.5 * u;   // 몸 가장자리 근처로 당김
+        const r = G.createRadialGradient(lx, ly, 0, lx, ly, FL.radius * u);
+        r.addColorStop(0, `rgba(${col},${(FL.alpha * k).toFixed(3)})`); r.addColorStop(1, `rgba(${col},0)`); G.fillStyle = r; G.fillRect(X0, Y0, RW, RH);
+      };
+      if (S.ff && (S.ff.vis ?? 1) > 0.05) { let mx = 0, my = 0; for (const m of S.ff.members) { mx += m.x; my += m.y; } const n = S.ff.members.length || 1; glow(mx / n, my / n, -0.05, FL.sea, (S.ff.vis ?? 1) * introVis()); }
+      if (S.lf) for (const f of S.lf.flies) { if (f.state === 'wait') continue; const b = lfBright(f); if (b > 0.05) glow(f.x, f.y, f.z, FL.land, b * FL.landMul); }
+    }
+    G.restore();
+  }
   // 정면 그림 (앉음 · 서 있음): 통째로 그리고 숨쉬기 + 눈 깜빡임(얼굴색으로 덮고 감은 눈 선)
   function drawPenguinFront(g, u, p, name, t) {
     const PA = C.PENGUIN_ART, SIT = PA.sit, Fr = window.PENGUIN_ART.front[name]; if (!Fr) return;
@@ -3471,7 +3525,7 @@
   // compCv(css w×h) 를 화면 (x, y) 에 정수 장치 픽셀 줄 묶음 n 개로 나눠, 줄마다 shift(줄 가운데 y) 만큼 가로로 밀어 그림
   function bandBlit(w, h, x, y, alpha, n, shift) {
     const sw = Math.ceil(w * DPR), shd = Math.ceil(h * DPR), X0 = Math.round(x * DPR), Y0 = Math.round(y * DPR);
-    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = alpha; ctx.imageSmoothingEnabled = true;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = alpha; ctx.imageSmoothingEnabled = false;   // 1:1 복사: 보간을 끄면 줄 경계에 이웃 줄이 번져 가로선이 생기지 않음
     for (let i = 0; i < n; i++) {
       const y0 = Math.round(i * shd / n), y1 = Math.round((i + 1) * shd / n);
       if (y1 <= y0) continue;
