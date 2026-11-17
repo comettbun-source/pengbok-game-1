@@ -2310,31 +2310,50 @@
   const floeHalo = (() => { const FF = C.FOG.floe, col = (FF ? FF.color : [28, 35, 45]).join(','); return makeSprite([[0, `rgba(${col},0.9)`], [0.4, `rgba(${col},0.6)`], [0.7, `rgba(${col},0.22)`], [1, `rgba(${col},0)`]]); })();
   const maskCv = document.createElement('canvas'), maskG = maskCv.getContext('2d');
   const floeCv = document.createElement('canvas'), floeG = floeCv.getContext('2d');
-  let floeImg = null;
-  function drawFloeArt(f, d) {   // 원화 빙하: 수면선 위는 그대로, 아래는 바다색으로 물들며 옅어짐. 먼 것은 안개색
+  let floeImg = null; const LC = document.createElement('canvas');
+  function drawFloeArt(f, d) {   // 원화 빙하: 수면선은 빙하 둘레를 따라 둥글게 (앞쪽 호), 그 아래는 수면에 비친 모습 (옅게 아래로 사라짐). 먼 것은 안개색
     const FA = C.FLOE_ART, D = window.FLOE_ART; if (!floeImg) { floeImg = new Image(); floeImg.src = D.img; }
     if (!floeImg.complete || !floeImg.naturalWidth) return;
-    const A = f.art, sp = A.sp, [rx, ry, rw, rh] = sp.r, a = floeAlpha(f);
+    const A = f.art, sp = A.sp, [rx, ry, rw, rh] = sp.r, a = floeAlpha(f), hm = A.A.heightMul ?? 1;
     const c = camSpace(f.x, f.y, 0); if (c[1] < rig.near) return;
     const [sx, sy0] = toScreen(c), sy = sy0 + floeOffset(f), ppu = pxPerUnit(c[1]);
-    const w = A.hw * 2 * ppu, scl = w / sp.w, h = sp.h * scl * (A.A.heightMul ?? 1), wl = sp.wl * scl * (A.A.heightMul ?? 1);
+    const w = A.hw * 2 * ppu, scl = w / sp.w, h = sp.h * scl * hm, wl = sp.wl * scl * hm;
+    const bulge = Math.max(A.dep * ppu * Math.max(0.05, rig.sp), w * FA.waterBulge);   // 앞쪽 호가 수면선 아래로 내려오는 정도 (발판 깊이의 원근 + 최소값)
+    const refl = wl * FA.reflectLength;                        // 비친 모습 길이
     const FF = C.FOG.floe, fog = FF ? FF.max * smooth(FF.start, FF.end, d) : fogAt(d);
-    const pw = Math.ceil(w * DPR) + 2, ph = Math.ceil(h * DPR) + 2;
+    const ow = w, oh = wl + bulge + refl + 2, pw = Math.ceil(ow * DPR) + 2, ph = Math.ceil(oh * DPR) + 2;
     if (floeCv.width < pw || floeCv.height < ph) { floeCv.width = Math.max(floeCv.width, pw); floeCv.height = Math.max(floeCv.height, ph); }
     const G = floeG; G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.globalAlpha = 1; G.clearRect(0, 0, pw, ph);
-    G.imageSmoothingEnabled = true; G.drawImage(floeImg, rx, ry, rw, rh, 0, 0, w * DPR, h * DPR);
-    const wlp = wl * DPR;
-    G.globalCompositeOperation = 'source-atop';   // 물속: 바다색으로 물듦
-    const gs = G.createLinearGradient(0, wlp, 0, ph); gs.addColorStop(0, `rgba(${FA.underColor.join(',')},${FA.underTint[0]})`); gs.addColorStop(1, `rgba(${FA.underColor.join(',')},${FA.underTint[1]})`);
-    G.fillStyle = gs; G.fillRect(0, wlp, pw, ph - wlp);
-    if (fog > 0.01) { G.fillStyle = mixFog([255, 255, 255], 1).replace('rgb(', 'rgba(').replace(')', `,${fog})`); G.fillRect(0, 0, pw, ph); }
-    G.globalCompositeOperation = 'destination-out';   // 물속은 아래로 갈수록 옅게
-    const gf = G.createLinearGradient(0, wlp, 0, ph); gf.addColorStop(0, `rgba(0,0,0,${1 - FA.underAlpha})`); gf.addColorStop(1, 'rgba(0,0,0,1)');
-    G.fillStyle = gf; G.fillRect(0, wlp, pw, ph - wlp);
-    G.globalCompositeOperation = 'source-over';
+    G.setTransform(DPR, 0, 0, DPR, 0, 0); G.imageSmoothingEnabled = true;
+    // 수면선: 가운데가 bulge 만큼 아래로 둥근 호 (빙하 바닥 타원의 앞쪽)
+    if (!sp.span) { const T = sp.top, B = sp.bot, n = T.length; let l = 0, r = n - 1; while (l < n && !(T[l] > 0 && B[l] > 0)) l++; while (r > 0 && !(T[r] > 0 && B[r] > 0)) r--; sp.span = [l / n, (r + 1) / n]; }   // 수면선 높이에서 빙하가 차지하는 폭
+    const xL = sp.span[0] * ow, xR = sp.span[1] * ow;
+    const N = 40, curve = [[0, wl]]; for (let k = 0; k <= N; k++) { const xn = k / N * 2 - 1; curve.push([xL + (xn + 1) / 2 * (xR - xL), wl + bulge * Math.sqrt(Math.max(0, 1 - xn * xn))]); } curve.push([ow, wl]);
+    const NC = curve.length - 1;
+    const pathAbove = () => { G.beginPath(); G.moveTo(0, -1); G.lineTo(ow, -1); for (let k = NC; k >= 0; k--) G.lineTo(curve[k][0], curve[k][1]); G.closePath(); };
+    const pathBelow = () => { G.beginPath(); G.moveTo(0, oh + 1); G.lineTo(ow, oh + 1); for (let k = NC; k >= 0; k--) G.lineTo(curve[k][0], curve[k][1]); G.closePath(); };
+    // ① 물 위 부분
+    G.save(); pathAbove(); G.clip(); G.drawImage(floeImg, rx, ry, rw, rh, 0, 0, ow, h); G.restore();
+    // ② 수면에 비친 모습: 물 위 부분을 수면선에서 뒤집어, 아래로 갈수록 옅게
+    G.save(); pathBelow(); G.clip();
+    G.globalAlpha = FA.reflectAlpha; G.translate(0, wl * 2 + bulge); G.scale(1, -1);
+    G.drawImage(floeImg, rx, ry, rw, rh * (sp.wl / sp.h), 0, 0, ow, wl);
+    G.restore();
+    G.save(); G.globalCompositeOperation = 'destination-out';
+    const gf = G.createLinearGradient(0, wl, 0, wl + bulge + refl); gf.addColorStop(0, 'rgba(0,0,0,0)'); gf.addColorStop(0.15, 'rgba(0,0,0,0.25)'); gf.addColorStop(1, 'rgba(0,0,0,1)');
+    G.fillStyle = gf; pathBelow(); G.fill(); G.restore();
+    // ③ 수면선 둘레 옅은 흰 띠 (원래 빙하의 수면 링처럼)
+    G.save(); G.strokeStyle = `rgba(${FA.lineColor.join(',')},${FA.lineAlpha})`; G.lineWidth = Math.max(0.8, FA.lineWidth * ppu); G.lineCap = 'round';
+    { const lg = G.createLinearGradient(xL, 0, xR, 0); lg.addColorStop(0, 'rgba(0,0,0,0)'); lg.addColorStop(0.12, 'rgba(0,0,0,1)'); lg.addColorStop(0.88, 'rgba(0,0,0,1)'); lg.addColorStop(1, 'rgba(0,0,0,0)');
+      LC.width = Math.max(1, Math.ceil(ow * DPR)); LC.height = Math.max(1, Math.ceil(oh * DPR)); const L2 = LC.getContext('2d'); L2.setTransform(DPR, 0, 0, DPR, 0, 0);
+      L2.strokeStyle = G.strokeStyle; L2.lineWidth = G.lineWidth; L2.lineCap = 'round'; L2.beginPath(); for (let k = 1; k < NC; k++) { const [x, y] = curve[k]; if (k === 1) L2.moveTo(x, y); else L2.lineTo(x, y); } L2.stroke();
+      L2.globalCompositeOperation = 'destination-in'; L2.fillStyle = lg; L2.fillRect(0, 0, ow, oh); G.setTransform(1, 0, 0, 1, 0, 0); G.drawImage(LC, 0, 0); }   // 양끝은 옅게
+    G.restore();
+    // ④ 안개
+    if (fog > 0.01) { G.save(); G.globalCompositeOperation = 'source-atop'; G.fillStyle = mixFog([255, 255, 255], 1).replace('rgb(', 'rgba(').replace(')', `,${fog})`); G.fillRect(0, 0, ow, oh); G.restore(); }
     const tiltA = Math.atan((f.tilt.x * A.Rx + f.tilt.y * A.Ry)) * FA.tiltMul;
     ctx.save(); ctx.globalAlpha = a; ctx.translate(sx, sy); ctx.rotate(-tiltA); ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(floeCv, 0, 0, pw - 2, ph - 2, -w / 2, -wl, w, h);
+    ctx.drawImage(floeCv, 0, 0, pw - 2, ph - 2, -ow / 2, -wl, ow, (ph - 2) / DPR);
     ctx.restore();
   }
   function drawFloe(f, d) {
