@@ -2414,7 +2414,9 @@
     // ⑤ 안개
     if (fog > 0.01) { G.save(); G.globalCompositeOperation = 'source-atop'; G.fillStyle = mixFog([255, 255, 255], 1).replace('rgb(', 'rgba(').replace(')', `,${fog})`); G.fillRect(0, 0, ow, oh); G.restore(); }
     const tiltA = Math.atan((f.tilt.x * A.Rx + f.tilt.y * A.Ry)) * FA.tiltMul;
-    ctx.save(); ctx.globalAlpha = a * (A.A.far && FA.far ? FA.far.alpha : 1); ctx.translate(sx, sy); ctx.rotate(-tiltA); ctx.imageSmoothingEnabled = true;
+    const showK = A.A.far && FA.far && FA.far.showCam ? smooth(FA.far.showCam[0], FA.far.showCam[1], -cam.x) : 1;   // 먼 빙하: 그 구간에 가까워지면 안개 속에서 서서히 드러남 (첫 장면엔 안 보임)
+    if (showK < 0.01) return;
+    ctx.save(); ctx.globalAlpha = a * (A.A.far && FA.far ? FA.far.alpha * showK : 1); ctx.translate(sx, sy); ctx.rotate(-tiltA); ctx.imageSmoothingEnabled = true;
     ctx.drawImage(floeCv, 0, 0, pw - 2, ph - 2, -ow / 2, -wl, ow, (ph - 2) / DPR);
     ctx.restore();
   }
