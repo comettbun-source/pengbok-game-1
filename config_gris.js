@@ -470,6 +470,7 @@ const PHYSICS = {
     climbAt: 1.0,             // 물 → 빙하 올라서는 지점 (빙하 크기 배율). 0.88 이었을 땐 빙하 안쪽까지 헤엄쳐 들어가 뚫어 보였음
     // 물에서 점프 = 배치기 상륙만 (GRIS): 앞쪽 가까이에 빙하·섬이 있을 때만 배를 내밀고 '통' 튀어올라 그 위에 배로 착지 → 잠깐 미끄러짐.
     // 근처에 올라설 곳이 없으면 점프 안 됨 (작은 파문만). enabled: false 면 예전 물 점프
+    porpoise: { enabled: true, minHold: 0.35, dip: 0.18, dipKick: 1.6, angleDeg: 45, speed: 5.2, gravity: 9 },   // 바다 슬라이딩을 꾹(minHold초 이상) 누르다 떼면: dip초 쑥 잠겼다가 angleDeg 각도·speed 속도로 푸슝 (깊은 물에서만)
     waterJump: 'auto',  /* 'auto': 앞에 올라설 빙하·섬이 있으면 배치기, 없으면 날개 파닥 */        // 물에서 점프: 'flap' = 못 뛰어오르고 날개만 파닥 (빙하엔 헤엄쳐 부딪히면 올라섬) / 'belly' = 아래 배치기 상륙
     bellyLaunch: {
       enabled: true,

@@ -1022,9 +1022,27 @@
       p.sliding = true; p.sit = false;
       const dir = mag > 0.01 ? Math.atan2(wy, wx) : p.face, s = Math.max(Math.hypot(p.vx, p.vy), P.slideInitialSpeed * (p.mode === 'island' ? P.shoreSlideMul : 1));
       p.vx = Math.cos(dir) * s; p.vy = Math.sin(dir) * s;
-      log('slideStart'); p.slideStroke = (S.strokeN = (S.strokeN || 0) + 1);
+      log('slideStart'); p.slideStroke = (S.strokeN = (S.strokeN || 0) + 1); p.slideAt = S.time;
     }
-    if (!held && p.sliding) { p.sliding = false; log('slideEnd'); }
+    const PP = WP.porpoise;
+    if (!held && p.sliding) {
+      // 바다 슬라이딩을 꾹 누르다 떼면: 잠깐 쑥 잠겼다가 45° 로 푸슝 (땅·빙하·얕은 물에선 안 됨)
+      if (PP && PP.enabled && p.mode === 'water' && deep && S.time - (p.slideAt ?? S.time) >= PP.minHold) {
+        p.porpoiseAt = S.time; p.porpoiseDir = Math.hypot(p.vx, p.vy) > 0.05 ? Math.atan2(p.vy, p.vx) : p.face; p.dive.v -= PP.dipKick; log('porpoiseDip');
+      }
+      p.sliding = false; log('slideEnd');
+    }
+    if (p.porpoiseAt != null && !p.air && S.time - p.porpoiseAt >= PP.dip) {
+      p.porpoiseAt = null;
+      if (p.mode === 'water') {
+        startAir(p); p.superUsed = false; p.porpoise = true;
+        const a = deg(PP.angleDeg), v = PP.speed, d = p.porpoiseDir;
+        p.g = PP.gravity; p.vz = v * Math.sin(a);   // 푸슝: 가벼운 중력으로 길게 날아감 p.vx = Math.cos(d) * v * Math.cos(a); p.vy = Math.sin(d) * v * Math.cos(a);
+        p.jumpHS = v * Math.cos(a); p.airCap = p.jumpHS; p.face = d;
+        if (C.WATER_MIST) waterMist(p.x, p.y, C.WATER_MIST.flap); log('porpoise');
+      }
+    }
+    if (!p.air) p.porpoise = false;
     if (p.sliding && p.mode === 'island') {} else { p.tobT = 0; }
     p.tobKick = Math.max(0, (p.tobKick || 0) - dt / 0.25);
     if (p.belly && !p.air) {   // 배치기 착지: 잠깐 배로 미끄러진 뒤 일어섬
@@ -3323,6 +3341,7 @@
     const idleNow = onGround && !p.sliding && !p.belly && t - (p.inputAt ?? -9) > 0.25 && sp < 0.6 && !(p.landAt != null && t - p.landAt < JP.landTime);
     const climbK = p.climbAt != null && PA.climb ? (t - p.climbAt) / PA.climb.time : 1;
     if (p.belly || (p.sliding && !deepW) || climbK < PA.climb?.bellyUntil) target = PO.belly;   // 얕은 물(해안)에서도 슬라이딩이면 배로   // 기어오르는 동안 배로
+    else if (p.air && p.porpoise) target = PO.swimSlide;   // 푸슝: 몸을 쭉 편 슬라이딩 자세로 날아감
     else if (p.air) target = p.vz > JP.topAt * (p.jumpV0 || 1) ? JP.rise : p.vz > -JP.topAt * (p.jumpV0 || 1) ? (p.superUsed || !JP.lowNoTop ? JP.top : JP.rise) : JP.fall;   // 낮은 점프는 날개 펼친 꼭대기 포즈 없이
     else if (deepW) target = p.sliding ? PO.swimSlide : PO.swim;
     else if (p.landAt != null && t - p.landAt < JP.landTime) target = JP.crouch;
@@ -3349,7 +3368,8 @@
     const flapK = inW && p.flapAt != null && t - p.flapAt < PA.flap.time ? 1 - (t - p.flapAt) / PA.flap.time : 0;
     g.save();
     g.scale(PA.scale, PA.scale);
-    if (walking) g.rotate(Math.sin(ph) * deg(p.mode === 'island' ? PA.walk.waddleDegSand : PA.walk.waddleDeg) * amt);   // 뒤뚱: 발 박자와 같이
+    if (walking) g.rotate(Math.sin(ph) * deg(p.mode === 'island' ? PA.walk.waddleDegSand : PA.walk.waddleDeg) * amt);
+    if (p.air && p.porpoise) { const hs = Math.hypot(p.vx, p.vy) || 1; g.translate(0, -0.2 * u); g.rotate(-side * Math.atan2(p.vz, hs) * 0.8); g.translate(0, 0.2 * u); }   // 날아가는 방향으로 기울임 (오를 땐 머리 위, 내릴 땐 머리 아래)   // 뒤뚱: 발 박자와 같이
     if (swimLift > 0) {
       let top = 0, bot = 0; for (const q of F.parts) { top = Math.min(top, q.y); bot = Math.max(bot, q.y + q.h); }
       const fh = bot - top;
