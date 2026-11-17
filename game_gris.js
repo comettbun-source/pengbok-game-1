@@ -958,7 +958,29 @@
       let jumpMul = 1, blocked = false;
       if (inW && deep) { jumpMul = WP.deepJumpMul; if (kind === 'super' || S.time < (p.waterJumpCD || 0)) blocked = true; }
       else if (inW && shallow) jumpMul = WP.shallowJumpMul;
+      const BL = WP.bellyLaunch, bellyOn = BL && BL.enabled && inW;
+      let bellyT = null;
+      if (bellyOn) {   // 배치기 상륙: 앞쪽에 올라설 곳이 있는지 (입력 방향, 없으면 바라보는 방향)
+        // 링을 밀고 있으면 그 방향 ±BL.fanDeg 안에서, 아니면 사방에서 가장 가까운 가장자리를 찾음
+        const d0 = mag > 0.1 ? Math.atan2(wy, wx) : p.face, fan = mag > 0.1 ? deg(BL.fanDeg) : Math.PI;
+        for (let k = 0; k <= 24; k++) {
+          const dir = d0 + (k ? (k % 2 ? 1 : -1) * Math.ceil(k / 2) / 12 * fan : 0), dx = Math.cos(dir), dy = Math.sin(dir);
+          for (let d = 0.2; d <= BL.reach; d += 0.1) { const su = surfaceAt(p.x + dx * d, p.y + dy * d);
+            if (su.mode !== 'water') { if (!bellyT || d < bellyT.edge) { const td = d + BL.inward, s2 = surfaceAt(p.x + dx * td, p.y + dy * td); bellyT = { dir, edge: d, d: s2.mode !== 'water' ? td : d + 0.15, z: s2.mode !== 'water' ? s2.z : su.z }; } break; } }
+        }
+        if (!bellyT || S.time < (p.waterJumpCD || 0)) blocked = true;
+      }
       if (kind === 'super' && p.air && p.superUsed && P.superJump.oncePerAir) { blocked = true; log('superChainBlocked'); }   // 공중에서 슈퍼점프 연속 금지 (둥둥 뜨는 느낌 방지)
+      else if (bellyT && !blocked && !p.air) {
+        // 통! 배를 내밀고 튀어올라 빙하·섬 위로 배치기 착지 (포물선을 착지점에 맞춤)
+        startAir(p, mag, wx, wy); p.superUsed = true; p.belly = true; p.bellyT = null;
+        const g0 = P.gravity, peak = Math.max(0.15, bellyT.z - p.z + BL.clearance), vz = Math.sqrt(2 * g0 * peak);
+        const T = vz / g0 + Math.sqrt(2 * Math.max(0.02, peak - (bellyT.z - p.z)) / g0), hs = Math.max(BL.minSpeed, bellyT.d / T);
+        p.g = g0; p.vz = vz; p.vx = Math.cos(bellyT.dir) * hs; p.vy = Math.sin(bellyT.dir) * hs; p.face = bellyT.dir;
+        p.jumpHS = hs; p.airCap = hs; p.waterJumpCD = S.time + WP.deepJumpCooldown;
+        splashDrops(p.x, p.y, BL.splash);
+        log('bellyLaunch');
+      }
       else if (blocked) { if (!p.air) ripple(p.x, p.y, 0.55, 0.9, WC().ripple.alpha * 0.5); log('jumpBlocked'); }
       else if (kind === 'super') {
         // 슈퍼점프: 높이 ×heightMul, 거리 ×distanceMul, 체공 ≈ airtime. 공중이면 지금 높이에서 이어 붙임
@@ -995,6 +1017,11 @@
     if (!held && p.sliding) { p.sliding = false; log('slideEnd'); }
     if (p.sliding && p.mode === 'island') {} else { p.tobT = 0; }
     p.tobKick = Math.max(0, (p.tobKick || 0) - dt / 0.25);
+    if (p.belly && !p.air) {   // 배치기 착지: 잠깐 배로 미끄러진 뒤 일어섬
+      const BL = WP.bellyLaunch;
+      if (p.bellyT == null) { p.bellyT = BL.landSlide; const s = Math.hypot(p.vx, p.vy), d = s > 0.01 ? Math.atan2(p.vy, p.vx) : p.face, ns = Math.max(s, BL.landSlideSpeed); p.vx = Math.cos(d) * ns; p.vy = Math.sin(d) * ns; log('bellyLand'); }
+      p.bellyT -= dt; if (p.bellyT <= 0 || p.mode === 'water') { p.belly = false; p.bellyT = null; }
+    }
 
     const sp0 = Math.hypot(p.vx, p.vy);
     if (p.air) {
@@ -3033,7 +3060,7 @@
     } else if (part === 'below') return;
     const { fvx, fvy } = v;
     const lm = deg(Math.max(WC().inertiaTilt.accelDeg, C.penguin.iceLeanDeg, C.floe.relief.slopeLeanDeg)); g.rotate(clamp(p.lean.h, -lm, lm));
-    if (p.sliding) {
+    if (p.sliding || p.belly) {
       const ax = Math.abs(fvx), len = (0.45 + 0.55 * ax) * (p.mode === 'water' && p.depth === 'deep' ? 1.2 : 1);   // 물속 슬라이딩은 길게 늘어남
       g.scale(fvx < 0 ? -1 : 1, 1);
       g.rotate(clamp(Math.atan2(fvy * Math.sin(cam.pitch) * 0.5, ax), -0.35, 0.35));
@@ -3916,5 +3943,5 @@
   reset();
   requestAnimationFrame(frame);
 
-  window.__game = { drawPenguinFigure, penguinView, get sim() { return sim; }, drawFrame: () => draw(1 / 60), step, keys, STEP, penScale, floeTopAt, terrainHeightAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
+  window.__game = { drawPenguinFigure, penguinView, surfaceAt, get sim() { return sim; }, drawFrame: () => draw(1 / 60), step, keys, STEP, penScale, floeTopAt, terrainHeightAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
 })();

@@ -415,6 +415,19 @@ const PHYSICS = {
     layTime: 0.3, standTime: 1.0,  // 눕는 데 / 멈춰서 다시 일어서는 데 걸리는 시간 (초)
     deepJumpMul: 0.25, shallowJumpMul: 0.6,   // 물에서 점프 높이 배율 (깊은 물은 슈퍼점프 불가)
     deepJumpCooldown: 0.8,    // 깊은 물 점프 연타 방지 (초)
+    // 물에서 점프 = 배치기 상륙만 (GRIS): 앞쪽 가까이에 빙하·섬이 있을 때만 배를 내밀고 '통' 튀어올라 그 위에 배로 착지 → 잠깐 미끄러짐.
+    // 근처에 올라설 곳이 없으면 점프 안 됨 (작은 파문만). enabled: false 면 예전 물 점프
+    bellyLaunch: {
+      enabled: true,
+      reach: 2.2,             // 앞쪽으로 이 거리 안에 빙하·섬 가장자리가 있어야 함
+      fanDeg: 40,             // 링을 민 방향 ± 이 각도 안에서 찾음 (링을 안 밀면 사방에서 가장 가까운 곳)
+      inward: 0.55,           // 가장자리에서 이만큼 안쪽에 착지
+      clearance: 0.32,        // 착지면보다 이만큼 더 높이 솟음
+      minSpeed: 1.6,          // 수평 속도 최소 (가까워도 '통' 하고 힘 있게)
+      landSlide: 0.45,        // 착지 후 배로 미끄러지는 자세 유지 시간 (초)
+      landSlideSpeed: 1.4,    // 착지 직후 남기는 미끄럼 속도 최소
+      splash: 3.2,            // 물에서 튀어나올 때 물방울 세기 (SPLASH_DROPS)
+    },
   },
   slideTurnRate: 3.5,         // 링 방향을 따라 슬라이딩 방향이 도는 빠르기
   turnRate: 14,               // 몸 돌리는 속도
