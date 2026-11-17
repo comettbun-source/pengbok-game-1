@@ -3228,7 +3228,7 @@
     p.wasAir = p.air;
     let target = PO.stand;
     if (p.belly || (p.sliding && !inW)) target = PO.belly;
-    else if (p.air) target = p.vz > JP.topAt * (p.jumpV0 || 1) ? JP.rise : p.vz > -JP.topAt * (p.jumpV0 || 1) ? JP.top : JP.fall;
+    else if (p.air) target = p.vz > JP.topAt * (p.jumpV0 || 1) ? JP.rise : p.vz > -JP.topAt * (p.jumpV0 || 1) ? (p.superUsed || !JP.lowNoTop ? JP.top : JP.rise) : JP.fall;   // 낮은 점프는 날개 펼친 꼭대기 포즈 없이
     else if (deepW) target = p.sliding ? PO.swimSlide : PO.swim;
     else if (p.landAt != null && t - p.landAt < JP.landTime) target = JP.crouch;
     // 큰 변화(서기 ↔ 헤엄·배)는 사이 포즈를 빠르게 지나가게
