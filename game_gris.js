@@ -3357,12 +3357,16 @@
     const fx = -side;                                           // 화면에서 앞쪽(머리) 방향 부호: side −1(왼쪽 봄) → 앞 = −x
     // 빛 방향: 달 쪽 (화면). 없으면 왼쪽 위
     let lx = -0.8, ly = -0.6;
-    if (L.moon) { const m = moonScreen(), pc = project(p.x, p.y, p.z); if (m) { const dx = m[0] - pc[0], dy = m[1] - (pc[1] - 0.5 * u); const l = Math.hypot(dx, dy) || 1; lx = dx / l; ly = dy / l; } }
+    if (L.source === 'moon') { const m = moonScreen(), pc = project(p.x, p.y, p.z); if (m) { const dx = m[0] - pc[0], dy = m[1] - (pc[1] - 0.5 * u); const l = Math.hypot(dx, dy) || 1; lx = dx / l; ly = dy / l; } }
+    else {   // 빙하와 같은 빛 (월드 고정, 시작 시선의 왼쪽 위) → 화면 방향으로
+      const Lw = lightDir(), a = project(p.x, p.y, p.z), b = project(p.x + Lw[0], p.y + Lw[1], p.z + Lw[2] * L.upWeight);
+      const dx = b[0] - a[0], dy = b[1] - a[1], l = Math.hypot(dx, dy); if (l > 1e-3) { lx = dx / l; ly = dy / l; } }
     const cx0 = 0, cy0 = -0.5 * u;
     const sh = inW ? L.shade.water : p.mode === 'island' ? L.shade.land : L.shade.ice;
     if (sh > 0) {   // 그늘: 달 쪽(밝음) → 반대쪽(어둠)
       const gr = G.createLinearGradient(cx0 + lx * 0.55 * u, cy0 + ly * 0.55 * u, cx0 - lx * 0.55 * u, cy0 - ly * 0.55 * u);
-      gr.addColorStop(0, `rgba(${L.shade.color.join(',')},0)`); gr.addColorStop(0.55, `rgba(${L.shade.color.join(',')},${(sh * 0.45).toFixed(3)})`); gr.addColorStop(1, `rgba(${L.shade.color.join(',')},${sh.toFixed(3)})`);
+      const sc = L.shade.color.join(','), E = L.shade.edge;   // 빙하 면처럼: 밝은 쪽은 거의 그대로, 가운데를 지나며 비교적 또렷하게 어두워짐
+      gr.addColorStop(0, `rgba(${sc},0)`); gr.addColorStop(E[0], `rgba(${sc},${(sh * 0.08).toFixed(3)})`); gr.addColorStop(E[1], `rgba(${sc},${(sh * 0.8).toFixed(3)})`); gr.addColorStop(1, `rgba(${sc},${sh.toFixed(3)})`);
       G.fillStyle = gr; G.fillRect(X0, Y0, RW, RH);
     }
     if (L.key > 0) {   // 위·앞 은은한 빛
