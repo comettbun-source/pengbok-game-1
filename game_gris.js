@@ -2310,7 +2310,7 @@
   const floeHalo = (() => { const FF = C.FOG.floe, col = (FF ? FF.color : [28, 35, 45]).join(','); return makeSprite([[0, `rgba(${col},0.9)`], [0.4, `rgba(${col},0.6)`], [0.7, `rgba(${col},0.22)`], [1, `rgba(${col},0)`]]); })();
   const maskCv = document.createElement('canvas'), maskG = maskCv.getContext('2d');
   const floeCv = document.createElement('canvas'), floeG = floeCv.getContext('2d');
-  const belowCv = document.createElement('canvas'), belowG = belowCv.getContext('2d'), maskCv2 = document.createElement('canvas');
+  const penSmall = document.createElement('canvas'), belowCv = document.createElement('canvas'), belowG = belowCv.getContext('2d'), maskCv2 = document.createElement('canvas');
   let floeImg = null, floeSrc = null; const LC = document.createElement('canvas'), reflCv = document.createElement('canvas'), reflG = reflCv.getContext('2d');
   function drawFloeArt(f, d) {   // 원화 빙하: 수면선은 빙하 둘레를 따라 둥글게 (앞쪽 호), 그 아래는 수면에 비친 모습 (옅게 아래로 사라짐). 먼 것은 안개색
     const FA = C.FLOE_ART, D = window.FLOE_ART; if (!floeImg) { floeImg = new Image(); floeImg.src = D.img; }
@@ -2377,6 +2377,12 @@
         G.globalAlpha = FA.reflectAlpha * band; G.globalCompositeOperation = 'destination-over'; G.drawImage(RC, 0, y, pw, rowH, dx * DPR, y, pw, rowH);
       }
       G.restore(); }
+    if (FA.reflectSide > 0) {   // 비친 모습 양옆 끝을 흐리게 (수면선 바로 아래부터)
+      G.save(); pathBelow(); G.clip(); G.globalCompositeOperation = 'destination-out';
+      const w2 = xR - xL, sf = FA.reflectSide, gx = G.createLinearGradient(xL, 0, xR, 0);
+      gx.addColorStop(0, 'rgba(0,0,0,1)'); gx.addColorStop(sf, 'rgba(0,0,0,0)'); gx.addColorStop(1 - sf, 'rgba(0,0,0,0)'); gx.addColorStop(1, 'rgba(0,0,0,1)');
+      G.fillStyle = gx; G.fillRect(0, wl + bulge * 0.5, xL + 1, oh); G.fillRect(xL, wl + bulge * 0.5, w2, oh); G.fillRect(xR - 1, wl + bulge * 0.5, ow - xR + 1, oh);
+      G.fillStyle = '#000'; G.fillRect(0, wl + bulge * 0.5, xL, oh); G.fillRect(xR, wl + bulge * 0.5, ow - xR, oh); G.restore(); }
     G.save(); G.globalCompositeOperation = 'destination-out';
     const gf = G.createLinearGradient(0, wl, 0, wl + bulge + refl); gf.addColorStop(0, 'rgba(0,0,0,0)'); gf.addColorStop(0.15, 'rgba(0,0,0,0.25)'); gf.addColorStop(1, 'rgba(0,0,0,1)');
     G.fillStyle = gf; pathBelow(); G.fill(); G.restore();
@@ -3884,7 +3890,15 @@
     const N = RF.slices, RR = RF.refract, ppu = Math.max(1, pxPerUnit(camSpace(p.x, p.y, 0)[1]) * Math.max(0.2, rig.sp));
     const cw = w + 8, chh = oy + 2, G2 = compCanvas(cw, chh);
     G2.save(); G2.translate(ox + 4, 0); G2.scale(1, -1); G2.drawImage(off, 0, 0, pw, ph, -ox, -oy, w, oy); G2.restore();
-    if (!onLand && artReady() && C.PENGUIN_ART.reflectBlur < 1) blurInPlace(G2, compCv, Math.ceil(cw * DPR), Math.ceil(chh * DPR), C.PENGUIN_ART.reflectBlur);   // 원화: 거울상을 흐리게
+    if (!onLand && artReady() && inWater && p.depth === 'deep' && C.PENGUIN_ART.reflectDeep) {   // 깊은 물: 빙하 비침과 같은 규칙 (흐리게 + 아래·양옆으로 옅게). 얕은 물은 그대로
+      const RD = C.PENGUIN_ART.reflectDeep, pw2 = Math.ceil(cw * DPR), ph2 = Math.ceil(chh * DPR), bw = Math.max(2, Math.round(pw2 * RD.blur)), bh = Math.max(2, Math.round(ph2 * RD.blur));
+      penSmall.width = bw; penSmall.height = bh; const sg = penSmall.getContext('2d'); sg.imageSmoothingEnabled = true; sg.drawImage(compCv, 0, 0, pw2, ph2, 0, 0, bw, bh);
+      G2.save(); G2.setTransform(1, 0, 0, 1, 0, 0); G2.clearRect(0, 0, pw2, ph2); G2.imageSmoothingEnabled = true; G2.drawImage(penSmall, 0, 0, bw, bh, 0, 0, pw2, ph2);
+      G2.globalCompositeOperation = 'destination-out';
+      const gy = G2.createLinearGradient(0, 0, 0, ph2); gy.addColorStop(0, `rgba(0,0,0,${1 - RD.alpha})`); gy.addColorStop(RD.fadeAt, 'rgba(0,0,0,1)'); gy.addColorStop(1, 'rgba(0,0,0,1)'); G2.fillStyle = gy; G2.fillRect(0, 0, pw2, ph2);
+      const gx = G2.createLinearGradient(0, 0, pw2, 0); gx.addColorStop(0, 'rgba(0,0,0,1)'); gx.addColorStop(RD.side, 'rgba(0,0,0,0)'); gx.addColorStop(1 - RD.side, 'rgba(0,0,0,0)'); gx.addColorStop(1, 'rgba(0,0,0,1)'); G2.fillStyle = gx; G2.fillRect(0, 0, pw2, ph2);
+      G2.restore();
+    }
     if (!onLand) {
       bandBlit(cw, chh, sx - ox - 4, wy, RF.alpha, N, (yc) => {
         const fr = clamp(yc / oy, 0, 1), dw = yc / ppu;

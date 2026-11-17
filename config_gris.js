@@ -358,14 +358,15 @@ const FLOE_ART = {
   enabled: true,
   assign: {
     0: { sprite: 3, width: 4.6 },          // 시작 빙하: 큰 빙하
-    1: { sprite: 2, width: 4.3, heightMul: 0.7 },   // 2번: 높은 빙하 (점프 배치기로 오를 수 있게 높이 살짝 낮춤)
+    1: { sprite: 2, width: 3.85, heightMul: 0.72 },   // 2번: 높은 빙하 (점프 배치기로 오를 수 있게 높이 살짝 낮춤)
     2: { sprite: 1, width: 10, far: true },  // 먼 배경: 납작한 빙하
     3: { sprite: 0, width: 3.5, far: true },  // 먼 배경: 작은 조각
   },
   depthRatio: 0.42,            // 발판 깊이(앞뒤) = 폭의 절반 × 이 값
   standInset: 0.03,            // 그림 윗선보다 이만큼 아래에 발이 닿음 (발이 떠 보이지 않게)
   start: -0.45,                // 시작 위치: 시작 빙하 가로 위치 (−1 왼쪽 끝 ~ 1 오른쪽 끝, 그림의 '시작위치')
-  sinkAlpha: 0.55, sinkFade: 0.35, sinkColor: [10, 18, 28], sinkTint: [0.35, 0.8],   // 물속 부분: 수면 바로 아래 진하기 · 사라지는 깊이(물 위 높이 비율) · 바다색 물듦
+  reflectSide: 0.22,           // 빙하 비친 모습 양옆 끝 흐림 폭 (빙하 폭 비율)
+  sinkAlpha: 0.22, sinkFade: 0.12,  /* 물속 부분이 수면 바로 아래에서 금방 사라지게 (빙하 아래끝 선이 안 보이게) */ sinkColor: [10, 18, 28], sinkTint: [0.35, 0.8],   // 물속 부분: 수면 바로 아래 진하기 · 사라지는 깊이(물 위 높이 비율) · 바다색 물듦
   belowBlur: 0.06, sideFade: 0.12,   // 물속 부분·비친 모습 흐림(줄였다 키우는 배율) · 양옆 끝을 옅게 (폭 비율)
   saturation: 0.6,             // 빙하 채도 (1 = 원화 그대로)
   wet: { height: 0.07, alpha: 0.35 },   // 수면선 위 젖은 띠 (높이 비율 · 진하기)
@@ -399,6 +400,7 @@ const PENGUIN_ART = {
   waterline: { swim: 0.5, cutFit: 1.05, cutFitY: 1.3, slideEye: -0.03 },   // slideEye: 바다 슬라이딩 잠김 맞춤 (눈 아래끝 기준, − 일수록 더 깊이). 화면에서 수면이 눈 바로 아래에 오도록 맞춘 값   // cutFit: 수면 가림·수면 선을 그림 몸 폭에 맞춤 (예전 도형 폭 대신)
   submerged: { alphaMul: 0.45, blur: 0.22, hideDeep: true },   // hideDeep: 깊은 바다에선 물속 몸 안 그림 (얕은 물만)
   reflectDrop: 0.45,            // 물에 비친 모습 시작선을 수면 타원 앞쪽(보이는 몸 아래끝)으로 내림 (반지름 배율)
+  reflectDeep: { blur: 0.12, alpha: 0.75, fadeAt: 0.85, side: 0.15 },   // 깊은 물에서 펭귄이 비친 모습: 흐림 · 수면 바로 아래 진하기 · 사라지는 위치 · 양옆 옅게 (얕은 물은 그대로)
   reflectBlur: 1,               // 물에 비친 모습 흐림 (1 = 원래대로 선명. 흐리게 하면 버그가 있어 되돌림)
   // 캐릭터 빛 (그림 위에만): 그늘 = 아래·등 쪽 어둡게(땅에서 더), key = 위·앞 은은한 빛, face = 얼굴 밝게, firefly = 가까운 반딧불이 색이 비침
   light: { enabled: true, source: 'floe', upWeight: 0.35,   // source: 'floe' = 빙하와 같은 왼쪽 빛 / 'moon' = 달 방향 · upWeight: 빛의 위쪽 성분 비중
