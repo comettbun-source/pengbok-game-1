@@ -350,6 +350,26 @@ const PENGUIN_RIG = {
   },
 };
 
+// ── 펭귄 원화 (GRIS, 사용자 그림 IMG_6025 → assets/penguin/penguin_atlas.png, penguin_art.js) ─────
+// 포즈 0(서 있음) → 7(수평). 몸·눈·날개·발을 따로 그려, 날개·발은 회전축(어깨·발목)에서 움직이고 눈은 깜빡임
+// enabled: false 면 임시 도형(PENGUIN_RIG)으로 돌아감
+const PENGUIN_ART = {
+  enabled: true,
+  scale: 1.0,                   // 키 배율 (원화 서 있는 키 = 펭귄 키)
+  pose: {
+    idle: 0, walk: 0, air: 2, fall: 1,   // 땅: 서 있음 · 걷기 · 뛰어오를 때 · 떨어질 때
+    belly: 7,                   // 배로 미끄러짐 · 배치기 · 터보건
+    swimMaxDeg: 80,             // 물에서 눕는 각도(0~80°)를 포즈 0~7 로 이어서 (헤엄 60° ≈ 포즈 5)
+  },
+  waterline: { stand: 0.42, swim: 0.5 },   // 물에 떠 있을 때 그림 높이 중 물속 비율 (서서 떠 있음 · 헤엄)
+  walk: { footLift: 0.05, footSwingDeg: 14, flipperSwingDeg: 12, bob: 0.012 },   // 걸음마다 발 들림 · 발 각도 · 날개 흔들림 · 몸 들썩
+  idle: { breathDeg: 3, breathHz: 0.35 },
+  air: { flipperUpDeg: 35 },     // 뛸 때 날개를 위로 퍼덕
+  swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 8, flipperHz: 1.2 },
+  toboggan: { kickDeg: 40 },
+  blink: { every: [2.5, 5], time: 0.13 },   // 눈 깜빡임 간격 · 감는 시간 (초)
+};
+
 // ── 헤엄 발 (GRIS, 임시 도형): 헤엄칠 때 몸 뒤로 뻗은 두 발이 번갈아 파닥임 ─────
 const SWIM_FEET = {
   enabled: true,
@@ -767,7 +787,7 @@ FIREFLY.guide.shoreMinDepth = ISLAND_TERRAIN.sea.fireflyMinDepth;   // 반딧불
 window.CONFIG = {
   ISLAND_TERRAIN,
   LAND_FIREFLY,
-  SNOW_PUFF, INTRO_HINT, SWIM_SPRAY, SWIM_FEET, PENGUIN_RIG,
+  SNOW_PUFF, INTRO_HINT, SWIM_SPRAY, SWIM_FEET, PENGUIN_RIG, PENGUIN_ART,
   SPLASH_DROPS,
   STARS,
   palette: PALETTE,

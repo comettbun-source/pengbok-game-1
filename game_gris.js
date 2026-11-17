@@ -3060,6 +3060,7 @@
     } else if (part === 'below') return;
     const { fvx, fvy } = v;
     const lm = deg(Math.max(WC().inertiaTilt.accelDeg, C.penguin.iceLeanDeg, C.floe.relief.slopeLeanDeg)); g.rotate(clamp(p.lean.h, -lm, lm));
+    if (artReady()) { drawPenguinArt(g, u, v, p); return; }
     if (p.sliding || p.belly) {
       const ax = Math.abs(fvx), len = (0.45 + 0.55 * ax) * (p.mode === 'water' && p.depth === 'deep' ? 1.2 : 1);   // 물속 슬라이딩은 길게 늘어남
       g.scale(fvx < 0 ? -1 : 1, 1);
@@ -3201,6 +3202,66 @@
     if (sideShare <= 0.05) { drawFlipper(-1, true); drawFlipper(1, true); }
     else drawFlipper(nearE, true);
     if (front < 0 && !swim) drawTail();
+  }
+
+  // ── 펭귄 원화 (PENGUIN_ART): 포즈별 몸 + 눈 + 날개 + 발 조각을 아틀라스에서 그림 ──
+  let artImg = null;
+  function artReady() {
+    const PA = C.PENGUIN_ART, D = window.PENGUIN_ART; if (!PA || !PA.enabled || !D) return false;
+    if (!artImg) { artImg = new Image(); artImg.src = D.img; }
+    return artImg.complete && artImg.naturalWidth > 0;
+  }
+  function drawPenguinArt(g, u, v, p) {
+    const PA = C.PENGUIN_ART, D = window.PENGUIN_ART, PO = PA.pose, t = S.time;
+    const sp = Math.hypot(p.vx, p.vy), inW = p.mode === 'water' && !p.air;
+    // 포즈 고르기
+    let pose = PO.idle, swimK = 0;
+    if (p.sliding || p.belly) pose = PO.belly;
+    else if (p.air) pose = p.vz > 0 ? PO.air : PO.fall;
+    else if (inW) { swimK = clamp((p.lay || 0) / PO.swimMaxDeg, 0, 1); pose = Math.round(swimK * 7); }
+    else if (sp > 0.12) pose = PO.walk;
+    const F = D.frames[clamp(pose, 0, D.frames.length - 1)];
+    // 방향: 원화는 왼쪽을 봄 → 오른쪽을 보면 좌우 뒤집기. 정면·뒷모습 가까우면 마지막 옆 방향 유지
+    if (Math.abs(v.fvx) > 0.15) p.artSide = v.fvx > 0 ? 1 : -1;
+    const side = p.artSide || -1;
+    const walking = !p.air && !inW && !p.sliding && !p.belly && sp > 0.12, ph = p.phase || 0, amt = walking ? clamp(sp / 1.2, 0.3, 1) : 0;
+    g.save();
+    g.scale(PA.scale, PA.scale);
+    if (walking) g.rotate(p.wobble || 0);
+    // 물에 떠 있을 때: 그림 높이의 waterline 비율만큼만 물속에 (p.sink 만큼 내려가 있던 것을 되돌림)
+    if (inW) {
+      let top = 0, bot = 0; for (const q of F.parts) { top = Math.min(top, q.y); bot = Math.max(bot, q.y + q.h); }
+      const fh = bot - top, wl = lerp(PA.waterline.stand, PA.waterline.swim, swimK);
+      g.translate(0, (-(p.sink || 0) + fh * wl + Math.sin(t * 1.8) * 0.01) * u);
+    }
+    if (walking) g.translate(0, -Math.abs(Math.sin(ph)) * PA.walk.bob * amt * u);
+    g.scale(-side, 1);                                          // side = −1(왼쪽) → 그대로
+    // 눈 깜빡임
+    if (!p.blinkAt || t > p.blinkAt + PA.blink.time) p.blinkAt = (p.blinkAt ? t : t + 1) + lerp(PA.blink.every[0], PA.blink.every[1], Math.random());   // 다음 깜빡임
+    const blink = t >= p.blinkAt && t < p.blinkAt + PA.blink.time;
+    let footI = 0;
+    for (const q of F.parts) {
+      const [rx, ry, rw, rh] = q.r, x = q.x * u, y = q.y * u, w = q.w * u, h = q.h * u;
+      let ang = 0, dy = 0;
+      if (q.kind === 'foot') {
+        const e = footI++ ? Math.PI : 0;
+        if (walking) { dy = -Math.max(0, Math.sin(ph + e)) * PA.walk.footLift * amt; ang = Math.sin(ph + e) * deg(PA.walk.footSwingDeg) * amt; }
+        else if (inW && swimK > 0.3) ang = Math.sin(t * PA.swim.paddleHz * Math.PI * 2 + e) * deg(PA.swim.paddleDeg);
+        else if ((p.sliding && p.mode === 'island') || p.belly) ang = -(p.tobKick || 0) * deg(PA.toboggan.kickDeg) * (e ? 0.8 : 1);
+      } else if (q.kind === 'flipper') {
+        if (p.air) ang = -deg(PA.air.flipperUpDeg) * clamp(0.5 + p.vz / 4, 0, 1) - Math.sin(t * 14) * 0.15;
+        else if (walking) ang = Math.sin(ph) * deg(PA.walk.flipperSwingDeg) * amt;
+        else if (inW && swimK > 0.3) ang = Math.sin(t * PA.swim.flipperHz * Math.PI * 2) * deg(PA.swim.flipperDeg);
+        else ang = Math.sin(t * PA.idle.breathHz * Math.PI * 2) * deg(PA.idle.breathDeg);
+      } else if (q.kind === 'eye' && blink) {
+        g.drawImage(artImg, rx, ry + rh * 0.45, rw, Math.max(1, rh * 0.15), x, y + h * 0.45, w, Math.max(1, h * 0.15)); continue;
+      }
+      if (ang || dy) {
+        const pxp = x + (q.px ?? 0.5) * w, pyp = y + (q.py ?? 0.5) * h;
+        g.save(); g.translate(pxp, pyp + dy * u); g.rotate(ang); g.drawImage(artImg, rx, ry, rw, rh, x - pxp, y - pyp, w, h); g.restore();
+      } else g.drawImage(artImg, rx, ry, rw, rh, x, y, w, h);
+    }
+    g.restore();
   }
 
   // 기본 헤엄 자세 (사진 참고): 몸은 수면에 수평으로 떠 있고 엉덩이(등 뒤쪽)가 물 위로 올라옴, 목은 뽁 세워 머리를 들고, 발은 뒤 아래에서 파닥파닥
