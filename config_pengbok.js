@@ -355,11 +355,12 @@ const PENGUIN_RIG = {
 // ── 해안 모래 질감 (assets/sand_texture.png → sand_art.js) ─────
 const SAND_TEX = {
   enabled: true,
-  tile: 6,                     // 질감 한 장이 덮는 월드 크기 (클수록 무늬가 큼)
+  tile: 6, tileScreenY: 260,   // tile: 가로 무늬 크기(월드) · tileScreenY: 세로로 무늬 한 장이 차지하는 화면 높이(px) → 샘플처럼 살짝 눕힌 사다리꼴
+                   // 질감 한 장이 덮는 월드 크기 (클수록 무늬가 큼)
   alpha: 1,                    // 모래 위 질감 진하기
-  fadeFrom: 5, fadeTo: 7.5, warm: { color: [150, 112, 96], alpha: 0.22 }, bright: 1.12,   // warm: 샘플처럼 따뜻한 모래색을 살짝 덮음 · bright: 질감 밝기 배율    // 해안선에서 안쪽 거리: 이 구간에서 숲 바닥으로 사라짐
+  fadeFrom: 5, fadeTo: 7.5, warm: { color: [150, 112, 96], alpha: 0.1 }, bright: 1.06,   // warm: 샘플처럼 따뜻한 모래색을 살짝 덮음 · bright: 질감 밝기 배율    // 해안선에서 안쪽 거리: 이 구간에서 숲 바닥으로 사라짐
   dark: 0.45, darkNear: 7, darkFar: 26, darkColor: [8, 10, 16],   // 멀어질수록 어두워짐 (카메라 거리 darkNear → darkFar 에서 dark 까지)
-  seaFade: 2.6, underAlpha: 0.55, seaStep: 3, bands: 5, maskBands: 8, res: 1,     // bands: 질감 격자 띠 수 · maskBands: 진하기 마스크 겹 수 · res: 질감 층 해상도 (화면 배율 상한)   // 물속: 바다 쪽 이 거리까지 질감이 비치다 깊어질수록 사라짐 · 진하기 · 띠 수 · 해안 구간 간격
+  seaFade: 2.6, underAlpha: 0.55, seaStep: 6, bands: 3, maskBands: 8, res: 1, skipBeyond: 6, maxDepth: 34,   /* res 1 → 0.6: 부드러운 질감이라 낮춰도 같아 보이고 훨씬 가벼움 · skipBeyond: 숲 안으로 이만큼 더 들어가면 안 그림 */   // bands: 질감 격자 띠 수 · maskBands: 진하기 마스크 겹 수 · res: 질감 층 해상도 (화면 배율 상한)   // 물속: 바다 쪽 이 거리까지 질감이 비치다 깊어질수록 사라짐 · 진하기 · 띠 수 · 해안 구간 간격
 };
 
 // ── 빙하 원화 (assets/floe_sheet.png → floe_art.js): 0 작음 · 1 납작 · 2 높음 · 3 큼 ─────
@@ -911,7 +912,8 @@ window.CONFIG = {
       outline: 1.5, fillAlpha: 0.04,              // 채운 면 대신 가는 외곽선(px) + 아주 옅은 채움
       idle: { after: 3, fade: 1, alpha: 0.14, touch: 0.5, hold: 1 },   // 3초 안 만지면 1초에 걸쳐 0.14 로, 누르면 0.5, 뗀 뒤 1초 지나면 다시 연해짐
     },
-    adapt: { lightAlpha: 0.42, darkAlpha: 0.5, threshold: [0.35, 0.6], smooth: 3, sampleMs: 120 },
+    adapt: { lightAlpha: 0.42, darkAlpha: 0.5, threshold: [0.35, 0.6], smooth: 3, sampleMs: 120,
+      readback: false, seaLum: 0.06, iceLum: 0.3, landLum: 0.3 },   // readback: 화면 밝기를 픽셀로 읽지 않음 (아이패드에서 매번 그리기가 멈춰 느려졌음) → 장소별 밝기로 버튼 색을 정함
   },
 
   input: {

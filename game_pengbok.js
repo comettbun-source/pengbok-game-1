@@ -2589,12 +2589,21 @@
     const T = C.SAND_TEX; if (!T || !T.enabled || !window.SAND_ART) return false;
     if (!sandImg) { sandImg = new Image(); sandImg.src = window.SAND_ART.img; }
     if (!sandImg.complete || !sandImg.naturalWidth) return false;
-    if (!sandPat) sandPat = ctx.createPattern(sandImg, 'repeat');
+    if (!sandPat) {   // 따뜻한 색·밝기를 그림에 미리 구워 둠 (매 프레임 전체 화면 합성 안 함)
+      const cv = document.createElement('canvas'); cv.width = sandImg.naturalWidth; cv.height = sandImg.naturalHeight; const g2 = cv.getContext('2d');
+      g2.drawImage(sandImg, 0, 0);
+      if (T.warm) { g2.globalAlpha = T.warm.alpha; g2.fillStyle = `rgb(${T.warm.color.join(',')})`; g2.fillRect(0, 0, cv.width, cv.height); g2.globalAlpha = 1; }
+      if (T.bright > 1) { g2.globalCompositeOperation = 'soft-light'; g2.globalAlpha = Math.min(1, (T.bright - 1) * 2); g2.fillStyle = '#fff'; g2.fillRect(0, 0, cv.width, cv.height); g2.globalAlpha = 1; g2.globalCompositeOperation = 'source-over'; }
+      sandPat = ctx.createPattern(cv, 'repeat');
+    }
     return !!sandPat && typeof sandPat.setTransform === 'function';
   }
   function sandTri(w, sc, alpha) {   // w: 월드 [x,y] 3개, sc: 화면 [x,y] 3개
     if (alpha < 0.005) return;
-    const k = sandImg.naturalWidth / C.SAND_TEX.tile, a = [w[0][0] * k, w[0][1] * k], b = [w[1][0] * k, w[1][1] * k], c = [w[2][0] * k, w[2][1] * k], [A, B, Cc] = sc;
+    const T = C.SAND_TEX, k = sandImg.naturalWidth / T.tile, ds = T.depthStretch || 1, Rx = rig.R[0], Ry = rig.R[1], Fx = rig.F[0], Fy = rig.F[1];
+    // 샘플처럼 덮기: 가로는 땅을 따라(멀수록 작아짐), 세로는 화면 높이에 고르게 → 사다리꼴로 살짝 눕힌 모습. 카메라는 좌우로만 움직이니 무늬가 땅에 붙어 있음
+    const kv = sandImg.naturalHeight / T.tileScreenY, uv = (q, sp) => [(q[0] * Rx + q[1] * Ry) * k, (sp[1] - rig.horizon) * kv];
+    const [A, B, Cc] = sc, a = uv(w[0], A), b = uv(w[1], B), c = uv(w[2], Cc);
     const bx = b[0] - a[0], by = b[1] - a[1], cx = c[0] - a[0], cy = c[1] - a[1], det = bx * cy - cx * by; if (Math.abs(det) < 1e-9) return;
     const m11 = ((B[0] - A[0]) * cy - (Cc[0] - A[0]) * by) / det, m12 = ((Cc[0] - A[0]) * bx - (B[0] - A[0]) * cx) / det;
     const m21 = ((B[1] - A[1]) * cy - (Cc[1] - A[1]) * by) / det, m22 = ((Cc[1] - A[1]) * bx - (B[1] - A[1]) * cx) / det;
@@ -2606,8 +2615,11 @@
   const sandCv = document.createElement('canvas'), sandG = sandCv.getContext('2d'), sandMk = document.createElement('canvas'), sandMG = sandMk.getContext('2d');
   function sandLayer(kind) {
     const T = C.SAND_TEX; if (!T || !sandReady()) return;
-    const segs = visibleShore(); if (segs.length < 3) return;
+    const segs = visibleShore().filter((q) => { const c = camSpace(q.x, q.y, 0); if (c[1] < -3 || c[1] > T.maxDepth) return false; const x = toScreen([c[0], Math.max(c[1], 0.3), c[2]])[0]; return x > -W * 0.6 && x < W * 1.6; });   // 화면 근처만
+    if (segs.length < 3) return;
     const sh = C.world.shoreHeight, land = kind === 'land';
+    { const is = S.islands[0], cin = is ? (rig.cx - is.shoreAt(clamp(rig.cy, -is.ry + 0.01, is.ry - 0.01))) * is.side : 0;   // 카메라가 모래 구간을 한참 지나 숲 안이면 안 그림 (보이지 않음)
+      if (cin > T.fadeTo + T.skipBeyond) return; }
     const dA = land ? -T.fadeTo : -0.3, dB = land ? 0.05 : T.seaFade; if (!land && !(T.seaFade > 0)) return;
     const zOf = (d) => (land ? sh + profileAt(Math.max(0, -d)) : 0);
     const aOf = (d) => (land ? T.alpha * (1 - smooth(T.fadeFrom, T.fadeTo, -d)) : T.underAlpha * (1 - smooth(0, T.seaFade, Math.max(0, d))));
@@ -2627,8 +2639,6 @@
         sandTri([W4[0], W4[1], W4[2]], [I[0], I[1], I[2]], 1); sandTri([W4[0], W4[2], W4[3]], [I[0], I[2], I[3]], 1);
       }
     }
-    if (land && T.warm) { ctx.globalCompositeOperation = 'source-atop'; ctx.globalAlpha = T.warm.alpha; ctx.fillStyle = `rgb(${T.warm.color.join(',')})`; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }   // 따뜻한 모래색
-    if (land && T.bright > 1) { ctx.globalCompositeOperation = 'source-atop'; ctx.globalAlpha = Math.min(1, T.bright - 1) * 2; ctx.fillStyle = '#fff'; ctx.globalCompositeOperation = 'soft-light'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
     // 멀어질수록 어둡게: 화면 세로 그라데이션 (카메라 거리 darkNear → darkFar)
     { const yN = project(rig.cx + rig.F[0] * T.darkNear, rig.cy + rig.F[1] * T.darkNear, 0)[1], yF = project(rig.cx + rig.F[0] * T.darkFar, rig.cy + rig.F[1] * T.darkFar, 0)[1];
       ctx.globalCompositeOperation = 'source-atop'; const gr = ctx.createLinearGradient(0, yN, 0, yF), dc = T.darkColor.join(',');
@@ -4165,7 +4175,9 @@
   }
   function updateUiLum(dt) {
     const now = performance.now();
-    if (now - lum.lastSample > C.ui.adapt.sampleMs) {
+    if (C.ui.adapt.readback === false) {   // 화면 픽셀 읽기(getImageData)는 기기에서 그리기를 멈추게 함 → 장소로 밝기를 어림
+      const p = S.p; lum.target.ring = lum.target.action = p.mode === 'island' ? C.ui.adapt.landLum : p.mode === 'floe' ? C.ui.adapt.iceLum : C.ui.adapt.seaLum;
+    } else if (now - lum.lastSample > C.ui.adapt.sampleMs) {
       lum.lastSample = now;
       try {
         lum.target.ring = sampleLum(layout.ring.x, layout.ring.y, C.ui.ring.radius * 1.8);
