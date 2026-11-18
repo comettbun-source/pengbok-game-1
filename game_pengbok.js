@@ -3706,13 +3706,19 @@
     // 눈 깜빡임
     if (!p.blinkAt || t > p.blinkAt + PA.blink.time) p.blinkAt = (p.blinkAt ? t : t + 1) + lerp(PA.blink.every[0], PA.blink.every[1], Math.random());   // 다음 깜빡임
     const blink = t >= p.blinkAt && t < p.blinkAt + PA.blink.time;
-    let footI = 0;
+    let footI = 0; const feetQ = F.parts.filter((q) => q.kind === 'foot');
     for (const q of F.parts) {
       const [rx, ry, rw, rh] = q.r, x = q.x * u, y = q.y * u, w = q.w * u, h = q.h * u;
       let ang = 0, dy = 0, dx = 0;
       if (q.kind === 'foot') {
         const e = footI++ ? Math.PI : 0;
         if (cycOn) { }   // 컷 애니메이션: 컷에 그려진 발 그대로 (따로 움직이지 않음 → 몸에서 떨어지지 않음)
+        else if (walking && PA.walk.swap && feetQ.length === 2) {   // 펭귄 걸음 (참고 GIF): 두 발이 서로 엇갈려 앞뒤로 미끄러지듯 자리를 바꿈. 원화에 그려진 두 발 자리 사이만 오가서 몸 밑에 붙어 있음
+          const o = feetQ[footI - 1 === 0 ? 1 : 0], fph = ph * (PA.walk.footMul || 1), k = PA.walk.swap * amt, sv = (1 - Math.cos(fph)) / 2;
+          dx = (o.x - q.x) * k * sv; dy = (o.y - q.y) * k * sv;
+          const vx = (o.x - q.x) * Math.sin(fph);   // 이 발이 움직이는 방향 (원화는 왼쪽을 봄: − = 앞으로)
+          if (vx < 0) { const lift = Math.min(1, -vx / Math.max(1e-4, Math.abs(o.x - q.x))); dy -= lift * PA.walk.footLift * amt; ang = lift * deg(PA.walk.footSwingDeg) * amt; }   // 앞으로 내딛는 발만 살짝 들고 발끝을 듦
+        }
         else if (walking) {   // 한 발씩
           const fph = ph * (PA.walk.footMul || 1), sw = Math.sin(fph + e);   // footMul: 발은 몸 뒤뚱보다 이 배수로 빠르게 (오도도도)
           const st = PA.walk.footStride * (running ? PA.run.strideMul : 1), cx = -Math.cos(fph + e);
