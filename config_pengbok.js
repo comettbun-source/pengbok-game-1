@@ -594,7 +594,7 @@ const ISLAND_TERRAIN = {
   mountains: { offset: 78, nearPeaks: false },   // 산은 원경으로만: 해안에서 이만큼 더 안쪽 (해안 바로 뒤 작은 봉우리 없음)
   // 해안 바위 (하와이 현무암처럼 낮고 둥근 검은 바위). d = 해안선에서 안쪽 거리, y = 화면 안쪽 위치
   rocks: {
-    list: [{ d: 2.0, y: 0.3, h: 0.55, seed: 11 }, { d: 4.2, y: -1.55, h: 0.7, seed: 23 }],   // 왼쪽(안쪽) 바위는 이동 선 뒤로 비켜 둠 → 올라가지 않고 지나감
+    list: [{ d: 2.0, y: -0.95, h: 0.55, seed: 11 },   /* (y 0.3 → −0.95) 이동 선 뒤로 비켜 둠 → 펭귄이 바위 앞으로 지나감 */ { d: 4.2, y: -1.55, h: 0.7, seed: 23 }],   // 왼쪽(안쪽) 바위는 이동 선 뒤로 비켜 둠 → 올라가지 않고 지나감
     width: 1.4,               // 폭 (지름)
     depthScale: 0.8,          // 안쪽 방향 폭 비율
     // 모양 (사진처럼 모난 바위): 바닥 꼭짓점 7~9개(반지름 들쭉날쭉) · 꼭대기는 한쪽으로 치우침 · 중간 고리 높이 들쭉날쭉 → 납작한 면들
@@ -603,7 +603,7 @@ const ISLAND_TERRAIN = {
     color: [16, 16, 18], light: [52, 54, 58],
     washRing: 0.4,            // 파도가 닿으면 바위 둘레로 갈라지는 흰 물결 진하기
     // 바위 원화 (assets/rock_sheet.png → rock_art.js): 바위마다 그림 번호. 높이(h)는 그림 비율대로 다시 맞춤 (반딧불이·발판 높이도 그림 윗선에 맞음)
-    art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.06, heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45 },   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
+    art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.06, heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45, shadow: { alpha: 0.55, scale: [1.35, 0.5], offset: 0.12 } },   // shadow: 바위 밑 번지는 그림자 진하기 · 크기(폭·깊이 배율) · 빛 반대쪽으로 밀림   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
   },
   sea: { slope: 7, fireflyMinDepth: 0.15 },   // 바다 쪽: 수심 경사 거리(DEPTH.slope) · 반딧불이가 머무는 최소 수심
   wash: { width: 5, reach: 0.45 },            // 파도 도달 (SHORE_WASH.shoreWidth · reach)

@@ -2700,6 +2700,8 @@
       if (k > 0.02) { const e = groundEllipse(r.x, r.y, r.R * 1.25, base + 0.01); if (e) { ctx.globalAlpha = RK.washRing * k * (1 - fog); ctx.drawImage(shadeRing, e.x - e.rx, e.y - e.ry * 0.8, e.rx * 2, e.ry * 2 * 0.8); } } }
     if (r.sp && rockImgReady()) {   // 원화 바위: 몸통 폭을 바위 지름에 맞추고 바닥에 살짝 묻음, 먼 곳은 안개색
       const sp = r.sp, [rx, ry, rw, rh] = sp.r, ppu = pxPerUnit(depth), b = project(r.x, r.y, base), bodyW = sp.body[1] - sp.body[0];
+      { const SH = RK.art.shadow; if (SH) { const L = FIXED_LIGHT, e = groundEllipse(r.x - L[0] * SH.offset, r.y - L[1] * SH.offset, r.R * SH.scale[0], base + 0.005);   // 바위 밑 그림자 (빛 반대쪽으로 살짝)
+        if (e) { const ry2 = Math.max(e.ry, e.rx * SH.scale[1] * 0.5); ctx.globalAlpha = SH.alpha * (1 - fog); ctx.drawImage(getSoftDisc(), e.x - e.rx, e.y - ry2, e.rx * 2, ry2 * 2); ctx.globalAlpha = 1; } } }
       const k = r.R * 2 * ppu / bodyW, w = sp.w * k, h = sp.h * k, ox = b[0] - (sp.body[0] + bodyW / 2) * k, oy = b[1] - h + RK.art.sink * ppu;
       if (rockCv.width < Math.ceil(w) + 2 || rockCv.height < Math.ceil(h) + 2) { rockCv.width = Math.max(rockCv.width, Math.ceil(w) + 2); rockCv.height = Math.max(rockCv.height, Math.ceil(h) + 2); }
       const G = rockG; G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.clearRect(0, 0, rockCv.width, rockCv.height); G.imageSmoothingEnabled = true; G.drawImage(rockImg, rx, ry, rw, rh, 0, 0, w, h);
