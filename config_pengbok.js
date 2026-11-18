@@ -574,7 +574,7 @@ const ISLAND_TERRAIN = {
   // 구역: 이동 속도 배율 · 나무 밀도(단위 넓이당 그루) · 지면 색
   zones: [
     { name: 'sand', to: 6, speed: 0.62,   // (0.5 → 0.62) 살짝 빠르게
-      trees: 0, color: [58, 60, 64] },
+      trees: 0, color: [70, 65, 58] },   // (58,60,64 → 70,65,58) 밤의 모래: 살짝 따뜻한 베이지 회색 (참고 사진)
     { name: 'forestEdge', to: 14, speed: 1.45, trees: [0.12, 0.2], color: [36, 40, 40] },   // 속도 0.8 → 1.15 (모래만 그대로)
     { name: 'forestDeep', to: 34, speed: 1.65, trees: [0.14, 0.24], color: [24, 28, 29] },   // 0.85 → 1.25
     { name: 'hills', to: 999, speed: 1.6, trees: 0.06, color: [31, 34, 38] },   // 0.9 → 1.3
@@ -590,20 +590,24 @@ const ISLAND_TERRAIN = {
     front: { density: 0.05, y: [2.6, 5.5], d: [14, 60], alpha: 0.9 },                  // 이동 선 앞쪽 실루엣 (드물게)
     color: [11, 19, 16], frond: [22, 36, 30], trunk: [16, 20, 19], palmTrunk: [34, 40, 40], bushColor: [9, 16, 13],
   },
-  ground: { dStep: 1, yStep: 4, yRange: [-40, 40], maxDist: 76, view: 70, crack: 0,  /* (0.35 → 0) 바닥 곳곳의 일직선 균열선 끔 */ crackColor: [10, 12, 14], light: 0.18 },   // 지면 칸 그리기
+  ground: { dStep: 1, yStep: 4, yRange: [-40, 40], maxDist: 76, view: 70, crack: 0,  /* (0.35 → 0) 바닥 곳곳의 일직선 균열선 끔 */ crackColor: [10, 12, 14], light: 0.08 },   /* light 0.18 → 0.08: 칸마다 밝기가 달라 해변을 따라 줄무늬로 보여서 약하게 */   // 지면 칸 그리기
   mountains: { offset: 78, nearPeaks: false },   // 산은 원경으로만: 해안에서 이만큼 더 안쪽 (해안 바로 뒤 작은 봉우리 없음)
   // 해안 바위 (하와이 현무암처럼 낮고 둥근 검은 바위). d = 해안선에서 안쪽 거리, y = 화면 안쪽 위치
   rocks: {
-    list: [{ d: 2.0, y: -0.95, h: 0.55, seed: 11 },   /* (y 0.3 → −0.95) 이동 선 뒤로 비켜 둠 → 펭귄이 바위 앞으로 지나감 */ { d: 4.2, y: -1.55, h: 0.7, seed: 23 }],   // 왼쪽(안쪽) 바위는 이동 선 뒤로 비켜 둠 → 올라가지 않고 지나감
+    list: [{ d: 2.0, y: -0.95, h: 0.55, seed: 11 },   /* (y 0.3 → −0.95) 이동 선 뒤로 비켜 둠 → 펭귄이 바위 앞으로 지나감 */ { d: 4.2, y: -1.55, h: 0.7, seed: 23 },
+      // 모래에 반쯤 묻힌 작은 바위들 (참고 사진처럼 흩어짐, 장식: 반딧불이 없음). 이동 선(y 0.3 ± 0.6)은 비워 둠
+      { d: 0.6, y: -2.6, seed: 31, deco: true, art: 0, w: 0.75 }, { d: 3.2, y: 2.3, seed: 37, deco: true, art: 1, w: 0.9 }, { d: 5.0, y: 1.6, seed: 41, deco: true, art: 0, w: 0.6 },
+      { d: 1.4, y: 3.4, seed: 43, deco: true, art: 1, w: 0.55 }, { d: 5.6, y: -3.2, seed: 47, deco: true, art: 1, w: 1.0 }],   // 왼쪽(안쪽) 바위는 이동 선 뒤로 비켜 둠 → 올라가지 않고 지나감
     width: 1.4,               // 폭 (지름)
     depthScale: 0.8,          // 안쪽 방향 폭 비율
     // 모양 (사진처럼 모난 바위): 바닥 꼭짓점 7~9개(반지름 들쭉날쭉) · 꼭대기는 한쪽으로 치우침 · 중간 고리 높이 들쭉날쭉 → 납작한 면들
     shape: { verts: [7, 9], radiusVar: 0.25, apexOffset: 0.3, midAt: 0.5, midHeight: [0.55, 0.85] },
     pebbles: { count: [2, 3], size: [0.14, 0.3], height: [0.08, 0.22], spread: [1.0, 1.6] },   // 둘레 작은 돌 (그림만)
     color: [16, 16, 18], light: [52, 54, 58],
-    washRing: 0.4,            // 파도가 닿으면 바위 둘레로 갈라지는 흰 물결 진하기
+    washRing: 0,              // (0.4 → 0) 파도가 닿을 때 바위 둘레 둥근 고리: 원 모양으로 보여서 끔
     // 바위 원화 (assets/rock_sheet.png → rock_art.js): 바위마다 그림 번호. 높이(h)는 그림 비율대로 다시 맞춤 (반딧불이·발판 높이도 그림 윗선에 맞음)
-    art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.06, heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45, shadow: { alpha: 0.55, scale: [1.35, 0.5], offset: 0.12 } },   // shadow: 바위 밑 번지는 그림자 진하기 · 크기(폭·깊이 배율) · 빛 반대쪽으로 밀림   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
+    art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.06, heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45, shadow: { alpha: 0.55, scale: [1.35, 0.5], offset: 0.12 }, sandBank: { alpha: 0.85, height: 0.16, width: 1.25 } },   // sandBank: 바위 밑동에 모래가 쌓여 묻힌 느낌 (진하기 · 높이 · 폭 배율)
+    sandLumps: { count: 160, d: [0.4, 5.6], y: [-30, 30], size: [0.25, 0.9], light: 0.1, dark: 0.16 },   // 모래 굴곡: 작은 둔덕 (빛 쪽 밝게 · 반대쪽 그늘). 참고 사진의 울퉁불퉁한 모래   // shadow: 바위 밑 번지는 그림자 진하기 · 크기(폭·깊이 배율) · 빛 반대쪽으로 밀림   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
   },
   sea: { slope: 7, fireflyMinDepth: 0.15 },   // 바다 쪽: 수심 경사 거리(DEPTH.slope) · 반딧불이가 머무는 최소 수심
   wash: { width: 5, reach: 0.45 },            // 파도 도달 (SHORE_WASH.shoreWidth · reach)

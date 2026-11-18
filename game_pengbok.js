@@ -600,11 +600,11 @@
     const is = S.islands[0]; if (!IT || !is) return;
     const RK = IT.rocks;
     RK.list.forEach((r, ri) => {
-      const RA = RK.art && RK.art.enabled && window.ROCK_ART ? RK.art : null, sp = RA ? window.ROCK_ART.sprites[RA.sprites[ri] ?? 0] : null;
-      const wm = RA ? (RA.widthMul[ri] ?? 1) : 1, R = RK.width / 2 * wm, Ry = RK.width / 2 * RK.depthScale * wm;
+      const RA = RK.art && RK.art.enabled && window.ROCK_ART ? RK.art : null, sp = RA ? window.ROCK_ART.sprites[r.art ?? RA.sprites[ri] ?? 0] : null;
+      const wm = r.w ?? (RA ? (RA.widthMul[ri] ?? 1) : 1), R = RK.width / 2 * wm, Ry = RK.width / 2 * RK.depthScale * wm;
       const hh = sp ? (sp.h - sp.body[2]) / (sp.body[1] - sp.body[0]) * R * 2 * RA.heightFit : r.h;   // 원화: 그림 몸통 비율로 높이
       const x = is.shoreAt(r.y) + is.side * r.d, rr0 = rng(r.seed || 1);
-      const rock = { x, y: r.y, d: r.d, h: hh, R, Ry, sp, mesh: makeRockMesh(x, r.y, R, Ry, hh, r.seed || 1), pebbles: [] };
+      const rock = { x, y: r.y, d: r.d, h: hh, R, Ry, sp, deco: !!r.deco, mesh: makeRockMesh(x, r.y, R, Ry, hh, r.seed || 1), pebbles: [] };
       const PB = RK.pebbles, np = Math.round(lerp(PB.count[0], PB.count[1], rr0()));
       for (let k = 0; k < np; k++) { const a = rr0() * Math.PI * 2, dd = lerp(PB.spread[0], PB.spread[1], rr0()) * R, s = lerp(PB.size[0], PB.size[1], rr0());
         rock.pebbles.push(makeRockMesh(x + Math.cos(a) * dd, r.y + Math.sin(a) * dd * 0.7, s, s * 0.8, lerp(PB.height[0], PB.height[1], rr0()), (r.seed || 1) * 31 + k)); }
@@ -2617,7 +2617,19 @@
         const A = c.P4[0], B = c.P4[3], Cc = c.P4[1];
         const p0 = [lerp(A[0], B[0], u0), lerp(A[1], B[1], u0)], p1 = [lerp(Cc[0], c.P4[2][0], u1), lerp(Cc[1], c.P4[2][1], u1)];
         const q0 = project(p0[0], p0[1], terrainHeightAt(p0[0], p0[1]) + 0.01), q1 = project(p1[0], p1[1], terrainHeightAt(p1[0], p1[1]) + 0.01);
-        if (q0[2] > rig.near && q1[2] > rig.near) { ctx.globalAlpha = 0.5 * (1 - fog); ctx.strokeStyle = `rgb(${IT.ground.crackColor.join(',')})`; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.moveTo(q0[0], q0[1]); ctx.lineTo((q0[0] + q1[0]) / 2 + (t0 - 0.5) * 6, (q0[1] + q1[1]) / 2); ctx.lineTo(q1[0], q1[1]); ctx.stroke(); }
+        if (q0[2] > rig.near && q1[2] > rig.near && false) { ctx.globalAlpha = 0.5 * (1 - fog); ctx.strokeStyle = `rgb(${IT.ground.crackColor.join(',')})`; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.moveTo(q0[0], q0[1]); ctx.lineTo((q0[0] + q1[0]) / 2 + (t0 - 0.5) * 6, (q0[1] + q1[1]) / 2); ctx.lineTo(q1[0], q1[1]); ctx.stroke(); }
+      }
+    }
+    // 모래 굴곡: 작은 둔덕마다 빛 쪽은 밝게, 반대쪽은 그늘 (부드러운 번짐)
+    const SL = IT.rocks.sandLumps; if (SL) {
+      if (!S.sandLumps) { const rr = rng(909); S.sandLumps = Array.from({ length: SL.count }, () => ({ d: lerp(SL.d[0], SL.d[1], rr()), y: lerp(SL.y[0], SL.y[1], rr()), s: lerp(SL.size[0], SL.size[1], Math.pow(rr(), 1.5)), a: rr() * Math.PI })); }
+      const Lt = FIXED_LIGHT, sd = getSoftDisc(), lt = sandLightSpr();
+      for (const q of S.sandLumps) {
+        const x = is.shoreAt(q.y) + is.side * q.d, c2 = camSpace(x, q.y, 0); if (c2[1] < rig.near + 0.4 || c2[1] > 40) continue;
+        const z = terrainHeightAt(x, q.y) + 0.003, fg = 1 - fogAt(c2[1]);
+        const eD = groundEllipse(x - Lt[0] * q.s * 0.35, q.y - Lt[1] * q.s * 0.35, q.s, z), eL = groundEllipse(x + Lt[0] * q.s * 0.3, q.y + Lt[1] * q.s * 0.3, q.s * 0.8, z);
+        if (eD) { ctx.globalAlpha = SL.dark * fg; ctx.drawImage(sd, eD.x - eD.rx, eD.y - eD.ry, eD.rx * 2, eD.ry * 2); }
+        if (eL) { ctx.globalAlpha = SL.light * fg; ctx.drawImage(lt, eL.x - eL.rx, eL.y - eL.ry, eL.rx * 2, eL.ry * 2); }
       }
     }
     ctx.globalAlpha = 1;
@@ -2691,6 +2703,13 @@
   }
   let rockImg = null; const rockCv = document.createElement('canvas'), rockG = rockCv.getContext('2d');
   function rockImgReady() { if (!window.ROCK_ART) return false; if (!rockImg) { rockImg = new Image(); rockImg.src = window.ROCK_ART.img; } return rockImg.complete && rockImg.naturalWidth > 0; }
+  let sandLightC = null; const sandLightSpr = () => sandLightC || (sandLightC = makeSprite([[0, 'rgba(255,240,220,1)'], [0.5, 'rgba(255,240,220,0.45)'], [1, 'rgba(255,240,220,0)']]));
+  const sandBankCv = document.createElement('canvas'); let sandBankCol = '';
+  function sandBankSpr(col) {   // 모래색 타원 번짐 (가운데 진하고 가장자리 투명)
+    const key = col.map(Math.round).join(','); if (key === sandBankCol) return; sandBankCol = key;
+    sandBankCv.width = 128; sandBankCv.height = 64; const g = sandBankCv.getContext('2d'); g.clearRect(0, 0, 128, 64);
+    g.save(); g.scale(1, 0.5); const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, `rgba(${key},1)`); gr.addColorStop(0.55, `rgba(${key},0.8)`); gr.addColorStop(1, `rgba(${key},0)`); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); g.restore();
+  }
   function drawRock(r, depth) {
     const RK = IT.rocks, fog = fogAt(depth), sh = C.world.shoreHeight, base = sh + profileAt(r.d);
     const zBase = (x, y) => sh + profileAt(inlandDist(x, y));
@@ -2708,6 +2727,9 @@
       G.globalCompositeOperation = 'source-atop'; G.fillStyle = `rgba(${RK.art.night.join(',')},${RK.art.nightAlpha})`; G.fillRect(0, 0, w, h);   // 밤빛: 어둡고 푸르게
       const fg = fog * RK.art.fogMul; if (fg > 0.01) { G.globalCompositeOperation = 'source-atop'; G.fillStyle = mixFog([255, 255, 255], 1).replace('rgb(', 'rgba(').replace(')', `,${fg})`); G.fillRect(0, 0, w, h); }
       ctx.globalAlpha = 1; ctx.drawImage(rockCv, 0, 0, Math.ceil(w), Math.ceil(h), ox, oy, Math.ceil(w), Math.ceil(h));
+      { const SB = RK.art.sandBank; if (SB) {   // 밑동에 모래가 쌓임: 모래색 부드러운 둔덕으로 바위 아래끝을 덮음
+        const col = zoneColor(r.d), e = groundEllipse(r.x, r.y + r.Ry * 0.35, r.R * SB.width, base + 0.004);
+        if (e) { const hh2 = SB.height * ppu; sandBankSpr(col); ctx.globalAlpha = SB.alpha * (1 - fog * 0.5); ctx.drawImage(sandBankCv, e.x - e.rx, e.y - hh2, e.rx * 2, hh2 * 2.2); ctx.globalAlpha = 1; } } }
     } else {
     const ordered = r.pebbles.concat([r.mesh]).map((m) => ({ m, dd: camSpace(m.ax, m.ay, 0)[1] })).sort((a, b) => b.dd - a.dd);
     for (const { m } of ordered) drawMeshFaces(m, depth, RK.color, RK.light, zBase);
@@ -2738,7 +2760,7 @@
     S.lf.pinMax = Math.round(lerp(LF.forestPins[0], LF.forestPins[1], r()));
     let t = LF.arriveDelay;
     for (const rock of S.rocks) {
-      rock.glow = 0; rock.fled = false;
+      rock.glow = 0; rock.fled = false; if (rock.deco) continue;   // 장식 바위엔 반딧불이 없음
       const n = Math.round(lerp(LF.perRock[0], LF.perRock[1], r()));
       for (let k = 0; k < n && S.lf.flies.length < LF.max; k++) {
         t += lerp(LF.arriveGap[0], LF.arriveGap[1], r());
