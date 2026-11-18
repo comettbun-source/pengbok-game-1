@@ -359,7 +359,8 @@ const SAND_TEX = {
   width: 520,                  // 질감 한 장의 화면 폭 (px) — 샘플처럼 이미 눕혀진 그림을 그대로 깔아 이어 붙임
   top: 0,                      // 수평선에서 질감 시작 높이 (px)
   scroll: 1,                   // 걸을 때 질감이 땅과 함께 흐르는 비율
-  fadeTo: 6.5,                 // 해안선에서 안쪽 이 거리까지만 (모래 구역)
+  fadeTo: 8,                   // (6.5 → 8) 해안선에서 안쪽 이 거리까지만 (모래 구역)
+  fadeWidth: 3, fadeSteps: 10, edgeRes: 0.5,   // 안쪽 끝: 이 폭 동안 맨땅(질감 전 땅을 떠 둔 그림, 해상도 배율 edgeRes)을 단계 수만큼 겹쳐 덮어 서서히 사라짐 (딱 잘린 경계선 없앰)
   dark: 0.45, darkNear: 7, darkFar: 26, darkColor: [8, 10, 16],   // 멀어질수록 어둡게
 }
 
@@ -591,6 +592,7 @@ const ISLAND_TERRAIN = {
     { name: 'hills', to: 999, speed: 1.6, trees: 0.06, color: [31, 34, 38] },   // 0.9 → 1.3
   ],
   zoneBlend: 1.2,             // 구역 경계에서 속도·색이 이어지는 폭
+  zoneColorBlend: 2.5,        // 지면 색만: 경계 양쪽으로 이어지는 폭 (모래 → 숲 바닥이 선 없이 넘어가게)
   // 나무: 해변 바로 뒤 키 큰 야자수 줄 → 덤불 → 빽빽한 정글 (임시 도형). 뭉쳐서 자람(cluster)
   trees: {
     seed: 314, laneGap: 1.4, back: 26,
@@ -601,7 +603,7 @@ const ISLAND_TERRAIN = {
     front: { density: 0.05, y: [2.6, 5.5], d: [14, 60], alpha: 0.9 },                  // 이동 선 앞쪽 실루엣 (드물게)
     color: [11, 19, 16], frond: [22, 36, 30], trunk: [16, 20, 19], palmTrunk: [34, 40, 40], bushColor: [9, 16, 13],
   },
-  ground: { dStep: 1, yStep: 4, yRange: [-40, 40], maxDist: 76, view: 70, crack: 0,  /* (0.35 → 0) 바닥 곳곳의 일직선 균열선 끔 */ crackColor: [10, 12, 14], light: 0.08 },   /* light 0.18 → 0.08: 칸마다 밝기가 달라 해변을 따라 줄무늬로 보여서 약하게 */   // 지면 칸 그리기
+  ground: { dStep: 1, fineStep: 0.25 /* 구역 색이 섞이는 폭에서만 칸을 잘게 (색 계단 띠 없앰) */, yStep: 4, yRange: [-40, 40], maxDist: 76, view: 70, crack: 0,  /* (0.35 → 0) 바닥 곳곳의 일직선 균열선 끔 */ crackColor: [10, 12, 14], light: 0.08 },   /* light 0.18 → 0.08: 칸마다 밝기가 달라 해변을 따라 줄무늬로 보여서 약하게 */   // 지면 칸 그리기
   mountains: { offset: 78, nearPeaks: false },   // 산은 원경으로만: 해안에서 이만큼 더 안쪽 (해안 바로 뒤 작은 봉우리 없음)
   // 해안 바위 (하와이 현무암처럼 낮고 둥근 검은 바위). d = 해안선에서 안쪽 거리, y = 화면 안쪽 위치
   rocks: {
@@ -616,7 +618,11 @@ const ISLAND_TERRAIN = {
     color: [16, 16, 18], light: [52, 54, 58],
     washRing: 0,              // (0.4 → 0) 파도가 닿을 때 바위 둘레 둥근 고리: 원 모양으로 보여서 끔
     // 바위 원화 (assets/rock_sheet.png → rock_art.js): 바위마다 그림 번호. 높이(h)는 그림 비율대로 다시 맞춤 (반딧불이·발판 높이도 그림 윗선에 맞음)
-    art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.14, bury: 0.22, heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45, shadow: { alpha: 0.7, scale: [1.15, 0.5], offset: 0.06 }, sandBank: null },   // shadow: 바위 밑 접촉 그림자 (좁고 진하게) · sandBank: 모래색 덮개 끔 (질감 위에서 회색 얼룩처럼 보여서)   // sandBank: 바위 밑동에 모래가 쌓여 묻힌 느낌 (진하기 · 높이 · 폭 배율)
+    art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.14, bury: 0,   /* (0.22 → 0) 아래쪽을 투명하게 지우면 바위가 뚫려 보여서 끔 → cover 로 모래가 덮음 */ heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45, shadow: { alpha: 0.4, scale: [0.9, 0.25], offset: 0.02 } /* (0.7 · [1.15, 0.5] · 0.06 → 줄임: 묻힌 밑동 아래로 그림자 테두리가 선처럼 보여서) */, sandBank: null,
+      // 밑동 모래 묻힘: 둥근 둔덕 여러 개 모양으로 바위 아래를 오려내 실제 땅(모래 질감·밀려온 물)이 그대로 보이게 + 맞닿는 깊은 곳 그늘
+      //  bumps 둔덕 개수 · height 둔덕 높이(그림 높이 비율) · base 둔덕 중심 높이(그림 아래에서, 그 아래는 모두 땅 속) · spread 둔덕 폭 배율 · edgeDrop 양끝 낮아짐
+      //  soft 꽉 찬 반지름 비율(작을수록 모래 경계가 부드러움) · shade 바위 아래쪽 그늘 진하기 · shadeRise 그늘이 둔덕 위로 올라오는 배율 · shadeSoft 그늘 가장자리
+      cover: { bumps: 6, height: 0.24, base: 0.15, spread: 1.4, edgeDrop: 0.5, soft: 0.45, shade: 0.75, shadeRise: 1.9, shadeSoft: 0.2 } },   // shadow: 바위 밑 접촉 그림자 (좁고 진하게) · sandBank: 모래색 덮개 끔 (질감 위에서 회색 얼룩처럼 보여서)   // sandBank: 바위 밑동에 모래가 쌓여 묻힌 느낌 (진하기 · 높이 · 폭 배율)
     sandLumps: { count: 0, /* (160 → 0) 질감 그림과 따로 움직여 보여서 끔 */ d: [0.4, 5.6], y: [-30, 30], size: [0.25, 0.9], light: 0.1, dark: 0.16 },   // 모래 굴곡: 작은 둔덕 (빛 쪽 밝게 · 반대쪽 그늘). 참고 사진의 울퉁불퉁한 모래   // shadow: 바위 밑 번지는 그림자 진하기 · 크기(폭·깊이 배율) · 빛 반대쪽으로 밀림   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
   },
   sea: { slope: 7, fireflyMinDepth: 0.15 },   // 바다 쪽: 수심 경사 거리(DEPTH.slope) · 반딧불이가 머무는 최소 수심
@@ -719,7 +725,7 @@ const DEPTH = {
   strips: 40,                 // (14 → 40) 그라데이션 띠 수: 많을수록 계단 없이 부드러움
   viewRange: 40,              // 카메라에서 이 거리 안쪽 해안만 그림
   edgeSoft: null,   // (바다 쪽 번짐: 띠가 오히려 선처럼 보여 끔)
-  landFeather: { outer: 0.2, width: 1.4, alpha: 0.8, power: 1.6, strips: 24 },   // 해안선: 바다색이 모래 쪽으로 이 폭만큼 번져 끝선이 부드럽게   // 해안선 경계: 젖은 모래색이 물 쪽으로 이 폭만큼 번져 부드럽게 (딱딱한 선 없애기)
+  landFeather: { outer: 0.2, width: 1.4, alpha: 0.8, power: 1.6, strips: 16, fromSea: 0.5, color: [14, 20, 25] },   /* fromSea: 땅 그리기 직전 바다 그림을 이 해상도 배율로 떠서 땅 끝 위로 번지게 (null = color 단색. 단색은 밤빛·안개와 어긋나 해안선이 검은 띠로 보였음) */   // 해안선: 바다색이 모래 쪽으로 이 폭만큼 번져 끝선이 부드럽게   // 해안선 경계: 젖은 모래색이 물 쪽으로 이 폭만큼 번져 부드럽게 (딱딱한 선 없애기)
 };
 
 // ── 모래 발자국 (발바닥 버튼과 같은 모양) ─────────────────────────────

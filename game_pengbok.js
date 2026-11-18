@@ -554,7 +554,10 @@
     return { z, nb, k };
   }
   const zoneNum = (d, key) => { const { z, nb, k } = zoneAt(d); const v = (q) => (Array.isArray(q[key]) ? lerp(q[key][0], q[key][1], clamp((d - (IT.zones[IT.zones.indexOf(q) - 1] || { to: 0 }).to) / (q.to - (IT.zones[IT.zones.indexOf(q) - 1] || { to: 0 }).to), 0, 1)) : q[key]); return nb ? lerp(v(z), v(nb), k) : v(z); };
-  const zoneColor = (d) => { const { z, nb, k } = zoneAt(d); return nb ? z.color.map((v, i) => v + (nb.color[i] - v) * k) : z.color; };
+  // 지면 색: 경계마다 양쪽으로 zoneColorBlend 만큼 이어지게 섞음 (경계 바로 너머에서 색이 툭 바뀌던 문제 수정)
+  const zoneColor = (d) => { const Z = IT.zones, B = IT.zoneColorBlend ?? IT.zoneBlend; let c = Z[0].color;
+    for (let j = 0; j < Z.length - 1; j++) { const k = smooth(Z[j].to - B, Z[j].to + B, d); if (k <= 0) break; c = c.map((v, i) => v + (Z[j + 1].color[i] - v) * k); }
+    return c; };
   // 모난 바위 메시: 바닥 고리(들쭉날쭉한 꼭짓점) → 중간 고리 → 꼭대기(한쪽으로 치우침). 고리는 꼭대기 쪽으로 줄어든 같은 모양
   function makeRockMesh(cx, cy, R, Ry, H, seed) {
     const SH = IT.rocks.shape, r = rng(seed), n = Math.round(lerp(SH.verts[0], SH.verts[1], r()));
@@ -604,7 +607,7 @@
       const wm = r.w ?? (RA ? (RA.widthMul[ri] ?? 1) : 1), R = RK.width / 2 * wm, Ry = RK.width / 2 * RK.depthScale * wm;
       const hh = sp ? (sp.h - sp.body[2]) / (sp.body[1] - sp.body[0]) * R * 2 * RA.heightFit : r.h;   // 원화: 그림 몸통 비율로 높이
       const x = is.shoreAt(r.y) + is.side * r.d, rr0 = rng(r.seed || 1);
-      const rock = { x, y: r.y, d: r.d, h: hh, R, Ry, sp, deco: !!r.deco, mesh: makeRockMesh(x, r.y, R, Ry, hh, r.seed || 1), pebbles: [] };
+      const rock = { x, y: r.y, d: r.d, h: hh, R, Ry, sp, seed: r.seed || 1, deco: !!r.deco, mesh: makeRockMesh(x, r.y, R, Ry, hh, r.seed || 1), pebbles: [] };
       const PB = RK.pebbles, np = Math.round(lerp(PB.count[0], PB.count[1], rr0()));
       for (let k = 0; k < np; k++) { const a = rr0() * Math.PI * 2, dd = lerp(PB.spread[0], PB.spread[1], rr0()) * R, s = lerp(PB.size[0], PB.size[1], rr0());
         rock.pebbles.push(makeRockMesh(x + Math.cos(a) * dd, r.y + Math.sin(a) * dd * 0.7, s, s * 0.8, lerp(PB.height[0], PB.height[1], rr0()), (r.seed || 1) * 31 + k)); }
@@ -2585,15 +2588,23 @@
   // 섬 지면: (안쪽 거리 d, 화면 안쪽 y) 칸을 먼 것부터 단색 면으로 + 가는 균열선. 경사가 빛을 향하면 살짝 밝게
   // ── 해안 모래 질감 (SAND_TEX): 샘플 각도로 눕힌 그림을 모래 구역 안에 화면 그대로 얹음 (가로는 땅과 함께 흐름) ──
   let sandImg = null;
+  const sandEdgeCv = document.createElement('canvas'), sandEdgeG = sandEdgeCv.getContext('2d');
   function sandOverlay() {
     const T = C.SAND_TEX; if (!T || !T.enabled || !window.SAND_ART) return;
     if (!sandImg) { sandImg = new Image(); sandImg.src = window.SAND_ART.img; }
     if (!sandImg.complete || !sandImg.naturalWidth) return;
     const is = S.islands[0], segs = visibleShore(); if (!is || segs.length < 3) return;
     const sh = C.world.shoreHeight, zOf = (d) => sh + profileAt(d);
-    const o = [], n2 = [];   // 모래 구역: 물가(0) → 안쪽 fadeTo
-    for (const q of segs) { o.push([q.x, q.y, zOf(0)]); n2.push([q.x - q.nx * T.fadeTo, q.y - q.ny * T.fadeTo, zOf(T.fadeTo)]); }
-    const poly = projPoly(o.concat(n2.reverse())); if (poly.length < 3) return;
+    const band = (d0, d1) => { const a = [], b = []; for (const q of segs) { a.push([q.x - q.nx * d0, q.y - q.ny * d0, zOf(d0)]); b.push([q.x - q.nx * d1, q.y - q.ny * d1, zOf(d1)]); } return projPoly(a.concat(b.reverse())); };   // 안쪽 거리 d0 → d1 띠
+    const poly = band(0, T.fadeTo); if (poly.length < 3) return;   // 모래 구역: 물가(0) → 안쪽 fadeTo
+    // 안쪽 끝을 부드럽게 하려고, 질감을 얹기 전의 맨땅을 끝자락 띠 크기만큼 떠 둠
+    const FW = Math.min(T.fadeWidth || 0, T.fadeTo); let edgePat = null;
+    if (FW > 0) { const eb = band(T.fadeTo - FW, T.fadeTo + 1); let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+      for (const [x, y] of eb) { bx0 = Math.min(bx0, x); by0 = Math.min(by0, y); bx1 = Math.max(bx1, x); by1 = Math.max(by1, y); }
+      bx0 = Math.max(0, Math.floor(bx0) - 2); by0 = Math.max(0, Math.floor(by0) - 2); bx1 = Math.min(W, Math.ceil(bx1) + 2); by1 = Math.min(H, Math.ceil(by1) + 2);
+      if (eb.length >= 3 && bx1 - bx0 > 2 && by1 - by0 > 2) { const rs = (T.edgeRes || 0.5) * DPR, bw = Math.max(2, Math.ceil((bx1 - bx0) * rs)), bh = Math.max(2, Math.ceil((by1 - by0) * rs));
+        fitCv(sandEdgeCv, bw, bh); sandEdgeG.imageSmoothingEnabled = true; sandEdgeG.clearRect(0, 0, bw, bh); sandEdgeG.drawImage(canvas, bx0 * DPR, by0 * DPR, (bx1 - bx0) * DPR, (by1 - by0) * DPR, 0, 0, bw, bh);
+        edgePat = ctx.createPattern(sandEdgeCv, 'no-repeat'); if (edgePat && edgePat.setTransform) edgePat.setTransform(new DOMMatrix([(bx1 - bx0) / bw, 0, 0, (by1 - by0) / bh, bx0, by0])); else edgePat = null; } }
     const ref = project(cam.x, cam.y + 0, sh), ppu = pxPerUnit(Math.max(1, camSpace(S.p.x, S.p.y, 0)[1]));
     const tw = T.width, th = tw * sandImg.naturalHeight / sandImg.naturalWidth;
     const shift = -((cam.x * rig.R[0] + cam.y * rig.R[1]) * ppu * T.scroll), x0 = ((shift % tw) + tw) % tw - tw, y0 = rig.horizon + T.top;
@@ -2605,16 +2616,22 @@
     const gr = ctx.createLinearGradient(0, yNear, 0, yIn), dc = T.darkColor.join(','); gr.addColorStop(0, `rgba(${dc},0)`); gr.addColorStop(1, `rgba(${dc},${T.dark})`);
     ctx.globalAlpha = 1; ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
     ctx.restore();
+    // 끝자락: 떠 둔 맨땅을 바깥(fadeTo 너머)에서 시작하는 겹친 띠로 덮음 → 질감·어둠이 fadeWidth 동안 이음선 없이 사라짐
+    if (edgePat) { ctx.fillStyle = edgePat; const N = T.fadeSteps || 12;
+      nestedBands(N, (i) => T.fadeTo - FW * (i + 1) / N, (i) => 1 - (i + 0.5) / N, (e) => band(e, T.fadeTo + 1));
+      ctx.globalAlpha = 1; }
   }
+
   function drawTerrain() {
     const is = S.islands[0], G = IT.ground; if (!is) return;
     const L = FIXED_LIGHT, cells = [], shoreCache = new Map();
+    const CB = IT.zoneColorBlend ?? IT.zoneBlend, fineAt = (d) => G.fineStep > 0 && IT.zones.some((z) => d > z.to - CB - 0.5 && d < z.to + CB + 0.5 && z.to < G.maxDist);   // 색이 섞이는 곳은 잘게 (계단 띠 없이)
     const shoreY = (yy) => { let v = shoreCache.get(yy); if (v === undefined) { v = is.shoreAt(clamp(yy, -is.ry + 0.01, is.ry - 0.01)); shoreCache.set(yy, v); } return v; };   // 띠 경계마다 한 번만
     for (let y = G.yRange[0]; y < G.yRange[1]; y += G.yStep) {
       const y1 = y + G.yStep;
       if (Math.abs(y) >= is.ry && Math.abs(y1) >= is.ry) continue;
-      for (let d = 0; d < G.maxDist; d += G.dStep) {
-        const d1 = d + G.dStep, xs = (dd, yy) => shoreY(yy) + is.side * dd;
+      for (let d = 0, d1; d < G.maxDist; d = d1) {
+        d1 = d + (fineAt(d) ? G.fineStep : G.dStep); const xs = (dd, yy) => shoreY(yy) + is.side * dd;
         const P4 = [[xs(d, y), y, profileAt(d)], [xs(d1, y), y, profileAt(d1)], [xs(d1, y1), y1, profileAt(d1)], [xs(d, y1), y1, profileAt(d)]];
         const cx = (P4[0][0] + P4[2][0]) / 2, cyy = (y + y1) / 2, cs = camSpace(cx, cyy, 0);
         if (cs[1] < -G.dStep * 2 || cs[1] > G.view) continue;
@@ -2734,6 +2751,56 @@
     sandBankCv.width = 128; sandBankCv.height = 64; const g = sandBankCv.getContext('2d'); g.clearRect(0, 0, 128, 64);
     g.save(); g.scale(1, 0.5); const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, `rgba(${key},1)`); gr.addColorStop(0.55, `rgba(${key},0.8)`); gr.addColorStop(1, `rgba(${key},0)`); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); g.restore();
   }
+  // 바위 밑동을 묻는 모래 둔덕: 둥근 혹 여러 개 (바위마다 정해진 모양). 좌표는 바위 그림 안 (px)
+  function rockBumps(r, w, h, CV) {
+    const rr = rng(1000 + r.seed), n = CV.bumps, out = [], base = h * (1 - CV.base);
+    for (let i = 0; i < n; i++) { const t = (i + 0.5) / n, x = w * lerp(-0.08, 1.08, t) + (rr() - 0.5) * w / n * 0.6;
+      const edge = 1 - Math.pow(Math.abs(t - 0.5) * 2, 2) * CV.edgeDrop;   // 가장자리 쪽은 낮게
+      out.push({ x, y: base, rx: w / n * CV.spread * lerp(0.8, 1.2, rr()), ry: h * CV.height * edge * lerp(0.75, 1.25, rr()) }); }
+    return out;
+  }
+  const softCoreCache = new Map();
+  function softCoreSpr(core) {   // 가운데는 꽉 차고 가장자리만 부드럽게 사라지는 원 (core = 꽉 찬 반지름 비율)
+    let c = softCoreCache.get(core); if (c) return c;
+    c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    for (let i = 0; i <= 8; i++) { const t = i / 8, u = clamp((t - core) / (1 - core), 0, 1); gr.addColorStop(t, `rgba(0,0,0,${(1 - u * u * (3 - 2 * u)).toFixed(3)})`); }
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128); softCoreCache.set(core, c); return c;
+  }
+  // 바위 그림의 화면 자리 (drawRock 과 같은 계산)
+  function rockGeom(r, depth) {
+    const sp = r.sp, sh = C.world.shoreHeight, base = sh + profileAt(r.d), ppu = pxPerUnit(depth), b = project(r.x, r.y, base), bodyW = sp.body[1] - sp.body[0];
+    const k = r.R * 2 * ppu / bodyW, w = sp.w * k, h = sp.h * k;
+    return { ppu, b, base, w, h, ox: b[0] - (sp.body[0] + bodyW / 2) * k, oy: b[1] - h + IT.rocks.art.sink * ppu };
+  }
+  // 땅(모래·물막·젖은 자국)을 다 그린 뒤, 서 있는 것들을 그리기 전에 바위 밑동 자리의 땅을 떠 둠 → 바위 아래를 이 땅으로 덮어 묻힘
+  function snapRockGround() {
+    const RK = IT && IT.rocks, CV = RK && RK.art && RK.art.cover; if (!CV || !rockImgReady()) return;
+    for (const r of S.rocks || []) {
+      r.gSnap = null; if (!r.sp) continue;
+      const depth = camSpace(r.x, r.y, 0)[1]; if (depth < rig.near + 0.3) continue;
+      const g = rockGeom(r, depth), top = g.oy + g.h * (1 - CV.base - CV.height * 1.3);
+      const x0 = Math.max(0, Math.floor(g.ox - 2)), y0 = Math.max(0, Math.floor(top)), x1 = Math.min(W, Math.ceil(g.ox + g.w + 2)), y1 = Math.min(H, Math.ceil(g.oy + g.h + 2));
+      if (x1 - x0 < 2 || y1 - y0 < 2) continue;
+      const bw = Math.ceil((x1 - x0) * DPR), bh = Math.ceil((y1 - y0) * DPR), cv = r.gCv || (r.gCv = document.createElement('canvas'));
+      fitCv(cv, bw, bh); const G = cv.getContext('2d'); G.globalCompositeOperation = 'source-over'; G.clearRect(0, 0, bw, bh);
+      G.drawImage(canvas, x0 * DPR, y0 * DPR, bw, bh, 0, 0, bw, bh);
+      r.gSnap = { x0, y0, x1, y1, bw, bh };
+    }
+  }
+  const coverCv = document.createElement('canvas'), coverG = coverCv.getContext('2d'), coverMaskCv = document.createElement('canvas'), coverMaskG = coverMaskCv.getContext('2d');
+  // 바위 밑동 묻힘: 둔덕 모양(마스크)만큼 바위를 오려내고, 그 자리(바위 그림 안쪽만)에 떠 둔 땅을 깔아 줌 → 경계가 두 번 그려지지 않아 테두리 선이 없음
+  function drawRockCover(r, bumps, ox, oy, w, h, CV) {
+    const S0 = r.gSnap, cw = Math.ceil(w), ch = Math.ceil(h);
+    fitCv(coverMaskCv, rockCv.width, rockCv.height); const M = coverMaskG; M.setTransform(1, 0, 0, 1, 0, 0); M.globalCompositeOperation = 'source-over'; M.clearRect(0, 0, coverMaskCv.width, coverMaskCv.height);
+    const sc = softCoreSpr(CV.soft); for (const q of bumps) M.drawImage(sc, q.x - q.rx, q.y - q.ry, q.rx * 2, q.ry * 2);
+    M.fillStyle = '#000'; M.fillRect(0, h * (1 - CV.base), cw + 2, ch);   // 둔덕 중심선 아래는 모두 땅 속
+    fitCv(coverCv, rockCv.width, rockCv.height); const G = coverG; G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.clearRect(0, 0, coverCv.width, coverCv.height);
+    G.drawImage(rockCv, 0, 0); G.globalCompositeOperation = 'destination-in'; G.drawImage(coverMaskCv, 0, 0);   // 바위 그림 안쪽 ∩ 둔덕
+    G.globalCompositeOperation = 'source-in'; G.imageSmoothingEnabled = true; G.drawImage(r.gCv, 0, 0, S0.bw, S0.bh, S0.x0 - ox, S0.y0 - oy, S0.x1 - S0.x0, S0.y1 - S0.y0);   // 그 자리의 땅
+    G.globalCompositeOperation = 'source-over';
+    rockG.globalCompositeOperation = 'destination-out'; rockG.drawImage(coverMaskCv, 0, 0); rockG.globalCompositeOperation = 'source-over';   // 바위는 둔덕만큼 비움
+    ctx.globalAlpha = 1; ctx.drawImage(coverCv, 0, 0, cw, ch, ox, oy, cw, ch);
+  }
   function drawRock(r, depth) {
     const RK = IT.rocks, fog = fogAt(depth), sh = C.world.shoreHeight, base = sh + profileAt(r.d);
     const zBase = (x, y) => sh + profileAt(inlandDist(x, y));
@@ -2750,7 +2817,12 @@
       const G = rockG; G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.clearRect(0, 0, rockCv.width, rockCv.height); G.imageSmoothingEnabled = true; G.drawImage(rockImg, rx, ry, rw, rh, 0, 0, w, h);
       G.globalCompositeOperation = 'source-atop'; G.fillStyle = `rgba(${RK.art.night.join(',')},${RK.art.nightAlpha})`; G.fillRect(0, 0, w, h);   // 밤빛: 어둡고 푸르게
       const fg = fog * RK.art.fogMul; if (fg > 0.01) { G.globalCompositeOperation = 'source-atop'; G.fillStyle = mixFog([255, 255, 255], 1).replace('rgb(', 'rgba(').replace(')', `,${fg})`); G.fillRect(0, 0, w, h); }
+      const CVR = RK.art.cover, bumps = CVR ? rockBumps(r, w, h, CVR) : null;
+      if (bumps) { G.globalCompositeOperation = 'source-atop'; G.globalAlpha = CVR.shade; const ss = softCoreSpr(CVR.shadeSoft);   // 모래와 맞닿는 깊은 곳: 바위 아래쪽에 그늘
+        for (const q of bumps) G.drawImage(ss, q.x - q.rx * 1.15, q.y - q.ry * CVR.shadeRise, q.rx * 2.3, q.ry * CVR.shadeRise * 2); G.globalAlpha = 1;
+        G.globalCompositeOperation = 'source-over'; }
       if (RK.art.bury) { G.globalCompositeOperation = 'destination-out'; const by0 = h * (1 - RK.art.bury), gb = G.createLinearGradient(0, by0, 0, h); gb.addColorStop(0, 'rgba(0,0,0,0)'); gb.addColorStop(1, 'rgba(0,0,0,1)'); G.fillStyle = gb; G.fillRect(0, by0, w, h - by0); }   // 아래쪽이 모래 속으로 사라짐
+      if (bumps && r.gSnap) drawRockCover(r, bumps, ox, oy, w, h, CVR);   // 밑동을 실제 땅(모래 질감·밀려온 물)으로 덮어 모래에 묻힘
       ctx.globalAlpha = 1; ctx.drawImage(rockCv, 0, 0, Math.ceil(w), Math.ceil(h), ox, oy, Math.ceil(w), Math.ceil(h));
       { const SB = RK.art.sandBank; if (SB) {   // 밑동에 모래가 쌓임: 모래색 부드러운 둔덕으로 바위 아래끝을 덮음
         const col = zoneColor(r.d), e = groundEllipse(r.x, r.y + r.Ry * 0.35, r.R * SB.width, base + 0.004);
@@ -3083,12 +3155,27 @@
   }
   // 얕은 물: 모래색이 비치다가(alpha 0.65) 깊어질수록 투명 → 깊은 물
   // 해안선 경계: 바다색이 모래 쪽으로 살짝 번져 땅 끝이 칼로 자른 듯 보이지 않게 (땅 위, 물가 → 안쪽으로 옅어짐)
+  // 해안선 번짐용: 땅을 그리기 직전의 바다를 번짐 띠 크기만큼 떠 둠 → 그 바다 그림을 땅 끝 위로 서서히 번지게 (색을 따로 맞출 필요 없음)
+  const featherCv = document.createElement('canvas'), featherG = featherCv.getContext('2d'); let featherPat = null;
+  function snapSeaForFeather() {
+    featherPat = null; const F = C.DEPTH.landFeather; if (!F || !F.fromSea) return;
+    const segs = visibleShore(); if (segs.length < 2) return;
+    const poly = shoreBand(F.outer, -F.width, C.world.shoreHeight + 0.003, segs); if (poly.length < 3) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [x, y] of poly) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    x0 = Math.max(0, Math.floor(x0) - 2); y0 = Math.max(0, Math.floor(y0) - 2); x1 = Math.min(W, Math.ceil(x1) + 2); y1 = Math.min(H, Math.ceil(y1) + 2);
+    if (x1 - x0 < 2 || y1 - y0 < 2) return;
+    const s = F.fromSea * DPR, bw = Math.max(2, Math.ceil((x1 - x0) * s)), bh = Math.max(2, Math.ceil((y1 - y0) * s));
+    fitCv(featherCv, bw, bh); featherG.imageSmoothingEnabled = true; featherG.clearRect(0, 0, bw, bh);
+    featherG.drawImage(canvas, x0 * DPR, y0 * DPR, (x1 - x0) * DPR, (y1 - y0) * DPR, 0, 0, bw, bh);
+    featherPat = ctx.createPattern(featherCv, 'no-repeat'); if (!featherPat || !featherPat.setTransform) { featherPat = null; return; }
+    featherPat.setTransform(new DOMMatrix([(x1 - x0) / bw, 0, 0, (y1 - y0) / bh, x0, y0]));
+  }
   function drawShoreFeather() {
     const F = C.DEPTH.landFeather; if (!F) return;
     const segs = visibleShore(); if (segs.length < 2) return;
     const fog = fogAt(Math.max(0, camSpace(segs[segs.length >> 1].x, segs[segs.length >> 1].y, 0)[1]), C.FOG.mountain); if (fog > 0.97) return;
     const sh = C.world.shoreHeight;
-    ctx.fillStyle = `rgb(${(F.color || BG).join(',')})`; const N = F.strips;
+    ctx.fillStyle = featherPat || `rgb(${(F.color || BG).join(',')})`; const N = F.strips;
     nestedBands(N, (i) => -(i + 1) / N * F.width, (i) => F.alpha * Math.pow(1 - (i + 0.5) / N, F.power) * (1 - fog), (d1) => shoreBand(F.outer, d1, sh + 0.003, segs));
     ctx.globalAlpha = 1;
   }
@@ -4429,10 +4516,12 @@
       if (sp > 0.05 && p.depth !== 'deep') drawFlowLines(p.x, p.y, [p.vx / sp, p.vy / sp], sp, P.penguin.maxSpeed.water, 0.25 * C.penguin.scale, 0.15, 0);   // 헤엄 중엔 선 대신 명암
     }
     drawReflection();
+    snapSeaForFeather();
     drawIslandGround();
     if (sim && SIM.shore.draw) drawSimShore(); else drawShoreWash();
     drawShoreFeather();   // 물막·젖은 모래 위에서 해안선 끝을 부드럽게
     drawIslandPrints();
+    snapRockGround();     // 바위 밑동을 덮을 땅을 떠 둠 (서 있는 것들을 그리기 전)
     // 서 있는 것: 깊이 순서대로 먼 것부터
     const items = [];
     const pd = camSpace(p.x, p.y, p.z)[1];
