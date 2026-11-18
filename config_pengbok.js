@@ -622,7 +622,7 @@ const ISLAND_TERRAIN = {
       // 밑동 모래 묻힘: 둥근 둔덕 여러 개 모양으로 바위 아래를 오려내 실제 땅(모래 질감·밀려온 물)이 그대로 보이게 + 맞닿는 깊은 곳 그늘
       //  bumps 둔덕 개수 · height 둔덕 높이(그림 높이 비율) · base 둔덕 중심 높이(그림 아래에서, 그 아래는 모두 땅 속) · spread 둔덕 폭 배율 · edgeDrop 양끝 낮아짐
       //  soft 꽉 찬 반지름 비율(작을수록 모래 경계가 부드러움) · shade 바위 아래쪽 그늘 진하기 · shadeRise 그늘이 둔덕 위로 올라오는 배율 · shadeSoft 그늘 가장자리
-      cover: { bumps: 7, height: 0.12, base: 0.02, spread: 1.2, edgeDrop: 0.5, vary: 0.7, soft: 0.55, shade: 0.4, shadeRise: 1.8, shadeSoft: 0.25 } },   /* 바닥선이 일직선이 아니라 둔덕마다 높낮이가 달라 자연스럽게 (vary: 둔덕 높이 들쭉날쭉 ±비율) · 그늘은 옅게 (0.8 → 0.4) */   // shadow: 바위 밑 접촉 그림자 (좁고 진하게) · sandBank: 모래색 덮개 끔 (질감 위에서 회색 얼룩처럼 보여서)   // sandBank: 바위 밑동에 모래가 쌓여 묻힌 느낌 (진하기 · 높이 · 폭 배율)
+      cover: { waves: 3.5, height: 0.1, base: 0.03, edgeRise: 0.6, shade: 0.4, shadeRise: 1.6, shadeLayers: 4 } },   /* 모래 경계선을 물결치는 선으로 (그림처럼): waves 바위 하나에 물결 수 · height 물결 높이(그림 높이 비율) · base 경계선 바닥 높이 · edgeRise 양끝에서 모래가 바위 옆을 타고 올라오는 정도 · shade 맞닿는 곳 그늘 · shadeRise 그늘 높이(물결 높이 배율) · shadeLayers 그늘 단계 */   // shadow: 바위 밑 접촉 그림자 (좁고 진하게) · sandBank: 모래색 덮개 끔 (질감 위에서 회색 얼룩처럼 보여서)   // sandBank: 바위 밑동에 모래가 쌓여 묻힌 느낌 (진하기 · 높이 · 폭 배율)
     sandLumps: { count: 0, /* (160 → 0) 질감 그림과 따로 움직여 보여서 끔 */ d: [0.4, 5.6], y: [-30, 30], size: [0.25, 0.9], light: 0.1, dark: 0.16 },   // 모래 굴곡: 작은 둔덕 (빛 쪽 밝게 · 반대쪽 그늘). 참고 사진의 울퉁불퉁한 모래   // shadow: 바위 밑 번지는 그림자 진하기 · 크기(폭·깊이 배율) · 빛 반대쪽으로 밀림   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
   },
   sea: { slope: 7, fireflyMinDepth: 0.15 },   // 바다 쪽: 수심 경사 거리(DEPTH.slope) · 반딧불이가 머무는 최소 수심
