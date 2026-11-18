@@ -3637,6 +3637,7 @@
     { const dtA = clamp(t - (p.artPhT ?? t), 0, 0.1); p.artPhT = t;
       if (walking) p.artPh = (p.artPh || 0) + dtA * Math.PI * 2 * (running ? PA.run.flapHz : Math.max(PA.walk.minHz, sp * PA.walk.cyclesPerUnit)); }
     const ph = p.artPh || 0;
+    { const dtF = clamp(t - (p.footPhT ?? t), 0, 0.1); p.footPhT = t; if (walking) p.footPh = (p.footPh || 0) + dtF * Math.PI * 2 * Math.min(PA.walk.footMaxHz || 99, Math.max(PA.walk.minHz, sp * PA.walk.cyclesPerUnit)); }   // 발 박자: 달려도 걷는 박자 (최대 footMaxHz) → 발걸음이 눈에 보이게
     const JP = PO.jump;
     if (p.air && !p.wasAir) p.jumpV0 = Math.max(0.1, p.vz);
     if (!p.air && p.wasAir) p.landAt = t;
@@ -3714,10 +3715,10 @@
         const e = footI++ ? Math.PI : 0;
         if (cycOn) { }   // 컷 애니메이션: 컷에 그려진 발 그대로 (따로 움직이지 않음 → 몸에서 떨어지지 않음)
         else if (walking && PA.walk.swap && feetQ.length === 2) {   // 펭귄 걸음 (참고 GIF): 두 발이 서로 엇갈려 앞뒤로 미끄러지듯 자리를 바꿈. 원화에 그려진 두 발 자리 사이만 오가서 몸 밑에 붙어 있음
-          const o = feetQ[footI - 1 === 0 ? 1 : 0], fph = ph * (PA.walk.footMul || 1), k = PA.walk.swap * amt, sv = (1 - Math.cos(fph)) / 2;
-          dx = (o.x - q.x) * k * sv; dy = (o.y - q.y) * k * sv;
-          const vx = (o.x - q.x) * Math.sin(fph);   // 이 발이 움직이는 방향 (원화는 왼쪽을 봄: − = 앞으로)
-          if (vx < 0) { const lift = Math.min(1, -vx / Math.max(1e-4, Math.abs(o.x - q.x))); dy -= lift * PA.walk.footLift * amt; ang = lift * deg(PA.walk.footSwingDeg) * amt; }   // 앞으로 내딛는 발만 살짝 들고 발끝을 듦
+          const o = feetQ[footI - 1 === 0 ? 1 : 0], fph = (p.footPh || 0) * (PA.walk.footMul || 1), k = PA.walk.swap * amt, sv = (1 - Math.cos(fph)) / 2;
+          dx = (o.x - q.x) * k * sv - (PA.walk.slide || 0) * amt * (1 + Math.cos(fph + e)) / 2; dy = (o.y - q.y) * k * sv;   // slide: 한 발씩 번갈아 배 앞으로 쭉 미끄러져 나감 (원화는 왼쪽을 봄: − = 앞)
+          const vx = (o.x - q.x) * k * Math.sin(fph) / 2 + (PA.walk.slide || 0) * amt * Math.sin(fph + e) / 2;   // 앞에 선 발일 때 더 앞으로 (두 움직임이 서로 상쇄되지 않게)   // 이 발이 움직이는 방향 (원화는 왼쪽을 봄: − = 앞으로)
+          if (vx < 0) { const lift = Math.min(1, -vx / Math.max(1e-4, Math.abs(o.x - q.x) * k / 2 + (PA.walk.slide || 0) * amt / 2)); dy -= lift * PA.walk.footLift * amt; ang = lift * deg(PA.walk.footSwingDeg) * amt; }   // 앞으로 내딛는 발만 살짝 들고 발끝을 듦
         }
         else if (walking) {   // 한 발씩
           const fph = ph * (PA.walk.footMul || 1), sw = Math.sin(fph + e);   // footMul: 발은 몸 뒤뚱보다 이 배수로 빠르게 (오도도도)
