@@ -3716,9 +3716,14 @@
         if (cycOn) { }   // 컷 애니메이션: 컷에 그려진 발 그대로 (따로 움직이지 않음 → 몸에서 떨어지지 않음)
         else if (walking && PA.walk.swap && feetQ.length === 2) {   // 펭귄 걸음 (참고 GIF): 두 발이 서로 엇갈려 앞뒤로 미끄러지듯 자리를 바꿈. 원화에 그려진 두 발 자리 사이만 오가서 몸 밑에 붙어 있음
           const fph = (p.footPh || 0) * (PA.walk.footMul || 1), A = (PA.walk.shuffle || 0.04) * amt;   // 오른발·왼발 똑같은 폭으로 앞뒤 (반 박자 엇갈림) → 저는 걸음 없음
-          dx = -A * Math.sin(fph + e);                                   // 원화는 왼쪽을 봄: − = 앞
+          const o = feetQ[footI - 1 === 0 ? 1 : 0], cq = q.x + q.w / 2, co = o.x + o.w / 2, CR = (PA.walk.cross ?? 1) * amt;
+          const fC = Math.min(cq, co), bC = Math.max(cq, co), fB = (cq < co ? q : o), bB = (cq < co ? o : q);   // 그려진 앞발 자리(원화는 왼쪽을 봄: x 작을수록 앞) · 뒷발 자리
+          const u = 0.5 - 0.5 * Math.sin(fph + e);   // 0 = 앞발 자리, 1 = 뒷발 자리. 두 발은 반 박자 엇갈려 서로 앞지름
+          const tgt = lerp(fC, bC, u), tgtB = lerp(fB.y + fB.h, bB.y + bB.h, u);
+          dx = (tgt - cq) * CR - A * Math.sin(fph + e); dy = (tgtB - (q.y + q.h)) * CR;
+          if (PA.walk.debugFeet) (S.footDbg || (S.footDbg = []))[footI - 1] = [+(cq + dx).toFixed(3), +u.toFixed(2)];
           const fwd = Math.max(0, Math.cos(fph + e));                    // 앞으로 나가는 중인 발
-          dy = -fwd * PA.walk.footLift * amt; ang = fwd * deg(PA.walk.footSwingDeg) * amt;   // 나가는 발만 살짝 들고 발끝 듦
+          dy += -fwd * PA.walk.footLift * amt; ang = fwd * deg(PA.walk.footSwingDeg) * amt;   // 나가는 발만 살짝 들고 발끝 듦
         }
         else if (walking) {   // 한 발씩
           const fph = ph * (PA.walk.footMul || 1), sw = Math.sin(fph + e);   // footMul: 발은 몸 뒤뚱보다 이 배수로 빠르게 (오도도도)
