@@ -6,6 +6,13 @@ from scipy import ndimage
 SRC = 'assets/floe_sheet.png'; WL = 716; S = 0.42; N = 96
 im = np.array(Image.open(SRC).convert('RGBA'))
 m = im[..., 3] > 10
+# 가장자리 흰 테두리 제거: 윤곽에서 RIM px 안쪽 띠는 안쪽(INNER px 이상 들어간 곳) 색보다 밝은 만큼만 어둡게 (어두운 쪽은 그대로)
+RIM, INNER = 10, 14
+solid = im[..., 3] > 128; dist = ndimage.distance_transform_edt(solid)
+_, ind = ndimage.distance_transform_edt(~(dist >= INNER), return_indices=True)
+f = im[..., :3].astype(np.float32); inner = f[ind[0], ind[1]]
+t = (np.clip(1 - dist / RIM, 0, 1) ** 0.7)[..., None] * (im[..., 3:4] > 0)
+im[..., :3] = np.clip(f + (np.minimum(f, inner) - f) * t, 0, 255).astype(np.uint8)
 lab, n = ndimage.label(ndimage.binary_dilation(m, iterations=3))
 comps = []
 for i, sl in enumerate(ndimage.find_objects(lab)):

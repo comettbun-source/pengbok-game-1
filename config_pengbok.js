@@ -618,11 +618,11 @@ const ISLAND_TERRAIN = {
     color: [16, 16, 18], light: [52, 54, 58],
     washRing: 0,              // (0.4 → 0) 파도가 닿을 때 바위 둘레 둥근 고리: 원 모양으로 보여서 끔
     // 바위 원화 (assets/rock_sheet.png → rock_art.js): 바위마다 그림 번호. 높이(h)는 그림 비율대로 다시 맞춤 (반딧불이·발판 높이도 그림 윗선에 맞음)
-    art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.14, bury: 0,   /* (0.22 → 0) 아래쪽을 투명하게 지우면 바위가 뚫려 보여서 끔 → cover 로 모래가 덮음 */ heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45, shadow: { alpha: 0.6, scale: [0.95, 0.22], offset: 0 } /* (0.7 · [1.15, 0.5] · 0.06 → 줄임: 묻힌 밑동 아래로 그림자 테두리가 선처럼 보여서) */, sandBank: null,
+    art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.14, bury: 0,   /* (0.22 → 0) 아래쪽을 투명하게 지우면 바위가 뚫려 보여서 끔 → cover 로 모래가 덮음 */ heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45, shadow: { alpha: 0.4, scale: [0.95, 0.22], offset: 0 } /* (0.7 · [1.15, 0.5] · 0.06 → 줄임: 묻힌 밑동 아래로 그림자 테두리가 선처럼 보여서) */, sandBank: null,
       // 밑동 모래 묻힘: 둥근 둔덕 여러 개 모양으로 바위 아래를 오려내 실제 땅(모래 질감·밀려온 물)이 그대로 보이게 + 맞닿는 깊은 곳 그늘
       //  bumps 둔덕 개수 · height 둔덕 높이(그림 높이 비율) · base 둔덕 중심 높이(그림 아래에서, 그 아래는 모두 땅 속) · spread 둔덕 폭 배율 · edgeDrop 양끝 낮아짐
       //  soft 꽉 찬 반지름 비율(작을수록 모래 경계가 부드러움) · shade 바위 아래쪽 그늘 진하기 · shadeRise 그늘이 둔덕 위로 올라오는 배율 · shadeSoft 그늘 가장자리
-      cover: { bumps: 9, height: 0.06, base: 0.06, spread: 1.6, edgeDrop: 0.3, soft: 0.5, shade: 0.8, shadeRise: 2.6, shadeSoft: 0.15 } },   /* (height 0.24 · base 0.15 → 0.06 · 0.06) 크게 덮으면 바위가 먹힌 듯 보여서: 바닥선만 살짝 고르지 않게 묻고 맞닿는 곳을 진하게 */   // shadow: 바위 밑 접촉 그림자 (좁고 진하게) · sandBank: 모래색 덮개 끔 (질감 위에서 회색 얼룩처럼 보여서)   // sandBank: 바위 밑동에 모래가 쌓여 묻힌 느낌 (진하기 · 높이 · 폭 배율)
+      cover: { bumps: 7, height: 0.12, base: 0.02, spread: 1.2, edgeDrop: 0.5, vary: 0.7, soft: 0.55, shade: 0.4, shadeRise: 1.8, shadeSoft: 0.25 } },   /* 바닥선이 일직선이 아니라 둔덕마다 높낮이가 달라 자연스럽게 (vary: 둔덕 높이 들쭉날쭉 ±비율) · 그늘은 옅게 (0.8 → 0.4) */   // shadow: 바위 밑 접촉 그림자 (좁고 진하게) · sandBank: 모래색 덮개 끔 (질감 위에서 회색 얼룩처럼 보여서)   // sandBank: 바위 밑동에 모래가 쌓여 묻힌 느낌 (진하기 · 높이 · 폭 배율)
     sandLumps: { count: 0, /* (160 → 0) 질감 그림과 따로 움직여 보여서 끔 */ d: [0.4, 5.6], y: [-30, 30], size: [0.25, 0.9], light: 0.1, dark: 0.16 },   // 모래 굴곡: 작은 둔덕 (빛 쪽 밝게 · 반대쪽 그늘). 참고 사진의 울퉁불퉁한 모래   // shadow: 바위 밑 번지는 그림자 진하기 · 크기(폭·깊이 배율) · 빛 반대쪽으로 밀림   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
   },
   sea: { slope: 7, fireflyMinDepth: 0.15 },   // 바다 쪽: 수심 경사 거리(DEPTH.slope) · 반딧불이가 머무는 최소 수심
@@ -700,6 +700,7 @@ const SHORE_WASH = {
     tongue: 0.3,              // swash 끝선 혀 모양 요철 ±비율 (해안선 방향 노이즈)
     tongueLength: [1.5, 3],   // 요철 파장 (파도마다 무작위)
     resolution: 0.5,          // (0.18 → 0.5) 명암 면 오프스크린 해상도 (화면 대비 × 기기 픽셀비 × 품질 단계)
+    segEvery: 1, sub: 2, rangeFade: 0.55,   // 띠 결: 해안 구간마다(segEvery) · 구간을 sub 개로 나눠 진하기 보간 · 그리는 범위(DEPTH.viewRange)의 이 비율부터 끝까지 서서히 사라짐 → 결이 뚝 끊기지 않게
     nearFade: [4, 10],        // pengbok: 카메라에서 이 거리 안쪽의 파면은 옅게 (낮은 각도라 가까운 파면이 화면을 가로지르는 굵은 띠로 보여서)
   },
 };

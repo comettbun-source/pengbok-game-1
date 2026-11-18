@@ -2756,7 +2756,7 @@
     const rr = rng(1000 + r.seed), n = CV.bumps, out = [], base = h * (1 - CV.base);
     for (let i = 0; i < n; i++) { const t = (i + 0.5) / n, x = w * lerp(-0.08, 1.08, t) + (rr() - 0.5) * w / n * 0.6;
       const edge = 1 - Math.pow(Math.abs(t - 0.5) * 2, 2) * CV.edgeDrop;   // 가장자리 쪽은 낮게
-      out.push({ x, y: base, rx: w / n * CV.spread * lerp(0.8, 1.2, rr()), ry: h * CV.height * edge * lerp(0.75, 1.25, rr()) }); }
+      out.push({ x, y: base, rx: w / n * CV.spread * lerp(0.8, 1.2, rr()), ry: h * CV.height * edge * lerp(1 - (CV.vary ?? 0.25), 1 + (CV.vary ?? 0.25), rr()) }); }
     return out;
   }
   const softCoreCache = new Map();
@@ -3196,7 +3196,7 @@
   const crestCv = document.createElement('canvas'), crestG = crestCv.getContext('2d');
   const troughCv = document.createElement('canvas'), troughG = troughCv.getContext('2d');
   function drawShoreTrain() {
-    const ws = washShape(), TR = C.SHORE_WASH.train, tb = ws.table, segs = visibleShore().filter((_, i) => i % 2 === 0);   // 파면은 완만해서 구간 2개마다 하나로 충분
+    const ws = washShape(), TR = C.SHORE_WASH.train, tb = ws.table, segs = visibleShore().filter((_, i) => i % (TR.segEvery || 1) === 0);   // 구간마다 (띠 진하기가 구간 사이에서 계단처럼 바뀌지 않게)
     if (segs.length < 2 || !ws.waves.length) return;
     const res = offRes(TR.resolution), w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));
     for (const cv of [crestCv, troughCv]) fitCv(cv, w, h);
@@ -3221,16 +3221,23 @@
         const steep = Math.exp(-Math.pow((dep - TR.steepDepth) / 0.09, 2));            // 수심 0.2 부근에서 가팔라짐
         const cd = camSpace(q.x + q.nx * d, q.y + q.ny * d, 0)[1], fade = smooth(TR.fadeDepth, TR.fadeDepth * 2.5, dep) * (1 - smooth(TR.startDist * 0.7, TR.startDist, d)) * (1 - fogAt(cd)) * (TR.nearFade ? smooth(TR.nearFade[0], TR.nearFade[1], cd) : 1);
         const al = lerp(a0, a1, clamp((sh - 1) / (TR.shoalMax - 1), 0, 1)) * Math.min(1.2, wv.amp) * (1 + (TR.steepBoost - 1) * steep) * fade;
-        return { d, cw: lam * TR.crest * (1 - TR.steepNarrow * steep) * (acc ? 0.5 + 0.5 * tau / SW.accelTime : 1), tw: lam * TR.trough, al };
+        const R = C.DEPTH.viewRange, rf = TR.rangeFade ? 1 - smooth(R * TR.rangeFade, R, Math.hypot(q.x - cam.x, q.y - cam.y)) : 1;   // 그리는 해안 범위 끝에서 서서히 사라짐 (띠가 뚝 끊기지 않게)
+        return { d, cw: lam * TR.crest * (1 - TR.steepNarrow * steep) * (acc ? 0.5 + 0.5 * tau / SW.accelTime : 1), tw: lam * TR.trough, al: al * rf };
       });
       for (let i = 0; i < segs.length - 1; i++) {
         const A = st[i], B = st[i + 1];
         if (!A || !B || (A.al < 0.004 && B.al < 0.004)) continue;
-        const a = segs[i], b = segs[i + 1], al = (A.al + B.al) / 2;
-        // 밝은 띠: 가운데가 진하고 양끝이 옅은 3겹 (해안 쪽 앞면이 가파름)
-        for (const [u0, u1, k] of [[-0.5, 0.5, 0.45], [-0.3, 0.35, 0.35], [-0.12, 0.18, 0.3]]) any = quad(crestG, a, b, A.d + A.cw * u0, A.d + A.cw * u1, B.d + B.cw * u0, B.d + B.cw * u1, al * k) || any;
-        // 어두운 골: 밝은 띠 바로 뒤 (바다 쪽)
-        for (const [u0, u1, k] of [[-0.1, 1, 0.4], [0.1, 0.8, 0.35], [0.25, 0.6, 0.3]]) quad(troughG, a, b, A.d + A.cw * 0.5 + A.tw * u0, A.d + A.cw * 0.5 + A.tw * u1, B.d + B.cw * 0.5 + B.tw * u0, B.d + B.cw * 0.5 + B.tw * u1, al * TR.troughAlpha * k);
+        // 구간을 잘게 나눠 진하기를 이어지게 보간 (구간마다 한 가지 진하기라 생기던 계단·뚝 끊김 없앰)
+        const NS = TR.sub || 1, lp = (u, v, t) => u + (v - u) * t, pt = (t) => ({ x: lp(segs[i].x, segs[i + 1].x, t), y: lp(segs[i].y, segs[i + 1].y, t), nx: lp(segs[i].nx, segs[i + 1].nx, t), ny: lp(segs[i].ny, segs[i + 1].ny, t) });
+        const vt = (t) => ({ d: lp(A.d, B.d, t), cw: lp(A.cw, B.cw, t), tw: lp(A.tw, B.tw, t), al: lp(A.al, B.al, t) });
+        for (let k2 = 0; k2 < NS; k2++) {
+          const t0 = k2 / NS, t1 = (k2 + 1) / NS, a = pt(t0), b = pt(t1), P = vt(t0), Q = vt(t1), al = (P.al + Q.al) / 2;
+          if (al < 0.002) continue;
+          // 밝은 띠: 가운데가 진하고 양끝이 옅은 3겹 (해안 쪽 앞면이 가파름)
+          for (const [u0, u1, k] of [[-0.5, 0.5, 0.45], [-0.3, 0.35, 0.35], [-0.12, 0.18, 0.3]]) any = quad(crestG, a, b, P.d + P.cw * u0, P.d + P.cw * u1, Q.d + Q.cw * u0, Q.d + Q.cw * u1, al * k) || any;
+          // 어두운 골: 밝은 띠 바로 뒤 (바다 쪽)
+          for (const [u0, u1, k] of [[-0.1, 1, 0.4], [0.1, 0.8, 0.35], [0.25, 0.6, 0.3]]) quad(troughG, a, b, P.d + P.cw * 0.5 + P.tw * u0, P.d + P.cw * 0.5 + P.tw * u1, Q.d + Q.cw * 0.5 + Q.tw * u0, Q.d + Q.cw * 0.5 + Q.tw * u1, al * TR.troughAlpha * k);
+        }
       }
     }
     if (!any) return;
