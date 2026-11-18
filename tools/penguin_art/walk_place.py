@@ -51,7 +51,23 @@ for c in low:
         q = fbl[feetc.index(c)]; P = crop(c); al = P[..., 3] > 0.3; ys, xs = np.nonzero(al)
         by = q[:, 0].max(); bx = q[:, 1].mean()
         at = [int(by - ys.max() - PAD + top['y0']), int(bx - xs[ys > ys.max() - 0.4 * (ys.max() - ys.min())].mean() - PAD + top['x0'])]
-        entry['parts'].append(dict(kind=kind, src=[c['y0'], c['x0'], c['y1'], c['x1']], at=at)); print('foot*', at); continue
+        # 덩어리로 잡은 자리 주변에서 원화와 가장 똑같이 보이는 곳으로 정밀 맞춤 (발은 몸 뒤: 몸에 가려지는 부분은 비교에서 자연히 빠짐)
+        P = crop(c); h, w = P.shape[:2]; win = ndimage.binary_dilation(P[..., 3] > 0.05, iterations=8); y0f, x0f = at[0] + PAD - top['y0'], at[1] + PAD - top['x0']; best = (1e9, (y0f, x0f))
+        qy0, qy1, qx0, qx1 = max(0, q[:, 0].min() - 50), q[:, 0].max() + 50, max(0, q[:, 1].min() - 70), q[:, 1].max() + 70   # 고정 비교 영역: 보이는 발 덩어리 주변 (발이 몸 뒤로 숨으면 덩어리 자리가 비어 점수가 나빠짐)
+        others = np.zeros(comp.shape[:2], bool)
+        for q2 in fbl:
+            if q2 is not q: others[q2[:, 0], q2[:, 1]] = True
+        roi = ~ndimage.binary_dilation(others, iterations=4)[qy0:qy1, qx0:qx1]   # 다른 발 자리는 빼고 비교
+        for y in range(y0f - 30, y0f + 31):
+            for x in range(x0f - 50, x0f + 51):
+                if y < 0 or x < 0 or y + h > comp.shape[0] or x + w > comp.shape[1]: continue
+                layer = np.zeros((qy1 - qy0, qx1 - qx0, 4), np.float32); ly, lx = y - qy0, x - qx0
+                sy0, sx0 = max(0, -ly), max(0, -lx); ey, ex = min(h, layer.shape[0] - ly), min(w, layer.shape[1] - lx)
+                if ey > sy0 and ex > sx0: layer[ly + sy0:ly + ey, lx + sx0:lx + ex] = P[sy0:ey, sx0:ex]
+                sc = float(((prem(over(base[qy0:qy1, qx0:qx1], layer)) - Cp[qy0:qy1, qx0:qx1]) ** 2).sum(-1)[roi].mean())
+                if sc < best[0]: best = (sc, (y, x))
+        at = [int(best[1][0] - PAD + top['y0']), int(best[1][1] - PAD + top['x0'])]
+        entry['parts'].append(dict(kind=kind, src=[c['y0'], c['x0'], c['y1'], c['x1']], at=at)); print('foot*', at, best[0]); continue
     P = crop(c); h, w = P.shape[:2]; win = ndimage.binary_dilation(P[..., 3] > 0.05, iterations=10 if kind == 'eye' else 6)
     if kind == 'eye':   # 합성에서 밝은 테두리에 둘러싸인 작은 어두운 점
         lumc = comp[..., :3].mean(-1); dm = (lumc < 0.25) & (comp[..., 3] > 0.8); el, en = ndimage.label(dm); eyec = None; br = 0

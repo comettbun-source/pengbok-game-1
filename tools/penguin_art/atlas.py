@@ -28,6 +28,8 @@ im_idle = lev(np.array(Image.open('assets/penguin/source_idle.png')))
 IDLE = json.load(open(OUT + 'idle_place.json'))
 im_walk = lev(np.array(Image.open('assets/penguin/source_walk.png')))
 WALK = json.load(open(OUT + 'walk_place.json'))   # walk_place.py: 새 원화 5번째 칸 (똑바로 선 걷기 자세)
+FEET_FROM_COMP = [2, 3]   # 걷기 컷(+ 포즈 9): 발을 합성 그림에서 떼어 씀
+cache_feet = {}
 for e in M + [IDLE, WALK]:   # 포즈 0~7 + 8 = 가만히 서 있음 (source_idle.png, 같은 축척) + 9 = 똑바로 선 걷기 (source_walk.png)
     im = im_idle if e is IDLE else (im_walk if e is WALK else im_main)
     y0, x0, y1, x1 = e['comp']
@@ -37,8 +39,9 @@ for e in M + [IDLE, WALK]:   # 포즈 0~7 + 8 = 가만히 서 있음 (source_idl
     anchor = (y0 + ys.max(), e['body']['at'][1] + (bxs.min() + bxs.max()) / 2)   # 발바닥(합성 맨 아래) · 몸 가운데 x
     if unit is None: unit = ys.max() - ys.min()   # 첫 포즈(서 있음) 키 = 1
     fr = dict(parts=[])
-    def add(kind, r, at, pivot=None):
-        P = get(r, opaque=(kind == 'flipper')); img = Image.fromarray(P).resize((max(1, round(P.shape[1] * S)), max(1, round(P.shape[0] * S))), Image.LANCZOS)
+    def add(kind, r, at, pivot=None, P=None):
+        if P is None: P = get(r, opaque=(kind == 'flipper'))
+        img = Image.fromarray(P).resize((max(1, round(P.shape[1] * S)), max(1, round(P.shape[0] * S))), Image.LANCZOS)
         pieces.append(img); idx = len(pieces) - 1
         d = dict(kind=kind, i=idx, x=(at[1] - anchor[1]) / unit, y=(at[0] - anchor[0]) / unit, w=P.shape[1] / unit, h=P.shape[0] / unit)
         if pivot is not None: d['px'] = pivot[0] / P.shape[1]; d['py'] = pivot[1] / P.shape[0]
@@ -49,7 +52,17 @@ for e in M + [IDLE, WALK]:   # 포즈 0~7 + 8 = 가만히 서 있음 (source_idl
         P0 = im[y0:y1, x0:x1]; face = P0[..., :3][(P0[..., 3] > 250) & (P0[..., :3].mean(-1) > 225)].mean(0).astype(int).tolist()
         fr['parts'][-1]['eye'] = dict(x=(ep['at'][1] + exx.mean() - anchor[1]) / unit, y=(ep['at'][0] + eyy.mean() - anchor[0]) / unit, rx=(exx.max() - exx.min() + 1) / 2 / unit, ry=(eyy.max() - eyy.min() + 1) / 2 / unit, face=face)
         frames.append(fr); continue
-    for p in e['parts']:
+    if (e is WALK or M.index(e) in FEET_FROM_COMP) if e is not IDLE else False:
+        # 걷기 컷: 발을 합성 그림(원화 완성본)에서 바로 떼어 씀 → 조각 발의 각도·길이가 원화와 달라 발이 길어지거나 배에서 떨어져 보이던 문제 없음
+        C0 = im[y0:y1, x0:x1].astype(np.float32); lum = C0[..., :3].mean(-1); hh = C0.shape[0]
+        core = (lum < 90) & (C0[..., 3] > 120); core[:int(hh * 0.75)] = False
+        lab2, n2 = ndimage.label(core); sizes = ndimage.sum(core, lab2, range(1, n2 + 1)); core = np.isin(lab2, 1 + np.nonzero(sizes > 300)[0])
+        reg = ndimage.binary_dilation(core, iterations=6); fy, fx = np.nonzero(reg)
+        FP = im[y0:y1, x0:x1].copy(); FP[~reg] = 0; FP = FP[fy.min():fy.max() + 1, fx.min():fx.max() + 1]
+        cache_feet[id(e)] = (FP, [y0 + fy.min(), x0 + fx.min()])
+        add('foot', None, [y0 + fy.min(), x0 + fx.min()], (FP.shape[1] / 2, 0), P=FP)
+    else:
+      for p in e['parts']:
         if p['kind'] == 'foot':
             P = get(p['src']); a = P[..., 3] > 60; yy, xx = np.nonzero(a); top = yy.min() + 0.15 * (yy.max() - yy.min())
             add('foot', p['src'], p['at'], (xx[yy <= top].mean(), top))
