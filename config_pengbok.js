@@ -406,6 +406,9 @@ const PENGUIN_ART = {
     jump: { crouch: 3, rise: 1, top: 0, fall: 1, land: 2, topAt: 0.35, landTime: 0.12, lowNoTop: true },   // lowNoTop: 일반(낮은) 점프는 GIF 2단계(웅크림→오름)까지만, 날개 활짝은 슈퍼점프에서만   // 점프 (참고 GIF): 웅크림 → 오름 → 꼭대기(날개 펼침) → 떨어짐 → 착지. topAt = 올라가는 속도가 처음의 이 비율 아래면 꼭대기 포즈
     belly: 7,                   // 배로 미끄러짐 · 배치기 · 터보건
     swim: 6, swimSlide: 7,      // 물: 기본 헤엄 · 슬라이딩 헤엄 (발 뒤로 뻗고 파닥)
+    // 컷 애니메이션 (사용자 GIF IMG_6157: 컷마다 0.17초): walk = 걷기 컷 순서 (2 숙임 → 3 덜 숙임 → 9 똑바로, 9 = 새 원화 5번째 칸) · swim = 헤엄 컷 순서 (발 위치가 다른 수평 컷)
+    //   walkFrame/swimFrame 컷 하나 시간(초) · runMul 달릴 때 시간 배율 · swimMinSpeed 이보다 느리면 헤엄 컷을 넘기지 않음. cycle: null 이면 예전처럼 한 컷 + 발만 움직임
+    cycle: { walk: [2, 3, 9], walkFrame: 0.17, runMul: 0.7, swim: [4, 5, 6], swimFrame: 0.17, swimMinSpeed: 0.3 },
     blendRate: 16,              // 큰 자세 변화(서기 ↔ 헤엄)를 사이 포즈로 이어 보이는 빠르기 (포즈/초) — 상륙·입수가 자연스럽게
   },
   // 가만히 있으면 앉음 (정면 그림 source_front.png): 멈춘 뒤 delay 초 → 정면으로 서서 standTime → 앉음. 움직이면 정면으로 일어섰다(standTime) 옆으로 걸음

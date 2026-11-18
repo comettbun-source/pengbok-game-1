@@ -3654,7 +3654,17 @@
     if (p.artPose == null || Math.abs(target - p.artPose) <= 1.01 || p.air || target === PO.idle || Math.round(p.artPose) === PO.idle) p.artPose = target;   // 가만히 포즈는 사이 포즈 없이 바로
     else p.artPose += Math.sign(target - p.artPose) * Math.min(Math.abs(target - p.artPose), PO.blendRate * (t - (p.artT || t)));
     p.artT = t;
-    const poseI = clamp(Math.round(p.artPose), 0, D.frames.length - 1), F = D.frames[poseI];
+    let poseI = clamp(Math.round(p.artPose), 0, D.frames.length - 1);
+    // 컷 애니메이션 (원화 컷을 차례로 넘김, 참고 GIF): 걷기 = 숙임 → 덜 숙임 → 똑바로 · 헤엄 = 발 위치가 다른 수평 컷 3장. 컷마다 그려진 발을 그대로 씀
+    const CY = PO.cycle, cycDt = clamp(t - (p.cycTT ?? t), 0, 0.1); p.cycTT = t; let cycOn = false;
+    if (CY) {
+      let seq = null, fr = 0;
+      if (walking && poseI === PO.stand && CY.walk) { seq = CY.walk; fr = CY.walkFrame * (running ? CY.runMul : 1); }
+      else if (deepW && !p.sliding && poseI === PO.swim && CY.swim && sp > CY.swimMinSpeed) { seq = CY.swim; fr = CY.swimFrame; }
+      if (seq) { p.cycT = (p.cycT || 0) + cycDt; const k = Math.floor(p.cycT / fr) % seq.length; if (seq[k] < D.frames.length) { poseI = seq[k]; cycOn = true; } }
+      else p.cycT = 0;   // 다시 움직이면 첫 컷부터
+    }
+    const F = D.frames[poseI];
     { const bq = F.parts.find((q) => q.kind === 'body' || q.kind === 'whole'); if (bq) p.artHalfW = bq.w / 2 * PA.scale; }   // 수면 가림 폭
     const swimLift = clamp((p.artPose - 3) / 3, 0, 1) * (deepW ? 1 : 0);   // 헤엄 포즈일수록 물 위로 띄움
     // 앉기: 땅에서 멈춰 있으면 정면으로 앉음, 움직이면 일어섬
@@ -3702,7 +3712,8 @@
       let ang = 0, dy = 0, dx = 0;
       if (q.kind === 'foot') {
         const e = footI++ ? Math.PI : 0;
-        if (walking) {   // 한 발씩
+        if (cycOn) { }   // 컷 애니메이션: 컷에 그려진 발 그대로 (따로 움직이지 않음 → 몸에서 떨어지지 않음)
+        else if (walking) {   // 한 발씩
           const fph = ph * (PA.walk.footMul || 1), sw = Math.sin(fph + e);   // footMul: 발은 몸 뒤뚱보다 이 배수로 빠르게 (오도도도)
           const st = PA.walk.footStride * (running ? PA.run.strideMul : 1), cx = -Math.cos(fph + e);
           dy = -Math.max(0, sw) * PA.walk.footLift * amt; dx = (cx > 0 ? cx * PA.walk.backMul : cx) * st * amt; ang = -sw * deg(PA.walk.footSwingDeg) * amt * (running ? 0.6 : 1);   // 뒤로는 덜 (뒤꿈치가 몸에서 떨어져 보이지 않게)

@@ -26,8 +26,10 @@ def lev(a):
 im_main = im
 im_idle = lev(np.array(Image.open('assets/penguin/source_idle.png')))
 IDLE = json.load(open(OUT + 'idle_place.json'))
-for e in M + [IDLE]:   # 포즈 0~7 + 8 = 가만히 서 있음 (source_idle.png, 같은 축척)
-    im = im_idle if e is IDLE else im_main
+im_walk = lev(np.array(Image.open('assets/penguin/source_walk.png')))
+WALK = json.load(open(OUT + 'walk_place.json'))   # walk_place.py: 새 원화 5번째 칸 (똑바로 선 걷기 자세)
+for e in M + [IDLE, WALK]:   # 포즈 0~7 + 8 = 가만히 서 있음 (source_idle.png, 같은 축척) + 9 = 똑바로 선 걷기 (source_walk.png)
+    im = im_idle if e is IDLE else (im_walk if e is WALK else im_main)
     y0, x0, y1, x1 = e['comp']
     ca = im[y0:y1, x0:x1, 3] > 30
     ys, xs = np.nonzero(ca)
