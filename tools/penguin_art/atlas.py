@@ -28,7 +28,8 @@ im_idle = lev(np.array(Image.open('assets/penguin/source_idle.png')))
 IDLE = json.load(open(OUT + 'idle_place.json'))
 im_walk = lev(np.array(Image.open('assets/penguin/source_walk.png')))
 WALK = json.load(open(OUT + 'walk_place.json'))   # walk_place.py: 새 원화 5번째 칸 (똑바로 선 걷기 자세)
-FEET_FROM_COMP = [2, 3]   # 걷기 컷(+ 포즈 9): 발을 합성 그림에서 떼어 씀
+FEET_FROM_COMP = [2, 3]   # 걷기 컷(+ 포즈 9): 발 조각을 합성 그림에 맞춘 각도·위치로 (feet_fit.py)
+FIT = json.load(open(OUT + 'feet_fit.json'))
 for e in M + [IDLE, WALK]:   # 포즈 0~7 + 8 = 가만히 서 있음 (source_idle.png, 같은 축척) + 9 = 똑바로 선 걷기 (source_walk.png)
     im = im_idle if e is IDLE else (im_walk if e is WALK else im_main)
     y0, x0, y1, x1 = e['comp']
@@ -52,24 +53,13 @@ for e in M + [IDLE, WALK]:   # 포즈 0~7 + 8 = 가만히 서 있음 (source_idl
         fr['parts'][-1]['eye'] = dict(x=(ep['at'][1] + exx.mean() - anchor[1]) / unit, y=(ep['at'][0] + eyy.mean() - anchor[0]) / unit, rx=(exx.max() - exx.min() + 1) / 2 / unit, ry=(eyy.max() - eyy.min() + 1) / 2 / unit, face=face)
         frames.append(fr); continue
     if (e is WALK or M.index(e) in FEET_FROM_COMP) if e is not IDLE else False:
-        # 걷기 컷: 발을 합성 그림(원화 완성본)에서 바로 떼어 씀 → 조각 발의 각도·길이가 원화와 달라 발이 길어지거나 배에서 떨어져 보이던 문제 없음
-        C0 = im[y0:y1, x0:x1].astype(np.float32); lum = C0[..., :3].mean(-1); hh = C0.shape[0]
-        core = (lum < 90) & (C0[..., 3] > 120); core[:int(hh * 0.75)] = False
-        lab2, n2 = ndimage.label(core); sizes = ndimage.sum(core, lab2, range(1, n2 + 1)); core = np.isin(lab2, 1 + np.nonzero(sizes > 300)[0])
-        # 발 하나씩 따로 (걸을 때 번갈아 움직이게): 덩어리별로, 붙어 있으면 x 가운데에서 둘로
-        lab3, n3 = ndimage.label(core); blobs = [lab3 == i + 1 for i in range(n3)]
-        if len(blobs) == 1:
-            ys_, xs_ = np.nonzero(blobs[0]); mx = np.median(xs_); L0 = blobs[0].copy(); L0[:, int(mx):] = False; R0 = blobs[0].copy(); R0[:, :int(mx)] = False; blobs = [L0, R0]
-        blobs.sort(key=lambda b_: np.nonzero(b_)[1].mean())
-        taken = np.zeros_like(core)
-        for k_, b_ in enumerate(blobs):
-            reg = ndimage.binary_dilation(b_, iterations=6) & ~taken
-            if k_ < len(blobs) - 1: taken |= reg
-            fy, fx = np.nonzero(reg)
-            FP = im[y0:y1, x0:x1].copy(); FP[~reg] = 0; FP = FP[fy.min():fy.max() + 1, fx.min():fx.max() + 1]
-            fl_ = FP[..., :3].astype(np.float32).mean(-1); FP[..., 3] = (FP[..., 3] * np.clip((170 - fl_) / 70, 0, 1)).astype(np.uint8)   # 흰 몸 가장자리는 빼고 검은 발만 (발이 움직일 때 흰 줄이 보이지 않게)
-            ay, ax = np.nonzero(FP[..., 3] > 60); topy = ay.min()
-            add('foot', None, [y0 + fy.min(), x0 + fx.min()], (ax[ay <= topy + 0.3 * (ay.max() - topy)].mean(), topy), P=FP)   # 회전축: 발 윗부분 (몸에 붙은 쪽)
+        # 걷기 컷: 잘리지 않은 발 조각을 feet_fit.py 가 찾은 각도·위치로 (합성 그림과 똑같이 보이고, 배에 가려진 부분도 온전 → 걸을 때 잘린 끝이 안 나옴)
+        for f in FIT[ '9' if e is WALK else str(M.index(e)) ]:
+            P = get(f['src'])
+            if f['angle']:
+                R = Image.fromarray(P).rotate(f['angle'], resample=Image.BICUBIC, expand=True); P = np.array(R)
+            ay, ax = np.nonzero(P[..., 3] > 60); topy = ay.min()
+            add('foot', None, f['at'], (ax[ay <= topy + 0.3 * (ay.max() - topy)].mean(), topy), P=P)   # 회전축: 발 윗부분 (몸에 붙은 쪽)
     else:
       for p in e['parts']:
         if p['kind'] == 'foot':
