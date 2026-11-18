@@ -3089,6 +3089,9 @@
     ctx.fillStyle = `rgb(${D.sandColor.join(',')})`;
     const n = D.strips, maxD = D.slope, target = (d) => D.sandAlpha * (1 - smooth(0, D.shallowEnd, Math.pow(smooth(0, D.slope, d), D.power))) * (1 - fog);
     nestedBands(n, (i) => (i + 1) / n * maxD, (i) => target((i + 0.5) / n * maxD), (d1) => shoreBand(-0.3, d1, 0, segs));
+    const ES = D.edgeSoft; if (ES) {   // 해안선 경계를 부드럽게: 젖은 모래색이 물 쪽으로 번지며 사라짐 (딱딱한 끝선 없이)
+      ctx.fillStyle = `rgb(${ES.color.join(',')})`; const NE = ES.strips;
+      nestedBands(NE, (i) => -0.05 + (i + 1) / NE * ES.width, (i) => ES.alpha * Math.pow(1 - (i + 0.5) / NE, ES.power) * (1 - fog), (d1) => shoreBand(-0.05, d1, 0.002, segs)); }
     ctx.globalAlpha = 1;
   }
   // 파도 열차 그리기: 파면마다 밝은 띠 + 바로 뒤 어두운 골 (선 없이 명암 면). 저해상도 두 장에 그려 부드럽게 키움
@@ -3160,7 +3163,7 @@
     const D = C.DEPTH, segsV = visibleShore();
     // 젖은 모래: 물가 쪽이 가장 어둡고 안쪽으로 갈수록 마른 모래로 (띠 그라데이션)
     ctx.fillStyle = `rgb(${D.wetColor.join(',')})`;
-    if (segsV.length > 1) nestedBands(8, (i) => -(i + 1) / 8 * D.wetSandWidth, (i) => (1 - (i + 0.5) / 8) * 0.85 * (1 - fog), (d1) => shoreBand(0.05, d1, z - 0.002, segsV));
+    if (segsV.length > 1) { const NW = D.wetStrips || 8; nestedBands(NW, (i) => -(i + 1) / NW * D.wetSandWidth, (i) => Math.pow(1 - (i + 0.5) / NW, 1.6) * 0.85 * (1 - fog), (d1) => shoreBand(0.05, d1, z - 0.002, segsV)); }   // 부드럽게 마른 모래로
     // 파도 젖음 맵 + 물막: 낮은 해상도 오프스크린 두 장에 칸별 면으로 그려 부드럽게 키움 (선 없음)
     const B = Wsh.bins, maxIn = Wsh.shoreWidth * Wsh.reach * Wsh.binReach;
     const SW = Wsh.swash, res = SW ? offRes(Wsh.resolution) : C.SHADOW_BLUR.wetResolution, w = Math.max(8, Math.ceil(W * res)), h = Math.max(8, Math.ceil(H * res));

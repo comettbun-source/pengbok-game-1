@@ -617,7 +617,7 @@ const ISLAND_TERRAIN = {
     washRing: 0,              // (0.4 → 0) 파도가 닿을 때 바위 둘레 둥근 고리: 원 모양으로 보여서 끔
     // 바위 원화 (assets/rock_sheet.png → rock_art.js): 바위마다 그림 번호. 높이(h)는 그림 비율대로 다시 맞춤 (반딧불이·발판 높이도 그림 윗선에 맞음)
     art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.06, heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45, shadow: { alpha: 0.7, scale: [1.15, 0.5], offset: 0.06 }, sandBank: null },   // shadow: 바위 밑 접촉 그림자 (좁고 진하게) · sandBank: 모래색 덮개 끔 (질감 위에서 회색 얼룩처럼 보여서)   // sandBank: 바위 밑동에 모래가 쌓여 묻힌 느낌 (진하기 · 높이 · 폭 배율)
-    sandLumps: { count: 160, d: [0.4, 5.6], y: [-30, 30], size: [0.25, 0.9], light: 0.1, dark: 0.16 },   // 모래 굴곡: 작은 둔덕 (빛 쪽 밝게 · 반대쪽 그늘). 참고 사진의 울퉁불퉁한 모래   // shadow: 바위 밑 번지는 그림자 진하기 · 크기(폭·깊이 배율) · 빛 반대쪽으로 밀림   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
+    sandLumps: { count: 0, /* (160 → 0) 질감 그림과 따로 움직여 보여서 끔 */ d: [0.4, 5.6], y: [-30, 30], size: [0.25, 0.9], light: 0.1, dark: 0.16 },   // 모래 굴곡: 작은 둔덕 (빛 쪽 밝게 · 반대쪽 그늘). 참고 사진의 울퉁불퉁한 모래   // shadow: 바위 밑 번지는 그림자 진하기 · 크기(폭·깊이 배율) · 빛 반대쪽으로 밀림   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
   },
   sea: { slope: 7, fireflyMinDepth: 0.15 },   // 바다 쪽: 수심 경사 거리(DEPTH.slope) · 반딧불이가 머무는 최소 수심
   wash: { width: 5, reach: 0.45 },            // 파도 도달 (SHORE_WASH.shoreWidth · reach)
@@ -662,7 +662,7 @@ const SHORE_WASH = {
   sheet: {
     resolution: 0.55,         // 물막·거품을 그리는 오프스크린 해상도 (화면 대비 × 기기 픽셀비 × 품질 단계. 0.32 에선 앞선이 계단처럼 깨졌음)
     alpha: [0.02, 0.16],      // 물막 진하기: 물가 쪽 → 앞선 쪽 (그 사이를 strips 겹으로 이음)
-    strips: 6,
+    strips: 16,   /* (6 → 16) 물막 띠도 부드럽게 */
     lip: 0.07, lipAlpha: 0.32,      // 앞선 물테두리: 폭(월드)·진하기. 노이즈로 군데군데 끊김
     lace: { width: [0.04, 0.14], alpha: 0.5, length: [0.35, 0.9], gap: 0.45, sub: 3 },   // 거품 레이스: 조각 폭·진하기·조각 길이·끊긴 비율·구간 쪼개기
     residue: 0.08,            // 물이 빠진 뒤 남는 얇은 막 (원래 filmAlpha 0.2)
@@ -713,11 +713,12 @@ const DEPTH = {
   sinkPerDepth: 0.85,         // 걷는 동안 잠기는 정도 = 수심 × 이 값 (몸 높이 비율)
   // 4단 그라데이션: 마른 모래 → 젖은 모래 → 얕은 물(모래색이 비침) → 깊은 물
   dryColor: PALETTE.sand, wetColor: PALETTE.wetSand, sandColor: PALETTE.shallowSand,
-  wetSandWidth: 1.8,          // 물가 안쪽 젖은 모래 폭
+  wetSandWidth: 2.4, wetStrips: 28,   // 물가 안쪽 젖은 모래 폭 (1.8 → 2.4) · 띠 수 (8 → 28, 계단 없이 부드럽게)
   sandAlpha: 0.65,            // 얕은 물에 비치는 모래색 (물가) → 0 (shallowEnd 수심에서)
   shallowEnd: 0.6,
-  strips: 14,                 // 그라데이션을 이루는 띠 수 (선 없이 색·투명도만)
+  strips: 40,                 // (14 → 40) 그라데이션 띠 수: 많을수록 계단 없이 부드러움
   viewRange: 40,              // 카메라에서 이 거리 안쪽 해안만 그림
+  edgeSoft: { color: [70, 66, 68], width: 3.2, alpha: 0.9, power: 2.2, strips: 32 },   // 해안선 경계: 젖은 모래색이 물 쪽으로 이 폭만큼 번져 부드럽게 (딱딱한 선 없애기)
 };
 
 // ── 모래 발자국 (발바닥 버튼과 같은 모양) ─────────────────────────────
