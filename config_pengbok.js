@@ -423,13 +423,14 @@ const PENGUIN_ART = {
     shade: { color: [26, 34, 52], ice: 0.46, land: 0.5, water: 0.26, edge: [0.4, 0.66] },   // 그늘 진하기 · edge = 그늘이 시작·짙어지는 위치 (직전 버전 명암)
     faceStart: 0.6, faceRadius: 0.26,   // 시작 장면(물에 들어가기 전) 흰 얼굴 밝게 (검은 머리는 그대로)
     firefly: { range: 3.2, radius: 0.85, alpha: 0.4, sea: '63,180,255', land: '255,200,90', landMul: 0.45 } },   // landMul: 노란 반딧불이는 은은하게   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
+  proneDepth: 0.05,             // 바다에서 올라올 때 이 수심(해안선에서 약 1.5)까지는 엎드린 채로 옴 (얕은 물에서 일찍 일어서지 않게). null = 예전처럼 헤엄 수심을 벗어나면 바로 일어섬
   walk: { waddleDeg: 3, waddleDegSand: 2.2, cyclesPerUnit: 2.2, minHz: 2, footLift: 0.012, footStride: 0.014, backMul: 0.3, footSwingDeg: 6, footMul: 1, swap: 1, shuffle: 0.01, cross: 1, /* cross: 1 = 오른발·왼발이 서로 앞질러 그려진 앞발/뒷발 자리를 번갈아 차지 (0 = 각자 자리에서만 흔들림) */ /* shuffle: 두 발이 각자 그려진 자리를 가운데로 앞뒤 같은 폭(±)으로 번갈아 (이전: 앞발만 크게 나가 저는 걸음처럼 보임) · swap: 이 걸음 켜기(0 = 예전 제자리 톡톡) */ /* (swap 0.3 → 0.1, slide 0.1 → 0.05, 들림 0.02 → 0.012, 각도 12 → 6) 앞발이 무섭게 튀어나가고 뒷발이 배 밑에 너무 숨어서 */ footMaxHz: 2.6, /* slide: 한 발씩 번갈아 배 앞으로 미끄러져 나가는 폭 · footMaxHz: 발걸음 최대 박자(달려도 이보다 빠르지 않게, 참고 GIF 정도) */ /* 펭귄 걸음 (참고 GIF IMG_6158): swap = 두 발이 원화의 두 발 자리 사이를 엇갈려 오가는 정도 (1 = 완전히 자리 바꿈, 0 = 예전 제자리 톡톡). 앞으로 나가는 발만 살짝 들림(footLift)·발끝 듦(footSwingDeg). footMul 1 = 몸 뒤뚱 한 번에 한 걸음씩 */ bob: 0.01, flipperSwayDeg: 5 },   // 뒤뚱 각도(빙하·모래) · 이동 1당 걸음 박자(빠를수록 빨리 뒤뚱) · 발 들림·보폭·각도(작게: 몸에서 안 떨어지게) · 들썩 · 날개 흔들
   run: { at: 0.85, flipperUpDeg: 34, flapHz: 4.5, feetSync: true, strideMul: 0.8 },   // 달릴 때 보폭은 짧게 (빠른 박자라 뒤꿈치가 멀리 안 가게)   // feetSync: 달릴 때 발도 날개 박자에 맞춰 빠르게   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
   idle: { breathDeg: 1.5, breathHz: 0.35 },
   air: { flutterDeg: 7 },       // 점프 중 날개 떨림 (포즈 자체가 날개를 펼침)
   swim: { paddleDeg: 22, paddleHz: 3, flipperDeg: 5, flipperHz: 1.2 },
   flap: { time: 0.7, deg: 32, hz: 6 },   // 물에서 점프 = 날개 파닥 (최대 각도 작게: 반투명 부분이 안 보이게)
-  toboggan: { kickDeg: 22, footDownDeg: 18, footDrop: 1.0, kickBack: 0.08, flipperDeg: 10, slapTime: 0.3, slapHop: 0,  /* 물가 배치기 통통 끔 */ paddleHz: 2.6, paddlePerSpeed: 1.3, paddleDeg: 16 },   // paddle: 차는 사이 발 파닥 (빠르기 = paddleHz + 속도 × paddlePerSpeed)   // flipperDeg: 발 박자에 맞춰 날개 살짝   // footDrop: 발 아래끝을 바닥(0)까지 내림 비율 · kickBack: 찰 때 뒤로 뻗는 거리   // 육지 배 슬라이딩: 발끝을 아래로(땅에 닿게) · 찰 때 뒤로
+  toboggan: { kickDeg: 12, footDownDeg: 4, footDrop: 0, kickBack: 0.015, /* (차기 22° · 발 내림 18° · 바닥까지 내림 1 · 뒤로 0.08 → 12 · 4 · 0 · 0.015) 엎드려 미끄러질 때 발이 몸에서 떨어져 보여서: 꼬리에 붙은 채로 작게 파닥 */ flipperDeg: 10, slapTime: 0.3, slapHop: 0,  /* 물가 배치기 통통 끔 */ paddleHz: 2.6, paddlePerSpeed: 1.3, paddleDeg: 10 },   // paddle: 차는 사이 발 파닥 (빠르기 = paddleHz + 속도 × paddlePerSpeed)   // flipperDeg: 발 박자에 맞춰 날개 살짝   // footDrop: 발 아래끝을 바닥(0)까지 내림 비율 · kickBack: 찰 때 뒤로 뻗는 거리   // 육지 배 슬라이딩: 발끝을 아래로(땅에 닿게) · 찰 때 뒤로
   climb: { time: 0.42, hop: 0.32, riseIn: 0.22, bellyUntil: 0.75 },   // 물 → 빙하 배치기로 퐁: 걸리는 시간 · 솟는 높이 · 빙하 윗면 높이까지 오르는 데 쓰는 비율(짧을수록 옆면을 빨리 지나감) · 배 자세 유지 비율   // 물 → 빙하 기어오름 (그림만): 걸리는 시간 · 살짝 들썩 · 이 비율까지 배를 대고
   blink: { every: [2.5, 5], time: 0.13 },
 };

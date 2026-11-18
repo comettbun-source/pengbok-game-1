@@ -3631,7 +3631,9 @@
     const maxSp = P.penguin.maxSpeed[surfKey(p.mode)] || 2;
     const deepW = inW && p.depth === 'deep';                    // 얕은 물은 걷는 자세 (상륙할 때 반으로 잘려 보이지 않게)
     const onGround = !p.air && !deepW;
-    const walking = onGround && !p.sliding && !p.belly && sp > 0.12, amt = walking ? clamp(sp / 1.2, 0.3, 1) : 0;
+    // 얕은 물에서도 해안 가까이(proneDepth)까지는 엎드린 채로 (물에서 올라올 때): 엎드렸던 상태에서만 이어감, 수심이 그보다 얕아지면 일어섬
+    const proneW = inW && !deepW && !p.air && PA.proneDepth != null && (p.waterDepth || 0) > PA.proneDepth && (p.artPose ?? 0) > 3.5;
+    const walking = onGround && !proneW && !p.sliding && !p.belly && sp > 0.12, amt = walking ? clamp(sp / 1.2, 0.3, 1) : 0;
     const running = walking && sp > PA.run.at * maxSp;
     // 그림용 걸음 위상: 발·뒤뚱·들썩·날개가 모두 같은 박자 (달리면 날개 파닥 박자)
     { const dtA = clamp(t - (p.artPhT ?? t), 0, 0.1); p.artPhT = t;
@@ -3649,6 +3651,7 @@
     else if (p.air && p.porpoise) target = PO.swimSlide;   // 푸슝: 몸을 쭉 편 슬라이딩 자세로 날아감
     else if (p.air) target = p.vz > JP.topAt * (p.jumpV0 || 1) ? JP.rise : p.vz > -JP.topAt * (p.jumpV0 || 1) ? (p.superUsed || !JP.lowNoTop ? JP.top : JP.rise) : JP.fall;   // 낮은 점프는 날개 펼친 꼭대기 포즈 없이
     else if (deepW) target = p.sliding ? PO.swimSlide : PO.swim;
+    else if (proneW) target = PO.belly;   // 얕은 물: 배를 바닥에 대고 엎드린 채 미끄러져 옴
     else if (p.landAt != null && t - p.landAt < JP.landTime) target = JP.crouch;
     else if (idleNow && PO.idle != null) target = PO.idle;
     // 큰 변화(서기 ↔ 헤엄·배)는 사이 포즈를 빠르게 지나가게
@@ -3730,7 +3733,7 @@
           const st = PA.walk.footStride * (running ? PA.run.strideMul : 1), cx = -Math.cos(fph + e);
           dy = -Math.max(0, sw) * PA.walk.footLift * amt; dx = (cx > 0 ? cx * PA.walk.backMul : cx) * st * amt; ang = -sw * deg(PA.walk.footSwingDeg) * amt * (running ? 0.6 : 1);   // 뒤로는 덜 (뒤꿈치가 몸에서 떨어져 보이지 않게)
         }
-        else if (deepW && (p.sliding || sp > 0.3)) ang = Math.sin(t * PA.swim.paddleHz * (p.sliding ? 1.6 : 1) * Math.PI * 2 + e) * deg(PA.swim.paddleDeg);   // 물: 발바닥 파닥파닥
+        else if ((deepW || proneW) && (p.sliding || sp > 0.3)) ang = Math.sin(t * PA.swim.paddleHz * (p.sliding ? 1.6 : 1) * Math.PI * 2 + e) * deg(PA.swim.paddleDeg);   // 물: 발바닥 파닥파닥
         else if ((p.sliding && !deepW) || p.belly) {   // 발끝을 땅에 대고(아래로 내려 바닥에 닿게), 찰 때 뒤로 쭉
           const TB = PA.toboggan, kk = p.tobKick || 0, bot = q.y + q.h;
           dy = Math.max(0, -bot) * TB.footDrop - kk * 0.02; dx = kk * TB.kickBack * (e ? 0.8 : 1); ang = deg(TB.footDownDeg) - kk * deg(TB.kickDeg) * (e ? 0.8 : 1)
