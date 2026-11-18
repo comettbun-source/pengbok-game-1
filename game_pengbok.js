@@ -2751,17 +2751,20 @@
     sandBankCv.width = 128; sandBankCv.height = 64; const g = sandBankCv.getContext('2d'); g.clearRect(0, 0, 128, 64);
     g.save(); g.scale(1, 0.5); const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64); gr.addColorStop(0, `rgba(${key},1)`); gr.addColorStop(0.55, `rgba(${key},0.8)`); gr.addColorStop(1, `rgba(${key},0)`); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); g.restore();
   }
-  // 바위 밑동을 묻는 모래 경계선: 물결치는 선 (바위마다 정해진 모양). 좌표는 바위 그림 안 (px). 선 아래는 모래
+  // 바위 밑동을 묻는 모래 둔덕: 둥근 혹 여러 개 (바위마다 정해진 모양). 좌표는 바위 그림 안 (px)
   function rockBumps(r, w, h, CV) {
-    const rr = rng(1000 + r.seed), p1 = rr() * 6.283, p2 = rr() * 6.283, f = CV.waves * lerp(0.85, 1.15, rr()), N = 48, base = h * (1 - CV.base), amp = h * CV.height, pts = [];
-    for (let k = 0; k <= N; k++) { const t = k / N, x = lerp(-0.04, 1.04, t) * w;
-      const wv = 0.78 * Math.sin(6.283 * f * t + p1) + 0.22 * Math.sin(6.283 * f * 2.3 * t + p2);   // -1~1
-      const end = 1 + (CV.edgeRise || 0) * Math.pow(Math.abs(2 * t - 1), 3);   // 양끝은 모래가 바위 옆을 타고 조금 올라옴
-      pts.push([x, base - amp * (0.5 + 0.5 * wv) * end]); }
-    return { pts, amp, w, h };
+    const rr = rng(1000 + r.seed), rs = rng(2000 + r.seed), n = CV.bumps, out = [], base = h * (1 - CV.base);
+    for (let i = 0; i < n; i++) { const t = (i + 0.5) / n, x = w * lerp(-0.08, 1.08, t) + (rr() - 0.5) * w / n * 0.6;
+      const edge = 1 - Math.pow(Math.abs(t - 0.5) * 2, 2) * CV.edgeDrop;   // 가장자리 쪽은 낮게
+      out.push({ x, y: base, rx: w / n * CV.spread * lerp(0.8, 1.2, rr()), ry: h * CV.height * edge * lerp(1 - (CV.vary ?? 0.25), 1 + (CV.vary ?? 0.25), rr()), sa: lerp(1 - (CV.shadeVary || 0), 1, rs()) }); }   // sa: 둔덕마다 그늘 진하기가 조금씩 다름
+    return out;
   }
-  function rockLinePath(G, B, lift) {   // 경계선(lift 만큼 위로) 아래를 모두 채우는 모양
-    G.beginPath(); G.moveTo(B.pts[0][0], B.h + 2); for (const [x, y] of B.pts) G.lineTo(x, y - lift); G.lineTo(B.pts[B.pts.length - 1][0], B.h + 2); G.closePath();
+  const softCoreCache = new Map();
+  function softCoreSpr(core) {   // 가운데는 꽉 차고 가장자리만 부드럽게 사라지는 원 (core = 꽉 찬 반지름 비율)
+    let c = softCoreCache.get(core); if (c) return c;
+    c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d'), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    for (let i = 0; i <= 8; i++) { const t = i / 8, u = clamp((t - core) / (1 - core), 0, 1); gr.addColorStop(t, `rgba(0,0,0,${(1 - u * u * (3 - 2 * u)).toFixed(3)})`); }
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128); softCoreCache.set(core, c); return c;
   }
   // 바위 그림의 화면 자리 (drawRock 과 같은 계산)
   function rockGeom(r, depth) {
@@ -2789,7 +2792,8 @@
   function drawRockCover(r, bumps, ox, oy, w, h, CV) {
     const S0 = r.gSnap, cw = Math.ceil(w), ch = Math.ceil(h);
     fitCv(coverMaskCv, rockCv.width, rockCv.height); const M = coverMaskG; M.setTransform(1, 0, 0, 1, 0, 0); M.globalCompositeOperation = 'source-over'; M.clearRect(0, 0, coverMaskCv.width, coverMaskCv.height);
-    M.fillStyle = '#000'; rockLinePath(M, bumps, 0); M.fill();   // 물결 경계선 아래는 모두 땅 속
+    const sc = softCoreSpr(CV.soft); for (const q of bumps) M.drawImage(sc, q.x - q.rx, q.y - q.ry, q.rx * 2, q.ry * 2);
+    M.fillStyle = '#000'; M.fillRect(0, h * (1 - CV.base), cw + 2, ch);   // 둔덕 중심선 아래는 모두 땅 속
     fitCv(coverCv, rockCv.width, rockCv.height); const G = coverG; G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.clearRect(0, 0, coverCv.width, coverCv.height);
     G.drawImage(rockCv, 0, 0); G.globalCompositeOperation = 'destination-in'; G.drawImage(coverMaskCv, 0, 0);   // 바위 그림 안쪽 ∩ 둔덕
     G.globalCompositeOperation = 'source-in'; G.imageSmoothingEnabled = true; G.drawImage(r.gCv, 0, 0, S0.bw, S0.bh, S0.x0 - ox, S0.y0 - oy, S0.x1 - S0.x0, S0.y1 - S0.y0);   // 그 자리의 땅
@@ -2807,15 +2811,19 @@
     if (r.sp && rockImgReady()) {   // 원화 바위: 몸통 폭을 바위 지름에 맞추고 바닥에 살짝 묻음, 먼 곳은 안개색
       const sp = r.sp, [rx, ry, rw, rh] = sp.r, ppu = pxPerUnit(depth), b = project(r.x, r.y, base), bodyW = sp.body[1] - sp.body[0];
       { const SH = RK.art.shadow; if (SH) { const L = FIXED_LIGHT, e = groundEllipse(r.x - L[0] * SH.offset, r.y - L[1] * SH.offset, r.R * SH.scale[0], base + 0.005);   // 바위 밑 그림자 (빛 반대쪽으로 살짝)
-        if (e) { const ry2 = Math.max(e.ry, e.rx * SH.scale[1] * 0.5); ctx.globalAlpha = SH.alpha * (1 - fog); ctx.drawImage(getSoftDisc(), e.x - e.rx, e.y - ry2, e.rx * 2, ry2 * 2); ctx.globalAlpha = 1; } } }
+        if (e) { const ry2 = Math.max(e.ry, e.rx * SH.scale[1] * 0.5); ctx.globalAlpha = SH.alpha * (1 - fog); ctx.drawImage(getSoftDisc(), e.x - e.rx, e.y - ry2, e.rx * 2, ry2 * 2);
+          if (SH.patches) { const rp = rng(3000 + r.seed), sd = getSoftDisc();   // 그림자 얼룩: 바닥을 따라 군데군데 진하고 옅게 (한 줄로 같은 검정이 아니게)
+            for (let k = 0; k < SH.patches; k++) { const u = lerp(-0.85, 0.85, (k + rp()) / SH.patches), pr = e.rx * lerp(0.25, 0.45, rp()), py = ry2 * lerp(0.6, 1, rp());
+              ctx.globalAlpha = SH.patchAlpha * lerp(0.2, 1, rp()) * (1 - fog); ctx.drawImage(sd, e.x + u * e.rx - pr, e.y - py, pr * 2, py * 2); } }
+          ctx.globalAlpha = 1; } } }
       const k = r.R * 2 * ppu / bodyW, w = sp.w * k, h = sp.h * k, ox = b[0] - (sp.body[0] + bodyW / 2) * k, oy = b[1] - h + RK.art.sink * ppu;
       if (rockCv.width < Math.ceil(w) + 2 || rockCv.height < Math.ceil(h) + 2) { rockCv.width = Math.max(rockCv.width, Math.ceil(w) + 2); rockCv.height = Math.max(rockCv.height, Math.ceil(h) + 2); }
       const G = rockG; G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.clearRect(0, 0, rockCv.width, rockCv.height); G.imageSmoothingEnabled = true; G.drawImage(rockImg, rx, ry, rw, rh, 0, 0, w, h);
       G.globalCompositeOperation = 'source-atop'; G.fillStyle = `rgba(${RK.art.night.join(',')},${RK.art.nightAlpha})`; G.fillRect(0, 0, w, h);   // 밤빛: 어둡고 푸르게
       const fg = fog * RK.art.fogMul; if (fg > 0.01) { G.globalCompositeOperation = 'source-atop'; G.fillStyle = mixFog([255, 255, 255], 1).replace('rgb(', 'rgba(').replace(')', `,${fg})`); G.fillRect(0, 0, w, h); }
       const CVR = RK.art.cover, bumps = CVR ? rockBumps(r, w, h, CVR) : null;
-      if (bumps) { G.globalCompositeOperation = 'source-atop'; G.fillStyle = '#000'; const NL = CVR.shadeLayers || 4;   // 모래와 맞닿는 깊은 곳: 경계선을 따라 바위 아래쪽에 그늘 (위로 갈수록 옅게)
-        for (let k = 1; k <= NL; k++) { G.globalAlpha = CVR.shade / NL; rockLinePath(G, bumps, bumps.amp * CVR.shadeRise * k / NL); G.fill(); } G.globalAlpha = 1;
+      if (bumps) { G.globalCompositeOperation = 'source-atop'; G.globalAlpha = CVR.shade; const ss = softCoreSpr(CVR.shadeSoft);   // 모래와 맞닿는 깊은 곳: 바위 아래쪽에 그늘
+        for (const q of bumps) G.globalAlpha = CVR.shade * q.sa, G.drawImage(ss, q.x - q.rx * 1.15, q.y - q.ry * CVR.shadeRise, q.rx * 2.3, q.ry * CVR.shadeRise * 2); G.globalAlpha = 1;
         G.globalCompositeOperation = 'source-over'; }
       if (RK.art.bury) { G.globalCompositeOperation = 'destination-out'; const by0 = h * (1 - RK.art.bury), gb = G.createLinearGradient(0, by0, 0, h); gb.addColorStop(0, 'rgba(0,0,0,0)'); gb.addColorStop(1, 'rgba(0,0,0,1)'); G.fillStyle = gb; G.fillRect(0, by0, w, h - by0); }   // 아래쪽이 모래 속으로 사라짐
       if (bumps && r.gSnap) drawRockCover(r, bumps, ox, oy, w, h, CVR);   // 밑동을 실제 땅(모래 질감·밀려온 물)으로 덮어 모래에 묻힘
