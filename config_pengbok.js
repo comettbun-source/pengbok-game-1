@@ -602,6 +602,8 @@ const ISLAND_TERRAIN = {
     pebbles: { count: [2, 3], size: [0.14, 0.3], height: [0.08, 0.22], spread: [1.0, 1.6] },   // 둘레 작은 돌 (그림만)
     color: [16, 16, 18], light: [52, 54, 58],
     washRing: 0.4,            // 파도가 닿으면 바위 둘레로 갈라지는 흰 물결 진하기
+    // 바위 원화 (assets/rock_sheet.png → rock_art.js): 바위마다 그림 번호. 높이(h)는 그림 비율대로 다시 맞춤 (반딧불이·발판 높이도 그림 윗선에 맞음)
+    art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.06, heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45 },   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
   },
   sea: { slope: 7, fireflyMinDepth: 0.15 },   // 바다 쪽: 수심 경사 거리(DEPTH.slope) · 반딧불이가 머무는 최소 수심
   wash: { width: 5, reach: 0.45 },            // 파도 도달 (SHORE_WASH.shoreWidth · reach)
