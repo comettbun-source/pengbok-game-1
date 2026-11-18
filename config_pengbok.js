@@ -408,7 +408,7 @@ const PENGUIN_ART = {
     swim: 6, swimSlide: 7,      // 물: 기본 헤엄 · 슬라이딩 헤엄 (발 뒤로 뻗고 파닥)
     // 컷 애니메이션 (사용자 GIF IMG_6157: 컷마다 0.17초): walk = 걷기 컷 순서 (2 숙임 → 3 덜 숙임 → 9 똑바로, 9 = 새 원화 5번째 칸) · swim = 헤엄 컷 순서 (발 위치가 다른 수평 컷)
     //   walkFrame/swimFrame 컷 하나 시간(초) · runMul 달릴 때 시간 배율 · swimMinSpeed 이보다 느리면 헤엄 컷을 넘기지 않음. cycle: null 이면 예전처럼 한 컷 + 발만 움직임
-    cycle: { walk: [2, 3, 9], walkFrame: 0.17, runMul: 0.7, swim: [4, 5, 6], swimFrame: 0.17, swimMinSpeed: 0.3 },
+    cycle: null,   /* 컷 애니메이션 끔 (사용자 요청: 움직임은 원래대로). 켜려면 { walk: [2, 3, 9], walkFrame: 0.17, runMul: 0.7, swim: [4, 5, 6], swimFrame: 0.17, swimMinSpeed: 0.3 } */
     blendRate: 16,              // 큰 자세 변화(서기 ↔ 헤엄)를 사이 포즈로 이어 보이는 빠르기 (포즈/초) — 상륙·입수가 자연스럽게
   },
   // 가만히 있으면 앉음 (정면 그림 source_front.png): 멈춘 뒤 delay 초 → 정면으로 서서 standTime → 앉음. 움직이면 정면으로 일어섰다(standTime) 옆으로 걸음

@@ -29,7 +29,6 @@ IDLE = json.load(open(OUT + 'idle_place.json'))
 im_walk = lev(np.array(Image.open('assets/penguin/source_walk.png')))
 WALK = json.load(open(OUT + 'walk_place.json'))   # walk_place.py: 새 원화 5번째 칸 (똑바로 선 걷기 자세)
 FEET_FROM_COMP = [2, 3]   # 걷기 컷(+ 포즈 9): 발을 합성 그림에서 떼어 씀
-cache_feet = {}
 for e in M + [IDLE, WALK]:   # 포즈 0~7 + 8 = 가만히 서 있음 (source_idle.png, 같은 축척) + 9 = 똑바로 선 걷기 (source_walk.png)
     im = im_idle if e is IDLE else (im_walk if e is WALK else im_main)
     y0, x0, y1, x1 = e['comp']
@@ -57,10 +56,20 @@ for e in M + [IDLE, WALK]:   # 포즈 0~7 + 8 = 가만히 서 있음 (source_idl
         C0 = im[y0:y1, x0:x1].astype(np.float32); lum = C0[..., :3].mean(-1); hh = C0.shape[0]
         core = (lum < 90) & (C0[..., 3] > 120); core[:int(hh * 0.75)] = False
         lab2, n2 = ndimage.label(core); sizes = ndimage.sum(core, lab2, range(1, n2 + 1)); core = np.isin(lab2, 1 + np.nonzero(sizes > 300)[0])
-        reg = ndimage.binary_dilation(core, iterations=6); fy, fx = np.nonzero(reg)
-        FP = im[y0:y1, x0:x1].copy(); FP[~reg] = 0; FP = FP[fy.min():fy.max() + 1, fx.min():fx.max() + 1]
-        cache_feet[id(e)] = (FP, [y0 + fy.min(), x0 + fx.min()])
-        add('foot', None, [y0 + fy.min(), x0 + fx.min()], (FP.shape[1] / 2, 0), P=FP)
+        # 발 하나씩 따로 (걸을 때 번갈아 움직이게): 덩어리별로, 붙어 있으면 x 가운데에서 둘로
+        lab3, n3 = ndimage.label(core); blobs = [lab3 == i + 1 for i in range(n3)]
+        if len(blobs) == 1:
+            ys_, xs_ = np.nonzero(blobs[0]); mx = np.median(xs_); L0 = blobs[0].copy(); L0[:, int(mx):] = False; R0 = blobs[0].copy(); R0[:, :int(mx)] = False; blobs = [L0, R0]
+        blobs.sort(key=lambda b_: np.nonzero(b_)[1].mean())
+        taken = np.zeros_like(core)
+        for k_, b_ in enumerate(blobs):
+            reg = ndimage.binary_dilation(b_, iterations=6) & ~taken
+            if k_ < len(blobs) - 1: taken |= reg
+            fy, fx = np.nonzero(reg)
+            FP = im[y0:y1, x0:x1].copy(); FP[~reg] = 0; FP = FP[fy.min():fy.max() + 1, fx.min():fx.max() + 1]
+            fl_ = FP[..., :3].astype(np.float32).mean(-1); FP[..., 3] = (FP[..., 3] * np.clip((170 - fl_) / 70, 0, 1)).astype(np.uint8)   # 흰 몸 가장자리는 빼고 검은 발만 (발이 움직일 때 흰 줄이 보이지 않게)
+            ay, ax = np.nonzero(FP[..., 3] > 60); topy = ay.min()
+            add('foot', None, [y0 + fy.min(), x0 + fx.min()], (ax[ay <= topy + 0.3 * (ay.max() - topy)].mean(), topy), P=FP)   # 회전축: 발 윗부분 (몸에 붙은 쪽)
     else:
       for p in e['parts']:
         if p['kind'] == 'foot':
