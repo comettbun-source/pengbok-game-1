@@ -2627,6 +2627,8 @@
         sandTri([W4[0], W4[1], W4[2]], [I[0], I[1], I[2]], 1); sandTri([W4[0], W4[2], W4[3]], [I[0], I[2], I[3]], 1);
       }
     }
+    if (land && T.warm) { ctx.globalCompositeOperation = 'source-atop'; ctx.globalAlpha = T.warm.alpha; ctx.fillStyle = `rgb(${T.warm.color.join(',')})`; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }   // 따뜻한 모래색
+    if (land && T.bright > 1) { ctx.globalCompositeOperation = 'source-atop'; ctx.globalAlpha = Math.min(1, T.bright - 1) * 2; ctx.fillStyle = '#fff'; ctx.globalCompositeOperation = 'soft-light'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
     // 멀어질수록 어둡게: 화면 세로 그라데이션 (카메라 거리 darkNear → darkFar)
     { const yN = project(rig.cx + rig.F[0] * T.darkNear, rig.cy + rig.F[1] * T.darkNear, 0)[1], yF = project(rig.cx + rig.F[0] * T.darkFar, rig.cy + rig.F[1] * T.darkFar, 0)[1];
       ctx.globalCompositeOperation = 'source-atop'; const gr = ctx.createLinearGradient(0, yN, 0, yF), dc = T.darkColor.join(',');
