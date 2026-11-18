@@ -2583,76 +2583,28 @@
   }
 
   // 섬 지면: (안쪽 거리 d, 화면 안쪽 y) 칸을 먼 것부터 단색 면으로 + 가는 균열선. 경사가 빛을 향하면 살짝 밝게
-  // ── 해안 모래 질감 (SAND_TEX): 월드 좌표에 고정된 바둑판 무늬를 삼각형마다 원근에 맞춰 붙임 ──
-  let sandImg = null, sandPat = null;
-  function sandReady() {
-    const T = C.SAND_TEX; if (!T || !T.enabled || !window.SAND_ART) return false;
+  // ── 해안 모래 질감 (SAND_TEX): 샘플 각도로 눕힌 그림을 모래 구역 안에 화면 그대로 얹음 (가로는 땅과 함께 흐름) ──
+  let sandImg = null;
+  function sandOverlay() {
+    const T = C.SAND_TEX; if (!T || !T.enabled || !window.SAND_ART) return;
     if (!sandImg) { sandImg = new Image(); sandImg.src = window.SAND_ART.img; }
-    if (!sandImg.complete || !sandImg.naturalWidth) return false;
-    if (!sandPat) {   // 따뜻한 색·밝기를 그림에 미리 구워 둠 (매 프레임 전체 화면 합성 안 함)
-      const cv = document.createElement('canvas'); cv.width = sandImg.naturalWidth; cv.height = sandImg.naturalHeight; const g2 = cv.getContext('2d');
-      g2.drawImage(sandImg, 0, 0);
-      if (T.warm) { g2.globalAlpha = T.warm.alpha; g2.fillStyle = `rgb(${T.warm.color.join(',')})`; g2.fillRect(0, 0, cv.width, cv.height); g2.globalAlpha = 1; }
-      if (T.bright > 1) { g2.globalCompositeOperation = 'soft-light'; g2.globalAlpha = Math.min(1, (T.bright - 1) * 2); g2.fillStyle = '#fff'; g2.fillRect(0, 0, cv.width, cv.height); g2.globalAlpha = 1; g2.globalCompositeOperation = 'source-over'; }
-      sandPat = ctx.createPattern(cv, 'repeat');
-    }
-    return !!sandPat && typeof sandPat.setTransform === 'function';
-  }
-  function sandTri(w, sc, alpha) {   // w: 월드 [x,y] 3개, sc: 화면 [x,y] 3개
-    if (alpha < 0.005) return;
-    const T = C.SAND_TEX, k = sandImg.naturalWidth / T.tile, ds = T.depthStretch || 1, Rx = rig.R[0], Ry = rig.R[1], Fx = rig.F[0], Fy = rig.F[1];
-    // 샘플처럼 덮기: 가로는 땅을 따라(멀수록 작아짐), 세로는 화면 높이에 고르게 → 사다리꼴로 살짝 눕힌 모습. 카메라는 좌우로만 움직이니 무늬가 땅에 붙어 있음
-    const kv = sandImg.naturalHeight / T.tileScreenY, uv = (q, sp) => [(q[0] * Rx + q[1] * Ry) * k, (sp[1] - rig.horizon) * kv];
-    const [A, B, Cc] = sc, a = uv(w[0], A), b = uv(w[1], B), c = uv(w[2], Cc);
-    const bx = b[0] - a[0], by = b[1] - a[1], cx = c[0] - a[0], cy = c[1] - a[1], det = bx * cy - cx * by; if (Math.abs(det) < 1e-9) return;
-    const m11 = ((B[0] - A[0]) * cy - (Cc[0] - A[0]) * by) / det, m12 = ((Cc[0] - A[0]) * bx - (B[0] - A[0]) * cx) / det;
-    const m21 = ((B[1] - A[1]) * cy - (Cc[1] - A[1]) * by) / det, m22 = ((Cc[1] - A[1]) * bx - (B[1] - A[1]) * cx) / det;
-    sandPat.setTransform(new DOMMatrix([m11, m21, m12, m22, A[0] - m11 * a[0] - m12 * a[1], A[1] - m21 * a[0] - m22 * a[1]]));
-    ctx.globalAlpha = alpha; ctx.fillStyle = sandPat;
-    ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.lineTo(Cc[0], Cc[1]); ctx.closePath(); ctx.fill();
-  }
-  // 질감 층: 해안선을 따라 띠 모양 격자에 질감을 불투명하게(살짝 부풀려 이음매 없이) 깔고 → 멀수록 어둡게 → 겹친 띠 마스크로 진하기
-  const sandCv = document.createElement('canvas'), sandG = sandCv.getContext('2d'), sandMk = document.createElement('canvas'), sandMG = sandMk.getContext('2d');
-  function sandLayer(kind) {
-    const T = C.SAND_TEX; if (!T || !sandReady()) return;
-    const segs = visibleShore().filter((q) => { const c = camSpace(q.x, q.y, 0); if (c[1] < -3 || c[1] > T.maxDepth) return false; const x = toScreen([c[0], Math.max(c[1], 0.3), c[2]])[0]; return x > -W * 0.6 && x < W * 1.6; });   // 화면 근처만
-    if (segs.length < 3) return;
-    const sh = C.world.shoreHeight, land = kind === 'land';
-    { const is = S.islands[0], cin = is ? (rig.cx - is.shoreAt(clamp(rig.cy, -is.ry + 0.01, is.ry - 0.01))) * is.side : 0;   // 카메라가 모래 구간을 한참 지나 숲 안이면 안 그림 (보이지 않음)
-      if (cin > T.fadeTo + T.skipBeyond) return; }
-    const dA = land ? -T.fadeTo : -0.3, dB = land ? 0.05 : T.seaFade; if (!land && !(T.seaFade > 0)) return;
-    const zOf = (d) => (land ? sh + profileAt(Math.max(0, -d)) : 0);
-    const aOf = (d) => (land ? T.alpha * (1 - smooth(T.fadeFrom, T.fadeTo, -d)) : T.underAlpha * (1 - smooth(0, T.seaFade, Math.max(0, d))));
-    const k = Math.min(DPR, T.res), cw = Math.ceil(W * k), ch = Math.ceil(H * k);
-    for (const cv of [sandCv, sandMk]) if (cv.width !== cw || cv.height !== ch) { cv.width = cw; cv.height = ch; }
-    const saveCtx = ctx; ctx = sandG; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; ctx.clearRect(0, 0, cw, ch); ctx.setTransform(k, 0, 0, k, 0, 0);
-    const NB = T.bands, st = Math.max(1, T.seaStep | 0), inf = 0.9 / k;
-    const P = (q, d) => { const p = project(q.x + q.nx * d, q.y + q.ny * d, zOf(d)); return p; };
-    for (let i = 0; i + st < segs.length + st - 1; i += st) {
-      const a = segs[Math.min(i, segs.length - 1)], b = segs[Math.min(i + st, segs.length - 1)]; if (a === b) break;
-      for (let j = 0; j < NB; j++) {
-        const d0 = dA + (dB - dA) * j / NB, d1 = dA + (dB - dA) * (j + 1) / NB;
-        const W4 = [[a, d0], [b, d0], [b, d1], [a, d1]].map(([q, d]) => [q.x + q.nx * d, q.y + q.ny * d]), S4 = [[a, d0], [b, d0], [b, d1], [a, d1]].map(([q, d]) => P(q, d));
-        if (S4.some((q) => q[2] < rig.near + 0.05)) continue;
-        const cx = (S4[0][0] + S4[1][0] + S4[2][0] + S4[3][0]) / 4, cy = (S4[0][1] + S4[1][1] + S4[2][1] + S4[3][1]) / 4;
-        const I = S4.map((q) => { const dx = q[0] - cx, dy = q[1] - cy, l = Math.hypot(dx, dy) || 1; return [q[0] + dx / l * inf, q[1] + dy / l * inf]; });   // 살짝 부풀림
-        sandTri([W4[0], W4[1], W4[2]], [I[0], I[1], I[2]], 1); sandTri([W4[0], W4[2], W4[3]], [I[0], I[2], I[3]], 1);
-      }
-    }
-    // 멀어질수록 어둡게: 화면 세로 그라데이션 (카메라 거리 darkNear → darkFar)
-    { const yN = project(rig.cx + rig.F[0] * T.darkNear, rig.cy + rig.F[1] * T.darkNear, 0)[1], yF = project(rig.cx + rig.F[0] * T.darkFar, rig.cy + rig.F[1] * T.darkFar, 0)[1];
-      ctx.globalCompositeOperation = 'source-atop'; const gr = ctx.createLinearGradient(0, yN, 0, yF), dc = T.darkColor.join(',');
-      gr.addColorStop(0, `rgba(${dc},0)`); gr.addColorStop(1, `rgba(${dc},${T.dark})`); ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H); }
-    // 마스크: 해안선에서 시작하는 겹친 띠 (이음매 없음)
-    ctx = sandMG; ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1; ctx.clearRect(0, 0, cw, ch); ctx.setTransform(k, 0, 0, k, 0, 0); ctx.fillStyle = '#fff';
-    const band = (e0, e1) => { const o = [], n2 = []; for (const q of segs) { o.push([q.x + q.nx * e0, q.y + q.ny * e0, zOf(e0)]); n2.push([q.x + q.nx * e1, q.y + q.ny * e1, zOf(e1)]); } return projPoly(o.concat(n2.reverse())); };
-    const NM = T.maskBands;
-    if (land) nestedBands(NM, (i) => -(i + 1) / NM * (dB - dA) + dB, (i) => aOf(dB - (i + 0.5) / NM * (dB - dA)), (e) => band(dB, e));
-    else nestedBands(NM, (i) => dA + (i + 1) / NM * (dB - dA), (i) => aOf(dA + (i + 0.5) / NM * (dB - dA)), (e) => band(dA, e));
-    ctx = saveCtx;
-    sandG.setTransform(1, 0, 0, 1, 0, 0); sandG.globalCompositeOperation = 'destination-in'; sandG.globalAlpha = 1; sandG.drawImage(sandMk, 0, 0); sandG.globalCompositeOperation = 'source-over';
-    const fog = fogAt(Math.max(0, camSpace(segs[segs.length >> 1].x, segs[segs.length >> 1].y, 0)[1]));
-    ctx.save(); ctx.globalAlpha = 1 - fog; ctx.imageSmoothingEnabled = true; ctx.drawImage(sandCv, 0, 0, cw, ch, 0, 0, W, H); ctx.restore();
+    if (!sandImg.complete || !sandImg.naturalWidth) return;
+    const is = S.islands[0], segs = visibleShore(); if (!is || segs.length < 3) return;
+    const sh = C.world.shoreHeight, zOf = (d) => sh + profileAt(d);
+    const o = [], n2 = [];   // 모래 구역: 물가(0) → 안쪽 fadeTo
+    for (const q of segs) { o.push([q.x, q.y, zOf(0)]); n2.push([q.x - q.nx * T.fadeTo, q.y - q.ny * T.fadeTo, zOf(T.fadeTo)]); }
+    const poly = projPoly(o.concat(n2.reverse())); if (poly.length < 3) return;
+    const ref = project(cam.x, cam.y + 0, sh), ppu = pxPerUnit(Math.max(1, camSpace(S.p.x, S.p.y, 0)[1]));
+    const tw = T.width, th = tw * sandImg.naturalHeight / sandImg.naturalWidth;
+    const shift = -((cam.x * rig.R[0] + cam.y * rig.R[1]) * ppu * T.scroll), x0 = ((shift % tw) + tw) % tw - tw, y0 = rig.horizon + T.top;
+    ctx.save(); ctx.beginPath(); poly.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); ctx.clip();
+    ctx.globalAlpha = T.alpha; ctx.imageSmoothingEnabled = true;
+    for (let y = y0; y < H; y += th) for (let x = x0; x < W; x += tw) ctx.drawImage(sandImg, x, y, tw + 0.5, th + 0.5);
+    // 안쪽(숲 쪽)으로 갈수록 옅게 · 멀어질수록 어둡게
+    const yIn = project(rig.cx + rig.F[0] * T.darkFar, rig.cy + rig.F[1] * T.darkFar, sh)[1], yNear = project(rig.cx + rig.F[0] * T.darkNear, rig.cy + rig.F[1] * T.darkNear, sh)[1];
+    const gr = ctx.createLinearGradient(0, yNear, 0, yIn), dc = T.darkColor.join(','); gr.addColorStop(0, `rgba(${dc},0)`); gr.addColorStop(1, `rgba(${dc},${T.dark})`);
+    ctx.globalAlpha = 1; ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
+    ctx.restore();
   }
   function drawTerrain() {
     const is = S.islands[0], G = IT.ground; if (!is) return;
@@ -2691,7 +2643,7 @@
         if (q0[2] > rig.near && q1[2] > rig.near && false) { ctx.globalAlpha = 0.5 * (1 - fog); ctx.strokeStyle = `rgb(${IT.ground.crackColor.join(',')})`; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.moveTo(q0[0], q0[1]); ctx.lineTo((q0[0] + q1[0]) / 2 + (t0 - 0.5) * 6, (q0[1] + q1[1]) / 2); ctx.lineTo(q1[0], q1[1]); ctx.stroke(); }
       }
     }
-    sandLayer('land');   // 해안 모래 질감
+    sandOverlay();   // 해안 모래 질감
     // 모래 굴곡: 작은 둔덕마다 빛 쪽은 밝게, 반대쪽은 그늘 (부드러운 번짐)
     const SL = IT.rocks.sandLumps; if (SL) {
       if (!S.sandLumps) { const rr = rng(909); S.sandLumps = Array.from({ length: SL.count }, () => ({ d: lerp(SL.d[0], SL.d[1], rr()), y: lerp(SL.y[0], SL.y[1], rr()), s: lerp(SL.size[0], SL.size[1], Math.pow(rr(), 1.5)), a: rr() * Math.PI })); }
@@ -3137,7 +3089,6 @@
     ctx.fillStyle = `rgb(${D.sandColor.join(',')})`;
     const n = D.strips, maxD = D.slope, target = (d) => D.sandAlpha * (1 - smooth(0, D.shallowEnd, Math.pow(smooth(0, D.slope, d), D.power))) * (1 - fog);
     nestedBands(n, (i) => (i + 1) / n * maxD, (i) => target((i + 0.5) / n * maxD), (d1) => shoreBand(-0.3, d1, 0, segs));
-    sandLayer('sea');   // 물속 모래 질감: 얕은 곳은 보이고 깊어질수록 사라짐
     ctx.globalAlpha = 1;
   }
   // 파도 열차 그리기: 파면마다 밝은 띠 + 바로 뒤 어두운 골 (선 없이 명암 면). 저해상도 두 장에 그려 부드럽게 키움

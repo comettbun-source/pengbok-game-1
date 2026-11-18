@@ -355,13 +355,13 @@ const PENGUIN_RIG = {
 // ── 해안 모래 질감 (assets/sand_texture.png → sand_art.js) ─────
 const SAND_TEX = {
   enabled: true,
-  tile: 6, tileScreenY: 260,   // tile: 가로 무늬 크기(월드) · tileScreenY: 세로로 무늬 한 장이 차지하는 화면 높이(px) → 샘플처럼 살짝 눕힌 사다리꼴
-                   // 질감 한 장이 덮는 월드 크기 (클수록 무늬가 큼)
-  alpha: 1,                    // 모래 위 질감 진하기
-  fadeFrom: 5, fadeTo: 7.5, warm: { color: [150, 112, 96], alpha: 0.1 }, bright: 1.06,   // warm: 샘플처럼 따뜻한 모래색을 살짝 덮음 · bright: 질감 밝기 배율    // 해안선에서 안쪽 거리: 이 구간에서 숲 바닥으로 사라짐
-  dark: 0.45, darkNear: 7, darkFar: 26, darkColor: [8, 10, 16],   // 멀어질수록 어두워짐 (카메라 거리 darkNear → darkFar 에서 dark 까지)
-  seaFade: 2.6, underAlpha: 0.55, seaStep: 6, bands: 3, maskBands: 8, res: 1, skipBeyond: 6, maxDepth: 34,   /* res 1 → 0.6: 부드러운 질감이라 낮춰도 같아 보이고 훨씬 가벼움 · skipBeyond: 숲 안으로 이만큼 더 들어가면 안 그림 */   // bands: 질감 격자 띠 수 · maskBands: 진하기 마스크 겹 수 · res: 질감 층 해상도 (화면 배율 상한)   // 물속: 바다 쪽 이 거리까지 질감이 비치다 깊어질수록 사라짐 · 진하기 · 띠 수 · 해안 구간 간격
-};
+  alpha: 0.55,                 // 모래 위 질감 진하기 (되돌린 모래 그림 위에 얹음)
+  width: 520,                  // 질감 한 장의 화면 폭 (px) — 샘플처럼 이미 눕혀진 그림을 그대로 깔아 이어 붙임
+  top: 0,                      // 수평선에서 질감 시작 높이 (px)
+  scroll: 1,                   // 걸을 때 질감이 땅과 함께 흐르는 비율
+  fadeTo: 6.5,                 // 해안선에서 안쪽 이 거리까지만 (모래 구역)
+  dark: 0.45, darkNear: 7, darkFar: 26, darkColor: [8, 10, 16],   // 멀어질수록 어둡게
+}
 
 // ── 빙하 원화 (assets/floe_sheet.png → floe_art.js): 0 작음 · 1 납작 · 2 높음 · 3 큼 ─────
 // 고정 빙하 번호(ICE_FIELD.fixed 순서)마다 그림과 폭(월드)을 정함. 높이는 그림 비율대로 (heightMul 로 조절)
@@ -617,7 +617,7 @@ const ISLAND_TERRAIN = {
     washRing: 0,              // (0.4 → 0) 파도가 닿을 때 바위 둘레 둥근 고리: 원 모양으로 보여서 끔
     // 바위 원화 (assets/rock_sheet.png → rock_art.js): 바위마다 그림 번호. 높이(h)는 그림 비율대로 다시 맞춤 (반딧불이·발판 높이도 그림 윗선에 맞음)
     art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.06, heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45, shadow: { alpha: 0.7, scale: [1.15, 0.5], offset: 0.06 }, sandBank: null },   // shadow: 바위 밑 접촉 그림자 (좁고 진하게) · sandBank: 모래색 덮개 끔 (질감 위에서 회색 얼룩처럼 보여서)   // sandBank: 바위 밑동에 모래가 쌓여 묻힌 느낌 (진하기 · 높이 · 폭 배율)
-    sandLumps: { count: 0, /* 모래 질감 그림으로 대신 (160 → 0) */ d: [0.4, 5.6], y: [-30, 30], size: [0.25, 0.9], light: 0.1, dark: 0.16 },   // 모래 굴곡: 작은 둔덕 (빛 쪽 밝게 · 반대쪽 그늘). 참고 사진의 울퉁불퉁한 모래   // shadow: 바위 밑 번지는 그림자 진하기 · 크기(폭·깊이 배율) · 빛 반대쪽으로 밀림   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
+    sandLumps: { count: 160, d: [0.4, 5.6], y: [-30, 30], size: [0.25, 0.9], light: 0.1, dark: 0.16 },   // 모래 굴곡: 작은 둔덕 (빛 쪽 밝게 · 반대쪽 그늘). 참고 사진의 울퉁불퉁한 모래   // shadow: 바위 밑 번지는 그림자 진하기 · 크기(폭·깊이 배율) · 빛 반대쪽으로 밀림   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
   },
   sea: { slope: 7, fireflyMinDepth: 0.15 },   // 바다 쪽: 수심 경사 거리(DEPTH.slope) · 반딧불이가 머무는 최소 수심
   wash: { width: 5, reach: 0.45 },            // 파도 도달 (SHORE_WASH.shoreWidth · reach)
