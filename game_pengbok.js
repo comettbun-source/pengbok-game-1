@@ -3703,8 +3703,8 @@
       if (q.kind === 'foot') {
         const e = footI++ ? Math.PI : 0;
         if (walking) {   // 한 발씩
-          const sw = Math.sin(ph + e);
-          const st = PA.walk.footStride * (running ? PA.run.strideMul : 1), cx = -Math.cos(ph + e);
+          const fph = ph * (PA.walk.footMul || 1), sw = Math.sin(fph + e);   // footMul: 발은 몸 뒤뚱보다 이 배수로 빠르게 (오도도도)
+          const st = PA.walk.footStride * (running ? PA.run.strideMul : 1), cx = -Math.cos(fph + e);
           dy = -Math.max(0, sw) * PA.walk.footLift * amt; dx = (cx > 0 ? cx * PA.walk.backMul : cx) * st * amt; ang = -sw * deg(PA.walk.footSwingDeg) * amt * (running ? 0.6 : 1);   // 뒤로는 덜 (뒤꿈치가 몸에서 떨어져 보이지 않게)
         }
         else if (deepW && (p.sliding || sp > 0.3)) ang = Math.sin(t * PA.swim.paddleHz * (p.sliding ? 1.6 : 1) * Math.PI * 2 + e) * deg(PA.swim.paddleDeg);   // 물: 발바닥 파닥파닥

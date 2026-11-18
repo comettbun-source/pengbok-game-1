@@ -420,7 +420,7 @@ const PENGUIN_ART = {
     shade: { color: [26, 34, 52], ice: 0.46, land: 0.5, water: 0.26, edge: [0.4, 0.66] },   // 그늘 진하기 · edge = 그늘이 시작·짙어지는 위치 (직전 버전 명암)
     faceStart: 0.6, faceRadius: 0.26,   // 시작 장면(물에 들어가기 전) 흰 얼굴 밝게 (검은 머리는 그대로)
     firefly: { range: 3.2, radius: 0.85, alpha: 0.4, sea: '63,180,255', land: '255,200,90', landMul: 0.45 } },   // landMul: 노란 반딧불이는 은은하게   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
-  walk: { waddleDeg: 3, waddleDegSand: 2.2, cyclesPerUnit: 2.2, minHz: 2, footLift: 0.04, footStride: 0.07, backMul: 0.5, footSwingDeg: 16, /* (박자 1.25·1.2Hz → 2.2·2Hz, 들림 0.022 → 0.04, 보폭 0.03 → 0.07, 뒤로 0.4 → 0.5, 각도 7 → 16) 앞뒤로 번갈아 챡챡 · 0.1 보폭에선 뒷발·든 앞발이 몸에서 떨어져 보여서 이 정도까지만 */ bob: 0.01, flipperSwayDeg: 5 },   // 뒤뚱 각도(빙하·모래) · 이동 1당 걸음 박자(빠를수록 빨리 뒤뚱) · 발 들림·보폭·각도(작게: 몸에서 안 떨어지게) · 들썩 · 날개 흔들
+  walk: { waddleDeg: 3, waddleDegSand: 2.2, cyclesPerUnit: 2.2, minHz: 2, footLift: 0.025, footStride: 0.014, backMul: 0.3, footSwingDeg: 10, footMul: 2, /* 쪼망쪼망 오도도도: 발은 몸 아래에서 거의 제자리로 아주 작게(보폭 0.014 · 뒤로 0.3배) 톡톡 들리며(0.025) 몸 뒤뚱의 2배 박자. 보폭을 키우면 발이 몸에서 떨어져 보임 */ bob: 0.01, flipperSwayDeg: 5 },   // 뒤뚱 각도(빙하·모래) · 이동 1당 걸음 박자(빠를수록 빨리 뒤뚱) · 발 들림·보폭·각도(작게: 몸에서 안 떨어지게) · 들썩 · 날개 흔들
   run: { at: 0.85, flipperUpDeg: 34, flapHz: 4.5, feetSync: true, strideMul: 0.8 },   // 달릴 때 보폭은 짧게 (빠른 박자라 뒤꿈치가 멀리 안 가게)   // feetSync: 달릴 때 발도 날개 박자에 맞춰 빠르게   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
   idle: { breathDeg: 1.5, breathHz: 0.35 },
   air: { flutterDeg: 7 },       // 점프 중 날개 떨림 (포즈 자체가 날개를 펼침)
