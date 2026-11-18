@@ -616,7 +616,7 @@ const ISLAND_TERRAIN = {
     color: [16, 16, 18], light: [52, 54, 58],
     washRing: 0,              // (0.4 → 0) 파도가 닿을 때 바위 둘레 둥근 고리: 원 모양으로 보여서 끔
     // 바위 원화 (assets/rock_sheet.png → rock_art.js): 바위마다 그림 번호. 높이(h)는 그림 비율대로 다시 맞춤 (반딧불이·발판 높이도 그림 윗선에 맞음)
-    art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.06, heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45, shadow: { alpha: 0.7, scale: [1.15, 0.5], offset: 0.06 }, sandBank: null },   // shadow: 바위 밑 접촉 그림자 (좁고 진하게) · sandBank: 모래색 덮개 끔 (질감 위에서 회색 얼룩처럼 보여서)   // sandBank: 바위 밑동에 모래가 쌓여 묻힌 느낌 (진하기 · 높이 · 폭 배율)
+    art: { enabled: true, sprites: [1, 0], widthMul: [1.15, 1.25], sink: 0.14, bury: 0.22, heightFit: 0.85, fogMul: 1, night: [14, 20, 30], nightAlpha: 0.45, shadow: { alpha: 0.7, scale: [1.15, 0.5], offset: 0.06 }, sandBank: null },   // shadow: 바위 밑 접촉 그림자 (좁고 진하게) · sandBank: 모래색 덮개 끔 (질감 위에서 회색 얼룩처럼 보여서)   // sandBank: 바위 밑동에 모래가 쌓여 묻힌 느낌 (진하기 · 높이 · 폭 배율)
     sandLumps: { count: 0, /* (160 → 0) 질감 그림과 따로 움직여 보여서 끔 */ d: [0.4, 5.6], y: [-30, 30], size: [0.25, 0.9], light: 0.1, dark: 0.16 },   // 모래 굴곡: 작은 둔덕 (빛 쪽 밝게 · 반대쪽 그늘). 참고 사진의 울퉁불퉁한 모래   // shadow: 바위 밑 번지는 그림자 진하기 · 크기(폭·깊이 배율) · 빛 반대쪽으로 밀림   // night: 밤빛으로 덮는 색 · 진하기 (원화 밝기 → 밤 장면에 맞게)   // widthMul: 바위 몸통 폭 배율 · sink: 바닥에 묻히는 깊이 · heightFit: 발판 높이 = 그림 높이 × 이 값
   },
   sea: { slope: 7, fireflyMinDepth: 0.15 },   // 바다 쪽: 수심 경사 거리(DEPTH.slope) · 반딧불이가 머무는 최소 수심
@@ -718,7 +718,8 @@ const DEPTH = {
   shallowEnd: 0.6,
   strips: 40,                 // (14 → 40) 그라데이션 띠 수: 많을수록 계단 없이 부드러움
   viewRange: 40,              // 카메라에서 이 거리 안쪽 해안만 그림
-  edgeSoft: { color: [70, 66, 68], width: 3.2, alpha: 0.9, power: 2.2, strips: 32 },   // 해안선 경계: 젖은 모래색이 물 쪽으로 이 폭만큼 번져 부드럽게 (딱딱한 선 없애기)
+  edgeSoft: null,   // (바다 쪽 번짐: 띠가 오히려 선처럼 보여 끔)
+  landFeather: { outer: 0.2, width: 1.4, alpha: 0.8, power: 1.6, strips: 24 },   // 해안선: 바다색이 모래 쪽으로 이 폭만큼 번져 끝선이 부드럽게   // 해안선 경계: 젖은 모래색이 물 쪽으로 이 폭만큼 번져 부드럽게 (딱딱한 선 없애기)
 };
 
 // ── 모래 발자국 (발바닥 버튼과 같은 모양) ─────────────────────────────

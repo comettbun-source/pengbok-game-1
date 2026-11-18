@@ -2750,6 +2750,7 @@
       const G = rockG; G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.clearRect(0, 0, rockCv.width, rockCv.height); G.imageSmoothingEnabled = true; G.drawImage(rockImg, rx, ry, rw, rh, 0, 0, w, h);
       G.globalCompositeOperation = 'source-atop'; G.fillStyle = `rgba(${RK.art.night.join(',')},${RK.art.nightAlpha})`; G.fillRect(0, 0, w, h);   // 밤빛: 어둡고 푸르게
       const fg = fog * RK.art.fogMul; if (fg > 0.01) { G.globalCompositeOperation = 'source-atop'; G.fillStyle = mixFog([255, 255, 255], 1).replace('rgb(', 'rgba(').replace(')', `,${fg})`); G.fillRect(0, 0, w, h); }
+      if (RK.art.bury) { G.globalCompositeOperation = 'destination-out'; const by0 = h * (1 - RK.art.bury), gb = G.createLinearGradient(0, by0, 0, h); gb.addColorStop(0, 'rgba(0,0,0,0)'); gb.addColorStop(1, 'rgba(0,0,0,1)'); G.fillStyle = gb; G.fillRect(0, by0, w, h - by0); }   // 아래쪽이 모래 속으로 사라짐
       ctx.globalAlpha = 1; ctx.drawImage(rockCv, 0, 0, Math.ceil(w), Math.ceil(h), ox, oy, Math.ceil(w), Math.ceil(h));
       { const SB = RK.art.sandBank; if (SB) {   // 밑동에 모래가 쌓임: 모래색 부드러운 둔덕으로 바위 아래끝을 덮음
         const col = zoneColor(r.d), e = groundEllipse(r.x, r.y + r.Ry * 0.35, r.R * SB.width, base + 0.004);
@@ -3081,6 +3082,16 @@
     return ws.segs.filter((q) => Math.hypot(q.x - cam.x, q.y - cam.y) < R);
   }
   // 얕은 물: 모래색이 비치다가(alpha 0.65) 깊어질수록 투명 → 깊은 물
+  // 해안선 경계: 바다색이 모래 쪽으로 살짝 번져 땅 끝이 칼로 자른 듯 보이지 않게 (땅 위, 물가 → 안쪽으로 옅어짐)
+  function drawShoreFeather() {
+    const F = C.DEPTH.landFeather; if (!F) return;
+    const segs = visibleShore(); if (segs.length < 2) return;
+    const fog = fogAt(Math.max(0, camSpace(segs[segs.length >> 1].x, segs[segs.length >> 1].y, 0)[1]), C.FOG.mountain); if (fog > 0.97) return;
+    const sh = C.world.shoreHeight;
+    ctx.fillStyle = `rgb(${(F.color || BG).join(',')})`; const N = F.strips;
+    nestedBands(N, (i) => -(i + 1) / N * F.width, (i) => F.alpha * Math.pow(1 - (i + 0.5) / N, F.power) * (1 - fog), (d1) => shoreBand(F.outer, d1, sh + 0.003, segs));
+    ctx.globalAlpha = 1;
+  }
   function drawShallows() {
     const D = C.DEPTH, segs = visibleShore();
     if (segs.length < 2) return;
@@ -4420,6 +4431,7 @@
     drawReflection();
     drawIslandGround();
     if (sim && SIM.shore.draw) drawSimShore(); else drawShoreWash();
+    drawShoreFeather();   // 물막·젖은 모래 위에서 해안선 끝을 부드럽게
     drawIslandPrints();
     // 서 있는 것: 깊이 순서대로 먼 것부터
     const items = [];
