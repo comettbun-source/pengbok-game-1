@@ -591,11 +591,21 @@
     return h;
   }
   // 지형 높이 (섬 위 어디든): 해변 높이 + 단면 + 바위. 펭귄·발자국·그림자·나무·물막이 모두 이 값을 씀
-  function terrainHeightAt(x, y = C.lane ? C.lane.y : 0) {
+  function terrainBaseAt(x, y = C.lane ? C.lane.y : 0) {   // 울퉁불퉁한 동선 없이 (그림 판·굴 기준)
     if (!IT) return C.world.shoreHeight;
     const d = inlandDist(x, y);
     return C.world.shoreHeight + profileAt(d) + rockHeightAt(x, y);
   }
+  // 숲 동선 울퉁불퉁: 이동 선 둘레에서만 오르내림 (빙하 오르내리듯). 구덩이 앞에선 잦아들어 미끄러져 들어감
+  function pathBump(x, y) {
+    const PB = IT && IT.pathBumps; if (!PB) return 0;
+    const d = inlandDist(x, y), hd = C.BURROW ? C.BURROW.d + ((C.FOREST_ART && C.FOREST_ART.enabled && C.FOREST_ART.shift) || 0) : 999;
+    const env = smooth(PB.from, PB.from + 2, d) * (1 - smooth(hd - PB.endBefore - 1.5, hd - PB.endBefore, d)) * (1 - smooth(PB.width * 0.5, PB.width, Math.abs(y - (C.lane ? C.lane.y : 0))));
+    if (env <= 0) return 0;
+    const w = 0.6 * Math.sin(6.283 * d / PB.wave[0] + 1.3) + 0.4 * Math.sin(6.283 * d / PB.wave[1] + 0.4);
+    return PB.amp * (0.5 + 0.5 * w) * env;
+  }
+  function terrainHeightAt(x, y = C.lane ? C.lane.y : 0) { return terrainBaseAt(x, y) + pathBump(x, y); }
   function terrainGrad(x, y) { const e = 0.15; return { gx: (terrainHeightAt(x + e, y) - terrainHeightAt(x - e, y)) / (2 * e), gy: (terrainHeightAt(x, y + e) - terrainHeightAt(x, y - e)) / (2 * e) }; }
   // 바위·나무 배치 (리셋 때 한 번)
   function buildTerrainProps() {
@@ -4648,7 +4658,7 @@
   function blurBehindForest(depth) {
     const BH = FA.behind, D = window.FOREST_ART; if (!BH || !D) return;
     const B = S.bur, sx = (X) => project(burX(faA(X)), B.hy, 0)[0], xL0 = sx(0), xL1 = sx(FA.fadeLeft ? FA.fadeLeft[1] : 0), xR0 = sx(FA.fadeRight[0]), xR1 = sx(FA.fadeRight[1]);
-    const yb = Math.min(H, project(B.hx, B.hy, terrainHeightAt(B.hx, B.hy))[1] + 0.25 * pxPerUnit(depth)); if (yb < 4 || xR1 < 0 || xL0 > W) return;
+    const yb = Math.min(H, project(B.hx, B.hy, terrainBaseAt(B.hx, B.hy))[1] + 0.25 * pxPerUnit(depth)); if (yb < 4 || xR1 < 0 || xL0 > W) return;
     const w1 = Math.max(2, Math.ceil(W * 0.3)), h1 = Math.max(2, Math.ceil(yb * 0.3)), w2 = Math.max(2, Math.ceil(W * BH.blur)), h2 = Math.max(2, Math.ceil(yb * BH.blur));
     fitCv(faBl1, w1, h1); fitCv(faBl2, w2, h2); faBlG1.imageSmoothingEnabled = faBlG2.imageSmoothingEnabled = true;
     faBlG1.globalCompositeOperation = 'source-over'; faBlG1.drawImage(canvas, 0, 0, W * DPR, yb * DPR, 0, 0, w1, h1);   // 두 번에 나눠 줄임 (부드러운 흐림)
@@ -4669,11 +4679,26 @@
     for (let i = 0; i < M.count; i++) {
       const sp = lerp(M.speed[0], M.speed[1], r()), len = lerp(M.len[0], M.len[1], r()), h = lerp(M.height[0], M.height[1], r()), th = lerp(M.thick[0], M.thick[1], r()), ph = r();
       const u = ((ph + S.time * sp / span) % 1 + 1) % 1, a = a1 - u * (span + len) + len / 2;   // 섬 안쪽 → 해안 쪽으로 천천히 흘러감, 끝에서 다시
-      const x = burX(a), q = project(x, B.hy, terrainHeightAt(x, B.hy) + h), al = M.alpha * Math.sin(Math.PI * u) * (0.7 + 0.3 * Math.sin(S.time * 0.3 + i));
+      const x = burX(a), q = project(x, B.hy, terrainBaseAt(x, B.hy) + h), al = M.alpha * Math.sin(Math.PI * u) * (0.7 + 0.3 * Math.sin(S.time * 0.3 + i));
       if (al < 0.005) continue;
       ctx.globalAlpha = al; ctx.drawImage(mistSpr, q[0] - len * ppu / 2, q[1] - th * ppu / 2, len * ppu, th * ppu);
     }
     ctx.restore(); ctx.globalAlpha = 1;
+  }
+  // 숲 어둠: 그림·바닥을 어둡게 덮고, 안내 반딧불이 둘레만 둥글게 밝음 (펭귄은 이 위에 그려져 그대로)
+  const fdCv = document.createElement('canvas'), fdG = fdCv.getContext('2d');
+  function drawForestDark(depth) {
+    const G = BUR.guide, B = S.bur; if (!G.dark) return;
+    const k = G.dark * smooth(G.darkFrom[0], G.darkFrom[1], Math.max(0, inlandDist(S.p.x, S.p.y))); if (k < 0.01) return;
+    const r = 0.25, w = Math.max(8, Math.ceil(W * r)), h = Math.max(8, Math.ceil(H * r)); fitCv(fdCv, w, h);
+    const g = fdG; g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.clearRect(0, 0, w, h);
+    g.fillStyle = `rgba(0,0,0,${k})`; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'destination-out';
+    for (const f of B.ffs || (B.ff ? [B.ff] : [])) {
+      const c = camSpace(f.x, f.y, f.z); if (c[1] < rig.near) continue; const q = toScreen(c), R = G.lightR * pxPerUnit(c[1]) * r, b = (f.vis || 0) * (0.75 + 0.25 * lfBright(f));
+      const gr = g.createRadialGradient(q[0] * r, q[1] * r, 0, q[0] * r, q[1] * r, R); gr.addColorStop(0, `rgba(0,0,0,${b})`); gr.addColorStop(0.5, `rgba(0,0,0,${b * 0.45})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gr; g.fillRect(q[0] * r - R, q[1] * r - R, R * 2, R * 2);
+    }
+    g.globalCompositeOperation = 'source-over'; ctx.imageSmoothingEnabled = true; ctx.drawImage(fdCv, 0, 0, w, h, 0, 0, W, H);
   }
   function drawForestLayer(key, depth) {   // 세로 띠마다 그 자리 땅 높이에 맞춰 그림
     const A = forestArt(); if (!A) return false;
@@ -4684,7 +4709,7 @@
     let xa = xs(L.ox / sc);
     for (let tx0 = 0; tx0 < CW; tx0 += FA.strip) {
       const tw = Math.min(FA.strip, CW - tx0), X0 = (L.ox + tx0) / sc, X1 = (L.ox + tx0 + tw) / sc, xb = xs(X1);
-      const wm = burX(faA((X0 + X1) / 2)), z = terrainHeightAt(wm, B.hy), p0 = project(wm, B.hy, z + faH(L.oy / sc)), p1 = project(wm, B.hy, z + faH((L.oy + CH) / sc));   // 위·아래 끝 모두 실제 투영으로 (세로 배율 어긋남 없음)
+      const wm = burX(faA((X0 + X1) / 2)), z = terrainBaseAt(wm, B.hy), p0 = project(wm, B.hy, z + faH(L.oy / sc)), p1 = project(wm, B.hy, z + faH((L.oy + CH) / sc));   // 위·아래 끝 모두 실제 투영으로 (세로 배율 어긋남 없음)
       const x0 = Math.min(xa, xb), x1 = Math.max(xa, xb); xa = xb;
       if (x1 < -20 || x0 > W + 20 || p0[2] < rig.near || x1 - x0 < 0.01) continue;
       const sx0 = xb > x0 + 1e-6 ? tx0 : tx0;   // (좌우 뒤집힘 없음: 섬은 화면 왼쪽)
@@ -4693,8 +4718,8 @@
     return true;
   }
   const penA = () => S.bur.side * (S.p.x - S.bur.hx);
-  function burPt(a, h) { const x = burX(a); return project(x, S.bur.hy, terrainHeightAt(x, S.bur.hy) + S.bur.pitZ + h); }
-  function setPenA(a, sink = 1) { const p = S.p; p.x = burX(a); p.z = terrainHeightAt(p.x, p.y) + S.bur.pitZ * sink; }
+  function burPt(a, h) { const x = burX(a); return project(x, S.bur.hy, terrainBaseAt(x, S.bur.hy) + S.bur.pitZ + h); }
+  function setPenA(a, sink = 1) { const p = S.p; p.x = burX(a); p.z = terrainBaseAt(p.x, p.y) + S.bur.pitZ * sink; }
   function actionHeld() { for (const q of pointers.values()) if (q.role === 'action') return true; return false; }
   function burDirt(n, big) {   // 입구 둘레로 흙 부스러기 (BURROW.dirt 가 false 면 없음)
     const B = S.bur; if (!BUR.dirt) return;
@@ -4714,14 +4739,29 @@
       for (const f of lf.flies) if (f.state === 'pin' || f.state === 'sit') { const d = Math.hypot(f.x - p.x, f.y - p.y); if (d < bd) { bd = d; best = f; } }
       if (!best) { best = { x: p.x + B.side * 1.5, y: B.hy + 0.3, z: p.z + 1.4, trail: [], vis: 0, size: G.size, seed: 3.7, per: 3, ph: 0 }; lf.flies.push(best); }
       best.state = 'bur'; best.size = G.size; best.fadeAt = null; B.ff = best;
+      // 같이 안내하는 반딧불이 여러 마리: 남아 있는 노란 반딧불이(가까운 것부터)를 데려오고, 모자라면 새로
+      const rest = lf.flies.filter((f) => f !== best && (f.state === 'pin' || f.state === 'sit' || f.state === 'fade')).sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y));
+      B.ffs = [best];
+      for (let i = 1; i < (G.count || 1); i++) {
+        let f = rest[i - 1]; if (!f) { f = { x: best.x + (Math.random() - 0.5), y: best.y, z: best.z, trail: [], vis: 0, seed: Math.random() * 100, per: 3, ph: Math.random() }; lf.flies.push(f); }
+        f.state = 'bur'; f.size = G.size * lerp(0.7, 1.1, Math.random()); f.fadeAt = null; f.vis = f.vis || 0;
+        f.off = { a: lerp(-1.4, 0.5, Math.random()), y: lerp(-0.6, 0.15, Math.random()), z: lerp(0.15, 1.4, Math.random()), ph: Math.random() * 6.28, sp: lerp(0.5, 1.1, Math.random()) };
+        B.ffs.push(f);
+      }
+    }
+    for (const f of B.ffs || []) {   // 따라오는 반딧불이: 앞장선 하나 둘레를 느슨하게 떠다님
+      if (f === B.ff) continue; f.vis = Math.min(1, (f.vis || 0) + dt * 1.2); const o = f.off, L = B.ff, t2 = S.time * o.sp + o.ph;
+      const tx = L.x + B.side * (o.a + Math.sin(t2) * 0.35), ty = L.y + o.y + Math.cos(t2 * 0.7) * 0.15, tz = L.z + o.z * 0.6 + Math.sin(t2 * 1.3) * 0.2;
+      const dx = tx - f.x, dy = ty - f.y, dz = tz - f.z, dd = Math.hypot(dx, dy, dz), v = Math.min(dd, Math.max(0.3, Math.min(G.speed * 1.2, dd * 1.8)) * dt);
+      if (dd > 1e-4) { f.x += dx / dd * v; f.y += dy / dd * v; f.z += dz / dd * v; }
     }
     const f = B.ff; f.vis = Math.min(1, (f.vis || 0) + dt * 1.5);
     const inHole = B.phase !== 'open', stopA = inHole ? -0.55 : -0.35, a = penA(), ta = inHole ? stopA : Math.min(stopA, a + G.lead), at = ta >= stopA - 0.01;   // 펭귄이 끼면 입구 위로 비켜 맴돎
     const tx = burX(ta + (at ? Math.sin(S.time * 0.9) * 0.08 : 0)), ty = B.hy + (at ? 0.18 : 0.25 + Math.sin(S.time * 0.5) * 0.2);
-    const tz = terrainHeightAt(tx, B.hy) + B.pitZ * 0.6 + (at ? (inHole ? BUR.slotH + 0.45 : 0) + lerp(G.hover[0], G.hover[1], 0.5 + 0.5 * Math.sin(S.time * G.hoverHz * Math.PI * 2)) : G.height + Math.sin(S.time * 0.8) * 0.15);
+    const tz = terrainBaseAt(tx, B.hy) + B.pitZ * 0.6 + (at ? (inHole ? BUR.slotH + 0.45 : 0) + lerp(G.hover[0], G.hover[1], 0.5 + 0.5 * Math.sin(S.time * G.hoverHz * Math.PI * 2)) : G.height + Math.sin(S.time * 0.8) * 0.15);
     const dx = tx - f.x, dy = ty - f.y, dz = tz - f.z, dd = Math.hypot(dx, dy, dz), v = Math.min(dd, Math.max(0.3, Math.min(G.speed, dd * 2.2)) * dt);
     if (dd > 1e-4) { f.x += dx / dd * v; f.y += dy / dd * v; f.z += dz / dd * v; }
-    const rimD = Math.hypot(f.x - burX(0.05), (f.z - terrainHeightAt(f.x, B.hy) - B.pitZ) - BUR.slotH * 0.5);   // 구멍 테두리까지 거리
+    const rimD = Math.hypot(f.x - burX(0.05), (f.z - terrainBaseAt(f.x, B.hy) - B.pitZ) - BUR.slotH * 0.5);   // 구멍 테두리까지 거리
     B.rim = clamp(1 - rimD / BUR.rimGlow.range, 0, 1) * lfBright(f);
   }
   function stepBurrow(dt) {
@@ -4739,7 +4779,7 @@
       const SL = BUR.slip;
       if (SL && a > -SL.r) {   // 구덩이 둘레는 미끄러움: 가까울수록 구덩이 쪽으로 끌려가고 비탈을 따라 내려감 (엎드릴 필요 없음)
         const k = smooth(-SL.r, 0, a); p.vx += B.side * SL.pull * (0.25 + k) * dt; p.vy *= 1 - Math.min(1, dt * 4);
-        p.z = terrainHeightAt(p.x, p.y) + B.pitZ * k * SL.slopeSink; p.slipK = k;
+        p.z = terrainBaseAt(p.x, p.y) + B.pitZ * k * SL.slopeSink; p.slipK = k;
       } else p.slipK = 0;
       if (a > -E.reach) {   // 구덩이에 빠짐
         B.phase = 'enter'; B.t = 0; B.a0 = a; B.y0 = p.y; B.z0 = p.slipK * SL.slopeSink; p.belly = false; p.bellyT = null; p.sliding = true; p.face = Math.atan2(0, B.side); log('burrowEnter');
@@ -4792,7 +4832,7 @@
   }
   function burPoly(pts) { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); }
   function drawBurrowBack(depth) {
-    if (forestArt()) { blurBehindForest(depth); drawForestLayer('bg', depth); drawForestMist(depth); return; }   // 배경 원화가 있으면 그것으로 (언덕·굴 포함), 그 뒤 것은 흐리게
+    if (forestArt()) { blurBehindForest(depth); drawForestLayer('bg', depth); drawForestMist(depth); drawForestDark(depth); return; }   // 배경 원화가 있으면 그것으로 (언덕·굴 포함), 그 뒤 것은 흐리게
     const B = S.bur, M = BUR.mound, K = BUR.color, fog = fogAt(depth), ppu = pxPerUnit(depth), sh = BUR.slotH;
     // 큰 나무 줄기 (뿌리 둔덕 위로 화면 밖까지)
     const tb = burPt(BUR.trunk.a, M.h * 0.7), tt = burPt(BUR.trunk.a + 0.25, 14), tw = BUR.trunk.w * ppu;

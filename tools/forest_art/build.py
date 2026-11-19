@@ -7,12 +7,12 @@ S = 0.85   # 축소 배율 (원본 200px/월드 → 170px/월드: 아이패드 �
 OLD = ''.join(map(chr, [103, 114, 105, 115]))
 # 밤빛 · 끝 투명 (config_pengbok.js 의 FOREST_ART 값과 같게 맞춰 둘 것)
 G = dict(sat=0.74, bright=0.56, gamma=1.12, tint=(20, 28, 46), tintAmount=0.18)   # (채도 0.62 → 0.74 · 밝기 0.5 → 0.56) 조금 더 선명하게
-PATH_Y, SAND_X, BOTTOM_BAND, BOTTOM_PAD = 1975, 5168, 160, 1600   # 걷는 선 · 모래 덩어리 시작 x · 아래 늘일 띠 · 늘일 길이 (원본 px)
-DARK = dict(level=0.5, edge=0.35, edgePx=22, seam=0.45, seamPx=28, inland=(150, 1250, 0.92))   # 어둡기 · 테두리 · 땅/풀 사이 그늘 · 굴 너머 어둠 (x 구간, 세기)
-RIGHT_DARK = (4200, 5165, 0.5)   # 오른쪽 끝 풀: 그림은 그대로, 끝으로 갈수록 이만큼까지 어둡게 (밤 해안 쪽 명암)
-GROUND_SAT = (0.3, 0.55, 4500)   # 땅으로 볼 채도 범위 · 옅어지기 시작 x
-GROUND_FADE_START = 3500   # 걷는 선 아래 땅의 오른쪽 옅어지기 시작 (해안으로 넓게 페이드아웃)
-FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (5166, 5168), None, None   # 위(풀)는 끝까지 그대로 · 걷는 선 아래 땅만 GROUND_FADE_START 부터 옅어짐   # 원화 그대로 + 오른쪽 모래 덩어리(5170~)만 해변과 이어지게 옅어짐 · 맨 아래 끝 한 줄만 부드럽게 (띠 계단 안 보이게)
+PATH_Y, SAND_X, BOTTOM_BAND, BOTTOM_PAD = 1975, 5588, 120, 1700   # 걷는 선 · 모래 덩어리 시작 x · 아래 늘일 띠 · 늘일 길이 (원본 px)
+DARK = None   # 사용자 그림(IMG_6231)에 명암이 이미 들어가 있어서 끔. 예: dict(level=0.5, edge=0.35, edgePx=22, seam=0.45, seamPx=28, inland=(150, 1250, 0.92))
+RIGHT_DARK = None   # (끔) 예: (4620, 5585, 0.5)
+GROUND_SAT = (0.3, 0.55, 4920)   # 땅으로 볼 채도 범위 · 옅어지기 시작 x
+GROUND_FADE_START = 3920   # 걷는 선 아래 땅의 오른쪽 옅어지기 시작 (해안으로 넓게 페이드아웃)
+FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (5586, 5588), None, None   # 위(풀)는 끝까지 그대로 · 걷는 선 아래 땅만 GROUND_FADE_START 부터 옅어짐   # 원화 그대로 + 오른쪽 모래 덩어리(5170~)만 해변과 이어지게 옅어짐 · 맨 아래 끝 한 줄만 부드럽게 (띠 계단 안 보이게)
 # 명암 (바위처럼): 덩어리 윗선을 따라 빛 받는 테두리(위·왼쪽 빛) + 윗선에서 아래로 깊어질수록 그늘
 SHADE = dict(rim=0.2, rimPx=30, leftBias=0.5, occ=0.28, occPx=320, color=(230, 236, 255))
 SHARP = dict(radius=2, percent=70, threshold=2)
@@ -78,6 +78,7 @@ for key, src in [('bg', 'assets/forest_bg.png'), ('front', 'assets/forest_front.
     if key == 'bg':
         # 오른쪽 모래 덩어리(x ≥ SAND_X, 걷는 선 위)는 지움 → 해변은 게임 모래로 이어짐
         a = np.asarray(im).copy(); a[:PATH_Y, SAND_X:, 3] = 0
+        rows = np.nonzero((a[..., 3] > 200).sum(1) > a.shape[1] * 0.3)[0]; a = a[:rows.max() + 1]; H = a.shape[0]   # 그림이 실제로 끝나는 줄까지 (그 아래는 늘여 붙임)
         # 아래로 늘이기: 맨 아래 띠를 세로로 늘여 붙임 → 그림 아래에 어두운 바닥이 안 생김 (굴·걷는 선 위치는 그대로)
         from scipy import ndimage
         base = a[H - BOTTOM_BAND:].astype(np.float32).mean(0)                    # 맨 아래 띠의 열 평균 색
