@@ -4525,6 +4525,11 @@
     const gr = nearG.createRadialGradient(cx, cy, 0, cx, cy, rr);
     gr.addColorStop(0, `rgba(0,0,0,${1 - FG.penguinClear.keep})`); gr.addColorStop(0.6, `rgba(0,0,0,${(1 - FG.penguinClear.keep) * 0.7})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
     nearG.fillStyle = gr; nearG.fillRect(0, 0, w, h);
+    const FR = S.faRect; if (FR && FR[2] === S.time && C.FOREST_ART) {   // 그림 판 위 가까운 안개는 걷어냄 (양끝은 부드럽게)
+      const x0 = FR[0] / W * w, x1 = FR[1] / W * w, sg = Math.max(1, (x1 - x0) * 0.08), g2 = nearG.createLinearGradient(x0, 0, x1, 0), cut = 1 - C.FOREST_ART.nearFogKeep, sp = Math.max(1e-3, x1 - x0);
+      g2.addColorStop(0, 'rgba(0,0,0,0)'); g2.addColorStop(Math.min(0.49, sg / sp), `rgba(0,0,0,${cut})`); g2.addColorStop(Math.max(0.51, 1 - sg / sp), `rgba(0,0,0,${cut})`); g2.addColorStop(1, 'rgba(0,0,0,0)');
+      nearG.fillStyle = g2; nearG.fillRect(x0, 0, x1 - x0, h);
+    }
     nearG.globalCompositeOperation = 'source-over';
     ctx.imageSmoothingEnabled = true; ctx.globalAlpha = 1; ctx.drawImage(nearCv, 0, 0, W, H);
   }
@@ -4595,7 +4600,7 @@
     // 먼 것 → 안개 층 → 가까운 것 (펭귄·가까운 빙하는 선명하게)
     let fogged = false;
     for (const it of items) {
-      if (!fogged && it.d < C.FOG.keepClearDepth) { drawFogLayers(); fogged = true; }
+      if (!fogged && (it.d < C.FOG.keepClearDepth || it.clearFog)) { drawFogLayers(); fogged = true; }
       it.draw();
     }
     if (!fogged) drawFogLayers();
@@ -4631,22 +4636,7 @@
     if (!FA || !FA.enabled || !window.FOREST_ART) { faState = false; return null; }
     if (!faState) { const D = window.FOREST_ART; faState = { imgs: ['bg', 'front'].map((k) => { const im = new Image(); im.src = D[k].img; return im; }) }; }
     if (!faState.imgs.every((im) => im.complete && im.naturalWidth)) return null;
-    faState.bg = gradeForest(faState.imgs[0], 'bg'); faState.front = gradeForest(faState.imgs[1], 'front'); faState.ready = true; return faState;
-  }
-  function gradeForest(img, key) {   // 채도 · 밝기 · 밤색 + 오른쪽(해안)·아래 끝 투명하게 (한 번만)
-    const D = window.FOREST_ART, L = D[key], sc = D.scale, G = FA.grade, cv = document.createElement('canvas'); cv.width = img.naturalWidth; cv.height = img.naturalHeight;
-    const g = cv.getContext('2d'); g.drawImage(img, 0, 0); const id = g.getImageData(0, 0, cv.width, cv.height), d = id.data, ta = G.tintAmount, tn = G.tint.map((v) => v / 255);
-    for (let y = 0; y < cv.height; y++) {
-      const fb = 1 - smooth(FA.fadeBottom[0], FA.fadeBottom[1], (y + L.oy) / sc);   // 앞 레이어도 같은 높이에서 땅으로 녹아듦 (경계 상자 안 보이게)
-      for (let x = 0; x < cv.width; x++) {
-        const k = (y * cv.width + x) * 4; if (!d[k + 3]) continue;
-        const sx = (x + L.ox) / sc, fr = key === 'bg' ? (1 - smooth(FA.fadeRight[0], FA.fadeRight[1], sx)) * (FA.fadeLeft ? smooth(FA.fadeLeft[0], FA.fadeLeft[1], sx) : 1) : (FA.fadeLeft ? smooth(FA.fadeLeft[0], FA.fadeLeft[1], sx) : 1);
-        const c = [d[k] / 255, d[k + 1] / 255, d[k + 2] / 255], l = 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
-        for (let j = 0; j < 3; j++) { let v = l + (c[j] - l) * G.sat; v = Math.pow(Math.max(0, v), G.gamma) * G.bright; d[k + j] = Math.round(255 * (v * (1 - ta) + tn[j] * ta)); }
-        d[k + 3] = Math.round(d[k + 3] * fr * fb);
-      }
-    }
-    g.putImageData(id, 0, 0); return cv;
+    faState.bg = faState.imgs[0]; faState.front = faState.imgs[1]; faState.ready = true; return faState;   // 밤빛·끝 투명은 tools/forest_art/build.py 에서 미리 입힘
   }
   // 원본 px → 월드: 굴 입구에서 안쪽 거리 a · 땅선 위 높이 h
   const faA = (X) => (FA.holeX - X) / FA.ppu, faH = (Y) => (FA.pathY - Y) / FA.ppu;
@@ -4669,17 +4659,18 @@
   }
   function drawForestLayer(key, depth) {   // 세로 띠마다 그 자리 땅 높이에 맞춰 그림
     const A = forestArt(); if (!A) return false;
-    const B = S.bur, D = window.FOREST_ART, L = D[key], cv = A[key], sc = D.scale, ppu = pxPerUnit(depth), hpx = cv.height / sc / FA.ppu * ppu;
+    const B = S.bur, D = window.FOREST_ART, L = D[key], cv = A[key], sc = D.scale, ppu = pxPerUnit(depth), CW = L.w, CH = L.h;
     ctx.imageSmoothingEnabled = true;
+    if (key === 'bg') { const e0 = project(burX(faA(0)), B.hy, 0)[0], e1 = project(burX(faA(D.srcW)), B.hy, 0)[0]; S.faRect = [Math.min(e0, e1), Math.max(e0, e1), S.time]; }
     const xs = (X) => Math.round(project(burX(faA(X)), B.hy, 0)[0] * DPR) / DPR;   // 띠 경계: 이웃 띠와 같은 기기 픽셀 (겹침·틈 없음 → 세로 줄 없음)
     let xa = xs(L.ox / sc);
-    for (let tx0 = 0; tx0 < cv.width; tx0 += FA.strip) {
-      const tw = Math.min(FA.strip, cv.width - tx0), X0 = (L.ox + tx0) / sc, X1 = (L.ox + tx0 + tw) / sc, xb = xs(X1);
-      const wm = burX(faA((X0 + X1) / 2)), z = terrainHeightAt(wm, B.hy), p0 = project(wm, B.hy, z + faH(L.oy / sc));
+    for (let tx0 = 0; tx0 < CW; tx0 += FA.strip) {
+      const tw = Math.min(FA.strip, CW - tx0), X0 = (L.ox + tx0) / sc, X1 = (L.ox + tx0 + tw) / sc, xb = xs(X1);
+      const wm = burX(faA((X0 + X1) / 2)), z = terrainHeightAt(wm, B.hy), p0 = project(wm, B.hy, z + faH(L.oy / sc)), p1 = project(wm, B.hy, z + faH((L.oy + CH) / sc));   // 위·아래 끝 모두 실제 투영으로 (세로 배율 어긋남 없음)
       const x0 = Math.min(xa, xb), x1 = Math.max(xa, xb); xa = xb;
       if (x1 < -20 || x0 > W + 20 || p0[2] < rig.near || x1 - x0 < 0.01) continue;
       const sx0 = xb > x0 + 1e-6 ? tx0 : tx0;   // (좌우 뒤집힘 없음: 섬은 화면 왼쪽)
-      ctx.drawImage(cv, sx0, 0, tw, cv.height, x0, Math.round(p0[1] * DPR) / DPR, x1 - x0, hpx);
+      const yt = Math.round(p0[1] * DPR) / DPR; ctx.drawImage(cv, sx0, 0, tw, CH, x0, yt, x1 - x0, p1[1] - yt);
     }
     return true;
   }
@@ -4777,7 +4768,7 @@
     const [sa0, sa1] = forestArt() ? forestSpan() : [BUR.mound.len + 2, -2], e0 = project(burX(sa0), B.hy, 0)[0], e1 = project(burX(sa1), B.hy, 0)[0];
     if (Math.max(e0, e1) < -40 || Math.min(e0, e1) > W + 40) return;
     const front = !!BUR_LOCK[B.phase];
-    items.push({ d: Math.max(c[1], pd + 0.06), draw: () => drawBurrowBack(c[1]) });
+    items.push({ d: Math.max(c[1], pd + 0.06), clearFog: !!forestArt(), draw: () => drawBurrowBack(c[1]) });   // 그림 판은 먼 안개 층 위에 (흐려지지 않게)
     items.push({ d: front ? pd - 0.06 : Math.max(c[1], pd + 0.04), draw: () => drawBurrowFront(c[1]) });
   }
   function burPoly(pts) { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); }
