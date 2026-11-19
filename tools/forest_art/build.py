@@ -7,8 +7,8 @@ S = 0.85   # 축소 배율 (원본 200px/월드 → 170px/월드: 아이패드 �
 OLD = ''.join(map(chr, [103, 114, 105, 115]))
 # 밤빛 · 끝 투명 (config_pengbok.js 의 FOREST_ART 값과 같게 맞춰 둘 것)
 G = dict(sat=0.74, bright=0.56, gamma=1.12, tint=(20, 28, 46), tintAmount=0.18)   # (채도 0.62 → 0.74 · 밝기 0.5 → 0.56) 조금 더 선명하게
-GROUND_FADE_START = 3900   # 걷는 선 아래 땅의 오른쪽 옅어지기 시작
-FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (4980, 5165), (2250, 2345), None   # 원화 그대로 + 오른쪽 모래 덩어리(5170~)만 해변과 이어지게 옅어짐 · 맨 아래 끝 한 줄만 부드럽게 (띠 계단 안 보이게)
+GROUND_FADE_START = 3500   # 걷는 선 아래 땅의 오른쪽 옅어지기 시작 (해안으로 넓게 페이드아웃)
+FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (4500, 5165), (2250, 2345), None   # 원화 그대로 + 오른쪽 모래 덩어리(5170~)만 해변과 이어지게 옅어짐 · 맨 아래 끝 한 줄만 부드럽게 (띠 계단 안 보이게)
 # 명암 (바위처럼): 덩어리 윗선을 따라 빛 받는 테두리(위·왼쪽 빛) + 윗선에서 아래로 깊어질수록 그늘
 SHADE = dict(rim=0.2, rimPx=30, leftBias=0.5, occ=0.28, occPx=320, color=(230, 236, 255))
 SHARP = dict(radius=2, percent=70, threshold=2)
