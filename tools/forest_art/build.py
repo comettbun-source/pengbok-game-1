@@ -7,7 +7,7 @@ S = 0.85   # 축소 배율 (원본 200px/월드 → 170px/월드: 아이패드 �
 OLD = ''.join(map(chr, [103, 114, 105, 115]))
 # 밤빛 · 끝 투명 (config_pengbok.js 의 FOREST_ART 값과 같게 맞춰 둘 것)
 G = dict(sat=0.74, bright=0.56, gamma=1.12, tint=(20, 28, 46), tintAmount=0.18)   # (채도 0.62 → 0.74 · 밝기 0.5 → 0.56) 조금 더 선명하게
-FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (5700, 6500), (2120, 2345), (0, 380)   # 오른쪽 끝을 해변 바위 가까이까지
+FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (5700, 6500), (1980, 2200), (0, 380)   # 오른쪽 끝은 해변 바위 가까이까지 · 아래는 펭귄 걷는 선(1975) 바로 밑에서 끝 (그 아래 땅은 게임 바닥)
 # 명암 (바위처럼): 덩어리 윗선을 따라 빛 받는 테두리(위·왼쪽 빛) + 윗선에서 아래로 깊어질수록 그늘
 SHADE = dict(rim=0.2, rimPx=30, leftBias=0.5, occ=0.28, occPx=320, color=(230, 236, 255))
 SHARP = dict(radius=2, percent=70, threshold=2)
@@ -34,6 +34,12 @@ def grade(img, key, ox, oy):
     fy = 1 - sm_step(*FADE_BOTTOM, sy)
     al = al * fy[:, None] * fx[None, :]
     return Image.fromarray((np.dstack([v, al[..., None]]) * 255 + 0.5).clip(0, 255).astype(np.uint8), 'RGBA')
+def fades(img, key, ox, oy):   # 색은 그대로 두고 알파만: 오른쪽(해안)·왼쪽 끝, 걷는 선 아래
+    a = np.asarray(img).copy(); al = a[..., 3].astype(np.float32) / 255
+    h, w = al.shape; sx = (np.arange(w) + ox) / S; sy = (np.arange(h) + oy) / S
+    fx = sm_step(*FADE_LEFT, sx) * ((1 - sm_step(*FADE_RIGHT, sx)) if key == 'bg' else 1)
+    al = al * (1 - sm_step(*FADE_BOTTOM, sy))[:, None] * fx[None, :]
+    a[..., 3] = (al * 255 + 0.5).astype(np.uint8); return Image.fromarray(a, 'RGBA')
 out = {}
 for key, src in [('bg', 'assets/forest_bg.png'), ('front', 'assets/forest_front.png')]:
     im = Image.open(src).convert('RGBA'); W, H = im.size
@@ -41,9 +47,7 @@ for key, src in [('bg', 'assets/forest_bg.png'), ('front', 'assets/forest_front.
         bb = im.getchannel('A').getbbox(); im = im.crop(bb); ox, oy = bb[0], bb[1]
     else: ox = oy = 0
     sm = im.resize((round(im.width * S), round(im.height * S)), Image.LANCZOS)
-    sm = grade(sm, key, ox * S, oy * S)
-    from PIL import ImageFilter
-    sm = sm.filter(ImageFilter.UnsharpMask(**SHARP))   # 조금 더 또렷하게   # 밤빛·끝 투명은 여기서 미리 (게임에서 큰 그림을 픽셀마다 처리하면 아이패드에서 멈칫함)
+    sm = fades(sm, key, ox * S, oy * S)   # 색은 원화 그대로, 끝만 투명하게 (밤빛·명암 grade() 는 지금 안 씀)
     for q in [86, 85, 84, 83, 82, 81, 80]:   # base64 안에 옛 이름 글자가 우연히 생기지 않는 품질을 고름
         buf = io.BytesIO(); sm.save(buf, 'WEBP', quality=q, method=6); b64 = base64.b64encode(buf.getvalue()).decode()
         if OLD not in b64.lower(): break
