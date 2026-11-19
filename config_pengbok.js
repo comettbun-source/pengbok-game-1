@@ -924,7 +924,7 @@ const BURROW = {
   arrive: 2.4,                // 입구에서 이 거리 안으로 오면 발바닥 버튼을 한 번 은은하게 강조
   // 노란 반딧불이: 숲 안 이 거리(from)부터 펭귄보다 lead 만큼 앞서 가다가 입구에서 멈춰 낮게 오르내리며 테두리를 밝힘
   guide: { from: 4, lead: 2.2, height: 0.95, hover: [0.12, 0.5], hoverHz: 0.4, speed: 2.6, size: 0.024 },
-  rimGlow: { alpha: 0.32, range: 1.4, size: 0.14 },
+  rimGlow: { alpha: 0.35, range: 1.1 },   // 반딧불이 둘레로 번지는 빛 (진하기 · 반지름)
   // 진입: 입구에서 reach 안 + 슬라이딩(엎드림) + 굴 쪽으로 minSpeed 이상 → 들어감 (가까이 가기만 해선 안 들어감)
   enter: { reach: 1.1, minSpeed: 0.25, time: 0.85, stuckA: 0.5 },   // stuckA: 끼었을 때 펭귄 발 기준점 위치 (입구에서 안쪽으로)
   taps: 5,                    // 끼인 뒤 발바닥 버튼을 새로 누른 횟수 → 이 수가 되면 뽁 (시간 제한 없음, 끼일 때 누르고 있던 입력은 안 셈)

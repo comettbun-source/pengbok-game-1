@@ -4698,7 +4698,7 @@
       best.state = 'bur'; best.size = G.size; best.fadeAt = null; B.ff = best;
     }
     const f = B.ff; f.vis = Math.min(1, (f.vis || 0) + dt * 1.5);
-    const inHole = B.phase !== 'open', stopA = inHole ? -0.42 : -0.12, a = penA(), ta = inHole ? stopA : Math.min(stopA, a + G.lead), at = ta >= stopA - 0.01;   // 펭귄이 끼면 입구 위로 비켜 맴돎
+    const inHole = B.phase !== 'open', stopA = inHole ? -0.55 : -0.35, a = penA(), ta = inHole ? stopA : Math.min(stopA, a + G.lead), at = ta >= stopA - 0.01;   // 펭귄이 끼면 입구 위로 비켜 맴돎
     const tx = burX(ta + (at ? Math.sin(S.time * 0.9) * 0.08 : 0)), ty = B.hy + (at ? 0.18 : 0.25 + Math.sin(S.time * 0.5) * 0.2);
     const tz = terrainHeightAt(tx, B.hy) + (at ? (inHole ? BUR.slotH + 0.45 : 0) + lerp(G.hover[0], G.hover[1], 0.5 + 0.5 * Math.sin(S.time * G.hoverHz * Math.PI * 2)) : G.height + Math.sin(S.time * 0.8) * 0.15);
     const dx = tx - f.x, dy = ty - f.y, dz = tz - f.z, dd = Math.hypot(dx, dy, dz), v = Math.min(dd, Math.max(0.3, Math.min(G.speed, dd * 2.2)) * dt);
@@ -4814,12 +4814,11 @@
     ctx.globalAlpha = 1;
     }
     // 테두리 빛: 노란 반딧불이가 가까이 오르내리면 구멍 위 뿌리 밑면과 바닥 가장자리가 은은하게
-    if (B.rim > 0.01) {
-      const spr = lfSprites(), R = BUR.rimGlow.alpha * B.rim * (1 - fog);
-      ctx.save(); ctx.globalCompositeOperation = 'lighter';
-      const edge = [[-0.05, sh + 0.02], [0.1, sh * 1.02], [0.3, sh * 1.05], [n * 0.85, sh * 0.85], [n, sh * 0.5], [-0.06, 0.02], [0.15, 0.02], [0.35, 0.03], [-0.2, 0.01]];
-      for (const [a, h] of edge) { const q = burPt(a, h), r = BUR.rimGlow.size * ppu; ctx.globalAlpha = R * 0.5; ctx.drawImage(spr.mid, q[0] - r, q[1] - r, r * 2, r * 2); ctx.globalAlpha = R * 0.35; ctx.drawImage(spr.outer, q[0] - r * 2.2, q[1] - r * 2.2, r * 4.4, r * 4.4); }
-      ctx.restore();
+    if (B.rim > 0.01 && B.ff) {   // 반딧불이 하나에서 번지는 은은한 빛: 굴 입구 둘레 그림 위에 부드럽게 (점 여러 개 없이)
+      const f = B.ff, q = project(f.x, f.y, f.z), r = BUR.rimGlow.range * ppu, R = BUR.rimGlow.alpha * B.rim * (1 - fog), cl = lfSprites().P.mid[0];
+      const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(','), gr = ctx.createRadialGradient(q[0], q[1], 0, q[0], q[1], r);
+      gr.addColorStop(0, `rgba(${hex(cl)},${(R * 0.5).toFixed(3)})`); gr.addColorStop(0.35, `rgba(${hex(cl)},${(R * 0.18).toFixed(3)})`); gr.addColorStop(1, `rgba(${hex(cl)},0)`);
+      ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = gr; ctx.fillRect(q[0] - r, q[1] - r, r * 2, r * 2); ctx.restore();
     }
     // 흙 부스러기
     if (B.dirt.length) { ctx.fillStyle = mixFog(K.rootLit, fog);
