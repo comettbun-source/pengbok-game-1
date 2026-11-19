@@ -6,8 +6,11 @@ from PIL import Image
 S = 0.85   # 축소 배율 (원본 200px/월드 → 170px/월드: 아이패드 화면에서 늘어나 흐려 보이지 않게)
 OLD = ''.join(map(chr, [103, 114, 105, 115]))
 # 밤빛 · 끝 투명 (config_pengbok.js 의 FOREST_ART 값과 같게 맞춰 둘 것)
-G = dict(sat=0.62, bright=0.5, gamma=1.15, tint=(20, 28, 46), tintAmount=0.22)
-FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (4900, 5900), (2120, 2345), (0, 380)
+G = dict(sat=0.74, bright=0.56, gamma=1.12, tint=(20, 28, 46), tintAmount=0.18)   # (채도 0.62 → 0.74 · 밝기 0.5 → 0.56) 조금 더 선명하게
+FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (5700, 6500), (2120, 2345), (0, 380)   # 오른쪽 끝을 해변 바위 가까이까지
+# 명암 (바위처럼): 덩어리 윗선을 따라 빛 받는 테두리(위·왼쪽 빛) + 윗선에서 아래로 깊어질수록 그늘
+SHADE = dict(rim=0.2, rimPx=30, leftBias=0.5, occ=0.28, occPx=320, color=(230, 236, 255))
+SHARP = dict(radius=2, percent=70, threshold=2)
 def sm_step(a, b, x):
     t = np.clip((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t)
 def grade(img, key, ox, oy):
@@ -15,6 +18,17 @@ def grade(img, key, ox, oy):
     l = (0.3 * c[..., 0] + 0.59 * c[..., 1] + 0.11 * c[..., 2])[..., None]
     v = np.power(np.clip(l + (c - l) * G['sat'], 0, 1), G['gamma']) * G['bright']
     v = v * (1 - G['tintAmount']) + np.array(G['tint']) / 255 * G['tintAmount']
+    if key == 'bg':
+        from scipy import ndimage
+        op = ndimage.binary_closing(ndimage.binary_opening(al > 0.5, iterations=2), iterations=6); run = np.zeros(op.shape, np.float32)   # 작은 틈은 메움 (세로 줄무늬 방지)   # 윗선에서 아래로 몇 px 들어왔는지 (세로 길이)
+        for y in range(1, op.shape[0]): run[y] = np.where(op[y], run[y - 1] + 1, 0)
+        run = ndimage.gaussian_filter(run, (4, 14))   # 옆으로 부드럽게 이어지게
+        ab = ndimage.gaussian_filter(al, 3); gx = ndimage.sobel(ab, 1); gy = ndimage.sobel(ab, 0); gl = np.hypot(gx, gy) + 1e-6
+        face = np.clip((gy / gl) * (1 - SHADE['leftBias']) + (gx / gl) * SHADE['leftBias'], 0, 1)   # 위(·왼쪽)를 향한 가장자리
+        rim = SHADE['rim'] * np.exp(-run / SHADE['rimPx']) * (0.45 + 0.55 * face)
+        occ = 1 - SHADE['occ'] * np.clip(run / SHADE['occPx'], 0, 1) ** 0.8
+        col = np.array(SHADE['color']) / 255
+        v = v * occ[..., None]; v = v + (col - v) * rim[..., None]
     h, w = al.shape; sx = (np.arange(w) + ox) / S; sy = (np.arange(h) + oy) / S
     fx = sm_step(*FADE_LEFT, sx) * ((1 - sm_step(*FADE_RIGHT, sx)) if key == 'bg' else 1)
     fy = 1 - sm_step(*FADE_BOTTOM, sy)
@@ -27,7 +41,9 @@ for key, src in [('bg', 'assets/forest_bg.png'), ('front', 'assets/forest_front.
         bb = im.getchannel('A').getbbox(); im = im.crop(bb); ox, oy = bb[0], bb[1]
     else: ox = oy = 0
     sm = im.resize((round(im.width * S), round(im.height * S)), Image.LANCZOS)
-    sm = grade(sm, key, ox * S, oy * S)   # 밤빛·끝 투명은 여기서 미리 (게임에서 큰 그림을 픽셀마다 처리하면 아이패드에서 멈칫함)
+    sm = grade(sm, key, ox * S, oy * S)
+    from PIL import ImageFilter
+    sm = sm.filter(ImageFilter.UnsharpMask(**SHARP))   # 조금 더 또렷하게   # 밤빛·끝 투명은 여기서 미리 (게임에서 큰 그림을 픽셀마다 처리하면 아이패드에서 멈칫함)
     for q in [86, 85, 84, 83, 82, 81, 80]:   # base64 안에 옛 이름 글자가 우연히 생기지 않는 품질을 고름
         buf = io.BytesIO(); sm.save(buf, 'WEBP', quality=q, method=6); b64 = base64.b64encode(buf.getvalue()).decode()
         if OLD not in b64.lower(): break

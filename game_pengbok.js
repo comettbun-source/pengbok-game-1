@@ -4319,11 +4319,12 @@
     }
     const bg = burPawGlow();
     if (bg > 0.01) {   // 땅굴: 발바닥 버튼 강조 (따뜻한 빛 번짐 + 진하게)
-      const r = sc * 2.1, g = ctx.createRadialGradient(a.x, a.y, sc * 0.3, a.x, a.y, r); g.addColorStop(0, `rgba(255,214,140,${(0.42 * bg).toFixed(3)})`); g.addColorStop(1, 'rgba(255,214,140,0)');
+      const r = sc * 2.1, g = ctx.createRadialGradient(a.x, a.y, sc * 0.3, a.x, a.y, r); g.addColorStop(0, `rgba(235,242,255,${(0.34 * bg).toFixed(3)})`); g.addColorStop(1, 'rgba(235,242,255,0)');   // 화이트빛
       ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g; ctx.fillRect(a.x - r, a.y - r, r * 2, r * 2); ctx.restore();
       want = Math.min(1.6, want * (1 + bg * 1.2));
     }
-    drawPaw(a.x, a.y + sc * 0.04, sc * (1 + bg * 0.08), lum.action, want);
+    const pul = bg > 0.01 ? 1 + 0.07 * bg * (0.5 + 0.5 * Math.sin(S.time * Math.PI * 2 * 1.6)) : 1;   // 강조될 때 살짝 커졌다 작아졌다
+    drawPaw(a.x, a.y + sc * 0.04, sc * pul, lum.action, want);
   }
 
   // 발바닥 모양 (버튼·발자국 공용): 베지어 구간, 그리고 다각형으로 샘플링한 것
@@ -4625,7 +4626,7 @@
     const is = S.islands[0], laneY = C.lane ? C.lane.y : 0, hy = laneY - BUR.yBack, hx = is.shoreAt(hy) + is.side * BUR.d;
     S.trees = S.trees.filter((t) => !(Math.abs((t.d ?? 0) - BUR.d) < BUR.clearTrees && (t.front || (t.y < hy && hy - t.y < BUR.clearBack))));   // 굴·뿌리를 가리는 나무만 치움
     if (FA && FA.enabled && window.FOREST_ART) { const D = window.FOREST_ART, a0 = (FA.holeX - D.srcW) / FA.ppu - 1, a1 = FA.holeX / FA.ppu + 0.5;   // 그림 판 둘레 3D 나무·덤불 치움 (그림 속 숲이 대신함)
-      S.trees = S.trees.filter((t) => { const a = (t.d ?? 0) - BUR.d; return !(a > a0 && a < a1 && Math.abs(t.y - hy) < FA.clearTrees); }); }
+      S.trees = FA.removeAllTrees ? [] : S.trees.filter((t) => { const a = (t.d ?? 0) - BUR.d; return !(a > a0 && a < a1 && Math.abs(t.y - hy) < FA.clearTrees); }); }
     S.bur = { phase: 'open', t: 0, hx, hy, side: is.side, ff: null, rim: 0, pawT: -99, presses: 0, armed: false, push: 0, dirt: [], shake: 0, pressT: -99, under: false, hidePen: false };
   }
   const burX = (a) => S.bur.hx + S.bur.side * a;
@@ -4657,6 +4658,22 @@
     G.globalCompositeOperation = 'destination-in'; G.fillStyle = gr; G.fillRect(0, 0, w2, h2); G.globalCompositeOperation = 'source-over';
     ctx.imageSmoothingEnabled = true; ctx.drawImage(faBl2, 0, 0, w2, h2, 0, 0, W, yb);
   }
+  // 그림 위 낮은 안개: 땅 가까이 길쭉한 옅은 안개 띠가 천천히 스으윽 (선명한 곳과 흐린 곳이 같이)
+  const mistSpr = (() => { const c = document.createElement('canvas'); c.width = 256; c.height = 64; const g = c.getContext('2d'), gr = g.createRadialGradient(128, 128, 0, 128, 128, 126);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.45, 'rgba(255,255,255,0.45)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.setTransform(1, 0, 0, 0.25, 0, 0); g.fillStyle = gr; g.fillRect(0, 0, 256, 256); return c; })();   // 가장자리까지 0으로 사라지는 납작한 타원
+  function drawForestMist(depth) {
+    const M = FA.mist, D = window.FOREST_ART; if (!M || !D) return;
+    const B = S.bur, a0 = faA(D.srcW), a1 = faA(0), span = a1 - a0, ppu = pxPerUnit(depth), r = rng(515);
+    ctx.save(); ctx.globalCompositeOperation = 'screen';
+    for (let i = 0; i < M.count; i++) {
+      const sp = lerp(M.speed[0], M.speed[1], r()), len = lerp(M.len[0], M.len[1], r()), h = lerp(M.height[0], M.height[1], r()), th = lerp(M.thick[0], M.thick[1], r()), ph = r();
+      const u = ((ph + S.time * sp / span) % 1 + 1) % 1, a = a1 - u * (span + len) + len / 2;   // 섬 안쪽 → 해안 쪽으로 천천히 흘러감, 끝에서 다시
+      const x = burX(a), q = project(x, B.hy, terrainHeightAt(x, B.hy) + h), al = M.alpha * Math.sin(Math.PI * u) * (0.7 + 0.3 * Math.sin(S.time * 0.3 + i));
+      if (al < 0.005) continue;
+      ctx.globalAlpha = al; ctx.drawImage(mistSpr, q[0] - len * ppu / 2, q[1] - th * ppu / 2, len * ppu, th * ppu);
+    }
+    ctx.restore(); ctx.globalAlpha = 1;
+  }
   function drawForestLayer(key, depth) {   // 세로 띠마다 그 자리 땅 높이에 맞춰 그림
     const A = forestArt(); if (!A) return false;
     const B = S.bur, D = window.FOREST_ART, L = D[key], cv = A[key], sc = D.scale, ppu = pxPerUnit(depth), CW = L.w, CH = L.h;
@@ -4678,8 +4695,8 @@
   function burPt(a, h) { const x = burX(a); return project(x, S.bur.hy, terrainHeightAt(x, S.bur.hy) + h); }
   function setPenA(a) { const p = S.p; p.x = burX(a); p.z = terrainHeightAt(p.x, p.y); }
   function actionHeld() { for (const q of pointers.values()) if (q.role === 'action') return true; return false; }
-  function burDirt(n, big) {   // 입구 둘레로 흙 부스러기
-    const B = S.bur;
+  function burDirt(n, big) {   // 입구 둘레로 흙 부스러기 (BURROW.dirt 가 false 면 없음)
+    const B = S.bur; if (!BUR.dirt) return;
     for (let i = 0; i < n; i++) B.dirt.push({ a: lerp(-0.12, 0.05, Math.random()), h: lerp(0.02, BUR.slotH * 0.9, Math.random()), va: -lerp(0.4, big ? 2.2 : 1.2, Math.random()), vz: lerp(0.3, big ? 2.4 : 1.4, Math.random()), t: 0, life: lerp(0.35, 0.7, Math.random()), s: lerp(0.015, 0.04, Math.random()) });
   }
   // 끼어 있을 때 발바닥 버튼을 새로 누름 → 바둥 (손을 뗐다가 새로 누른 것만 셈)
@@ -4773,7 +4790,7 @@
   }
   function burPoly(pts) { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); }
   function drawBurrowBack(depth) {
-    if (forestArt()) { blurBehindForest(depth); drawForestLayer('bg', depth); return; }   // 배경 원화가 있으면 그것으로 (언덕·굴 포함), 그 뒤 것은 흐리게
+    if (forestArt()) { blurBehindForest(depth); drawForestLayer('bg', depth); drawForestMist(depth); return; }   // 배경 원화가 있으면 그것으로 (언덕·굴 포함), 그 뒤 것은 흐리게
     const B = S.bur, M = BUR.mound, K = BUR.color, fog = fogAt(depth), ppu = pxPerUnit(depth), sh = BUR.slotH;
     // 큰 나무 줄기 (뿌리 둔덕 위로 화면 밖까지)
     const tb = burPt(BUR.trunk.a, M.h * 0.7), tt = burPt(BUR.trunk.a + 0.25, 14), tw = BUR.trunk.w * ppu;
