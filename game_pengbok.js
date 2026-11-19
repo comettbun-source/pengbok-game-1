@@ -3692,6 +3692,7 @@
     g.save();
     g.scale(PA.scale, PA.scale);
     if (walking) g.rotate(Math.sin(ph) * deg(p.mode === 'island' ? PA.walk.waddleDegSand : PA.walk.waddleDeg) * amt);
+    if (PA.bellyTilt && poseI === PO.belly && onGround) { g.translate(0, PA.bellyTilt.drop * u); g.rotate(-side * deg(PA.bellyTilt.deg)); }   // 엎드림: 엉덩이를 내려 발끝이 바닥에 닿게
     if (p.air && p.porpoise) { const hs = Math.hypot(p.vx, p.vy) || 1; g.translate(0, -0.2 * u); g.rotate(-side * Math.atan2(p.vz, hs) * 0.8); g.translate(0, 0.2 * u); }   // 날아가는 방향으로 기울임 (오를 땐 머리 위, 내릴 땐 머리 아래)   // 뒤뚱: 발 박자와 같이
     if (swimLift > 0) {
       let top = 0, bot = 0; for (const q of F.parts) { top = Math.min(top, q.y); bot = Math.max(bot, q.y + q.h); }
@@ -4848,7 +4849,9 @@
       if (B.phase === 'rest' && B.t > V.quiet + V.petalAfter) { B.phase = 'petal'; B.t = 0; B.petal = { s: B.us + V.petal.from, rot: 0.4, t: 0 }; log('burrowPetal'); }
     } else if (B.phase === 'free') {   // 조작 돌려줌: 얕은 물에서 좌우로
       const [mx] = readMove(), tv = -mx * V.walkSpeed;
-      B.uvx += (tv - B.uvx) * ease(6, dt); B.us = clamp(B.us + B.uvx * dt, V.minS, V.maxS);
+      B.uvx += (tv - B.uvx) * ease(6, dt);
+      if (B.us < wS + 0.05) { B.uvx += V.slopeSlide * (0.5 + 0.5 * smooth(0, 0.5, wS - B.us)) * dt; if (Math.abs(mx) < 0.05) B.uvx = Math.max(B.uvx, 0.5); }   // 물가 비탈: 올라서면 물 쪽으로 주르륵 미끄러짐
+      B.us = clamp(B.us + B.uvx * dt, V.minS, V.maxS);
       if (Math.abs(mx) > 0.05) { p.inputAt = S.time; B.pose = null; p.face = (mx < 0 ? Math.PI : 0) - cam.yaw; }
       const stand = B.pose == null; B.uy = stand ? caveFloor(B.us) : Math.max(caveFloor(B.us), wy - V.floatSink);
       p.vx = -B.uvx; p.vy = 0;
@@ -4858,14 +4861,14 @@
     if (B.phase === 'slide' || B.phase === 'glide') p.vx = -B.uv;
     else if (B.phase !== 'free') p.vx = 0;
     if (B.petal) {   // 물살을 타고 천천히 → 부리 앞을 스쳐 지나감
-      const P = B.petal; P.t += dt; P.s -= V.petal.speed * dt * (1 + 0.15 * Math.sin(P.t * 1.3)); P.rot = 0.12 * Math.sin(P.t * 0.7);   // 물 위에 누운 채 살짝만 흔들림
-      if (B.phase === 'petal' && P.s < B.us - 0.25) { B.phase = 'free'; B.t = 0; log('burrowFree'); }
-      if (P.s < B.us - 9) B.petal = null;
+      const P = B.petal, stopS = caveWaterS() + V.petal.stopAt; P.t += dt; P.s = Math.max(stopS, P.s - V.petal.speed * dt * (1 + 0.15 * Math.sin(P.t * 1.3)) * smooth(stopS - 0.05, stopS + 1.2, P.s) - 0.02 * dt);   // 물 끝 가까이에서 천천히 멈춤 P.rot = 0.12 * Math.sin(P.t * 0.7);   // 물 위에 누운 채 살짝만 흔들림
+      if (B.phase === 'petal' && (P.s < B.us - 0.25 || P.s <= stopS + 0.01)) { B.phase = 'free'; B.t = 0; log('burrowFree'); }
     }
     // 카메라: 미끄럼 중엔 앞(아래)을 조금 더 보여 주며 바짝, 착지 뒤 부드럽게 멈춤
     const lead = B.phase === 'slide' ? V.lead : 0;
     B.cs += (B.us + lead - B.cs) * ease(followRate, dt); B.cy += (B.uy - B.cy) * ease(followRate, dt);
   }
+  const cavePenCv = document.createElement('canvas'), cavePenG = cavePenCv.getContext('2d'), caveRefCv = document.createElement('canvas'), caveRefG = caveRefCv.getContext('2d');
   function drawUnder() {
     const B = S.bur, V = BUR.cave, k = B.u / penH(), ax = W * V.screenX, ay = H * V.screenY;
     const X = (s) => ax - (s - B.cs) * k, Y = (y) => ay - (y - B.cy) * k;
@@ -4898,16 +4901,40 @@
     const petalPos = () => [X(PT.s), Y(wy) - PV.size * k * (0.35 + 0.08 * Math.sin(PT.t * 2))];
     if (PT) { const [px] = petalPos(), r = ctx.createRadialGradient(px, Y(wy) + PV.size * k * 0.5, 0, px, Y(wy) + PV.size * k * 0.5, PV.size * k * 1.6);
       r.addColorStop(0, rgb(PV.glow, PV.reflect)); r.addColorStop(1, rgb(PV.glow, 0)); ctx.save(); ctx.translate(0, 0); ctx.fillStyle = r; ctx.beginPath(); ctx.ellipse(px, Y(wy) + PV.size * k * 0.5, PV.size * k * 1.6, PV.size * k * 0.55, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
-    // 펭귄 (미끄럼 중엔 기울기만큼 머리를 아래로)
-    { const p = S.p, v = penguinView(), px = X(B.us), py = Y(B.uy), rot = B.phase === 'slide' ? -Math.atan(caveSlope(B.us)) : 0;
-      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(px, Y(caveFloor(B.us)) + 1, B.u * 0.35, B.u * 0.05, rot, 0, Math.PI * 2); ctx.fill();
-      ctx.save(); ctx.translate(px, py); ctx.rotate(rot); drawPenguinFigure(ctx, B.u, v, 'above', null); ctx.restore(); }
-    // 물: 앞쪽 (잠긴 몸을 어둡게) + 수면선 + 파문
+    // 펭귄: 한 번 그려 두고 → 물 위 몸 · 잠긴 몸(옅고 푸르게) · 수면에 비친 모습 (바다와 같은 원리, 파도 없음)
+    { const p = S.p, v = penguinView(), px = X(B.us), py = Y(B.uy), rot = B.phase === 'slide' ? -Math.atan(caveSlope(B.us)) : 0, u = B.u, Ys = Y(wy);
+      const inWater = B.us > wS - 0.6 && py > Ys - u * 1.4;
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(px, Y(caveFloor(B.us)) + 1, u * 0.35, u * 0.05, rot, 0, Math.PI * 2); ctx.fill();
+      const cw = Math.ceil(u * 3), chh = Math.ceil(u * 2.4), ox = px - u * 1.5, oy = py - u * 1.8, pw = Math.ceil(cw * DPR), ph = Math.ceil(chh * DPR);
+      fitCv(cavePenCv, pw, ph); const G = cavePenG; G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.globalAlpha = 1; G.clearRect(0, 0, pw, ph);
+      G.setTransform(DPR, 0, 0, DPR, u * 1.5 * DPR, u * 1.8 * DPR); G.rotate(rot); drawPenguinFigure(G, u, v, 'above', null); G.setTransform(1, 0, 0, 1, 0, 0);
+      const blit = (alpha) => { ctx.globalAlpha = alpha; ctx.drawImage(cavePenCv, 0, 0, pw, ph, ox, oy, cw, chh); ctx.globalAlpha = 1; };
+      if (!inWater) blit(1);
+      else {
+        const RF = V.reflect, SM = V.submerged, ysC = (Ys - oy) * DPR, fadeC = u * RF.fade * DPR;
+        // 수면에 비친 모습: 물 위 몸을 수면선에서 뒤집어, 수면에서 멀어질수록 옅게
+        fitCv(caveRefCv, pw, ph); const R = caveRefG; R.setTransform(1, 0, 0, 1, 0, 0); R.globalCompositeOperation = 'source-over'; R.clearRect(0, 0, pw, ph); R.drawImage(cavePenCv, 0, 0);
+        R.globalCompositeOperation = 'destination-in'; const fg = R.createLinearGradient(0, ysC, 0, ysC - fadeC); fg.addColorStop(0, 'rgba(0,0,0,1)'); fg.addColorStop(1, 'rgba(0,0,0,0)'); R.fillStyle = fg; R.fillRect(0, 0, pw, ph);
+        ctx.save(); ctx.beginPath(); ctx.rect(-10, Ys, W + 20, H); ctx.clip(); ctx.translate(0, 2 * Ys); ctx.scale(1, -1); ctx.globalAlpha = RF.alpha; ctx.drawImage(caveRefCv, 0, 0, pw, ph, ox, oy, cw, chh); ctx.restore(); ctx.globalAlpha = 1;
+        // 잠긴 몸: 수면 아래는 옅고 푸른 회색
+        ctx.save(); ctx.beginPath(); ctx.rect(-10, Ys, W + 20, H); ctx.clip(); blit(SM.alpha);
+        ctx.globalCompositeOperation = 'source-atop'; ctx.restore();
+        ctx.save(); ctx.beginPath(); ctx.rect(-10, Ys, W + 20, H); ctx.clip(); ctx.globalAlpha = SM.alpha * SM.tintAmount; ctx.globalCompositeOperation = 'multiply';
+        R.globalCompositeOperation = 'source-over'; R.clearRect(0, 0, pw, ph); R.drawImage(cavePenCv, 0, 0); R.globalCompositeOperation = 'source-in'; R.fillStyle = rgb(SM.tint); R.fillRect(0, 0, pw, ph);
+        ctx.drawImage(caveRefCv, 0, 0, pw, ph, ox, oy, cw, chh); ctx.restore(); ctx.globalAlpha = 1;
+        // 물 위 몸
+        ctx.save(); ctx.beginPath(); ctx.rect(-10, -10, W + 20, Ys + 10); ctx.clip(); blit(1); ctx.restore();
+        // 몸 둘레 수면 고리 (뒤쪽 반 · 앞쪽 반 없이 납작한 타원 하나, 천천히 숨쉬듯)
+        const RG = V.ring, k2 = 0.5 + 0.5 * Math.sin(S.time * RG.hz * Math.PI * 2), rr = u * (0.5 + 0.06 * k2);
+        ctx.strokeStyle = rgb(V.waterLine, RG.alpha * (0.6 + 0.4 * k2)); ctx.lineWidth = Math.max(0.8, u * 0.012); ctx.beginPath(); ctx.ellipse(px, Ys, rr, rr * 0.12, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    // 물: 수면선 + 파문 (파도 없음)
     if (xw > -10) {
-      ctx.fillStyle = rgb(V.water, 0.55); wpoly(); ctx.fill();
+      ctx.fillStyle = rgb(V.water, 0.18); wpoly(); ctx.fill();
       ctx.strokeStyle = rgb(V.waterLine, 0.22); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(Math.min(xw, W + 10), Y(wy)); ctx.lineTo(-10, Y(wy)); ctx.stroke();
-      for (const r of B.rips) { if (r.t < 0) continue; const u = r.t / r.life, rr = r.r * (1 - Math.pow(1 - u, 2.5)) * k;
-        ctx.globalAlpha = 0.5 * (1 - u); ctx.strokeStyle = rgb(V.waterLine, 1); ctx.lineWidth = Math.max(0.7, 0.012 * k); ctx.beginPath(); ctx.ellipse(X(r.s), Y(wy), rr, rr * 0.16, 0, 0, Math.PI * 2); ctx.stroke(); }
+      for (const r of B.rips) { if (r.t < 0) continue; const u2 = r.t / r.life, rr = r.r * (1 - Math.pow(1 - u2, 2.5)) * k;
+        ctx.globalAlpha = 0.5 * (1 - u2); ctx.strokeStyle = rgb(V.waterLine, 1); ctx.lineWidth = Math.max(0.7, 0.012 * k); ctx.beginPath(); ctx.ellipse(X(r.s), Y(wy), rr, rr * 0.16, 0, 0, Math.PI * 2); ctx.stroke(); }
       ctx.globalAlpha = 1;
     }
     ctx.fillStyle = rgb(V.waterLine, 0.85);

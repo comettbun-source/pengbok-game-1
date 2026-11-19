@@ -424,6 +424,7 @@ const PENGUIN_ART = {
     faceStart: 0.6, faceRadius: 0.26,   // 시작 장면(물에 들어가기 전) 흰 얼굴 밝게 (검은 머리는 그대로)
     firefly: { range: 3.2, radius: 0.85, alpha: 0.4, sea: '63,180,255', land: '255,200,90', landMul: 0.45 } },   // landMul: 노란 반딧불이는 은은하게   // 물속 몸: 반사와 겹치지 않게 더 옅게 + 흐리게 (blur = 축소 배율, 작을수록 흐림)     // 물에 떠 있을 때 그림 높이 중 물속 비율
   proneDepth: 0.05,             // 바다에서 올라올 때 이 수심(해안선에서 약 1.5)까지는 엎드린 채로 옴 (얕은 물에서 일찍 일어서지 않게). null = 예전처럼 헤엄 수심을 벗어나면 바로 일어섬
+  bellyTilt: { deg: 9, drop: 0.015 },   // 엎드려 땅·얕은 물에 있을 때 엉덩이 쪽을 이만큼 내려 발끝이 바닥에 닿게 (떠 보이지 않게)
   walk: { waddleDeg: 3, waddleDegSand: 2.2, cyclesPerUnit: 2.2, minHz: 2, footLift: 0.012, footStride: 0.014, backMul: 0.3, footSwingDeg: 6, footMul: 1, swap: 1, shuffle: 0.01, cross: 1, /* cross: 1 = 오른발·왼발이 서로 앞질러 그려진 앞발/뒷발 자리를 번갈아 차지 (0 = 각자 자리에서만 흔들림) */ /* shuffle: 두 발이 각자 그려진 자리를 가운데로 앞뒤 같은 폭(±)으로 번갈아 (이전: 앞발만 크게 나가 저는 걸음처럼 보임) · swap: 이 걸음 켜기(0 = 예전 제자리 톡톡) */ /* (swap 0.3 → 0.1, slide 0.1 → 0.05, 들림 0.02 → 0.012, 각도 12 → 6) 앞발이 무섭게 튀어나가고 뒷발이 배 밑에 너무 숨어서 */ footMaxHz: 2.6, /* slide: 한 발씩 번갈아 배 앞으로 미끄러져 나가는 폭 · footMaxHz: 발걸음 최대 박자(달려도 이보다 빠르지 않게, 참고 GIF 정도) */ /* 펭귄 걸음 (참고 GIF IMG_6158): swap = 두 발이 원화의 두 발 자리 사이를 엇갈려 오가는 정도 (1 = 완전히 자리 바꿈, 0 = 예전 제자리 톡톡). 앞으로 나가는 발만 살짝 들림(footLift)·발끝 듦(footSwingDeg). footMul 1 = 몸 뒤뚱 한 번에 한 걸음씩 */ bob: 0.01, flipperSwayDeg: 5 },   // 뒤뚱 각도(빙하·모래) · 이동 1당 걸음 박자(빠를수록 빨리 뒤뚱) · 발 들림·보폭·각도(작게: 몸에서 안 떨어지게) · 들썩 · 날개 흔들
   run: { at: 0.85, flipperUpDeg: 34, flapHz: 4.5, feetSync: true, strideMul: 0.8 },   // 달릴 때 보폭은 짧게 (빠른 박자라 뒤꿈치가 멀리 안 가게)   // feetSync: 달릴 때 발도 날개 박자에 맞춰 빠르게   // 최고 속도의 85% 이상 = 달리기: 날개를 살짝 들고 파닥
   idle: { breathDeg: 1.5, breathHz: 0.35 },
@@ -602,7 +603,7 @@ const ISLAND_TERRAIN = {
     seed: 314, laneGap: 1.4, back: 26,
     cluster: { scale: 0.22, low: 0.35, high: 0.75, gain: 1.4 },   // 군락 노이즈: 이 범위에서 밀도가 확 올라감
     palm: { d: [4.6, 13], peak: 6.8, density: 0.32, height: [3.6, 5.4], lean: 0.9, fronds: 9, frondLen: [1.5, 2.3] },   // 해변 가장자리 야자수 (가까이·크게, 잎이 화면 안에 보이는 높이)
-    bush: { d: [5.2, 9], density: 0.9, size: [0.9, 2.0], height: [0.6, 1.3] },        // 숲 입구 덤불
+    bush: { d: [8.5, 12], /* (5.2~9 → 8.5~12) 해안 바위와 엉키지 않게 더 육지로 */ density: 0.9, size: [0.9, 2.0], height: [0.6, 1.3] },        // 숲 입구 덤불
     jungle: { height: [6, 11], width: [2.6, 4.6] },                                     // 정글 나무 (둥근 잎 뭉치)
     front: { density: 0.05, y: [2.6, 5.5], d: [14, 60], alpha: 0.9 },                  // 이동 선 앞쪽 실루엣 (드물게)
     color: [11, 19, 16], frond: [22, 36, 30], trunk: [16, 20, 19], palmTrunk: [34, 40, 40], bushColor: [9, 16, 13],
@@ -891,7 +892,7 @@ FIREFLY.guide.shoreMinDepth = ISLAND_TERRAIN.sea.fireflyMinDepth;   // 반딧불
 // ── 땅굴 장면 (pengbok): 숲 초입 굴 → 노란 반딧불이 안내 → 엎드려 들어가다 꽉 낌 → 발바닥 탭으로 뽁 → 흙굴 미끄럼 → 지하 물가 → 분홍 꽃잎 ─────
 const BURROW = {
   enabled: true,
-  d: 18,                      // 굴 위치: 해안선에서 안쪽 거리 (숲 시작 d 6 → 평소 걸음 약 1.8/초로 숲 진입 후 약 6.5초, 해안이 화면에서 사라지고 가까운 나무 두세 그루를 지난 곳)
+  d: 22,                      // (18 → 22) 굴 위치: 해안선에서 안쪽 거리 (숲 시작 d 6 → 평소 걸음 약 1.65/초로 숲 진입 후 약 8초, 해안이 화면에서 사라지고 가까운 나무 두세 그루를 지난 곳)
   yBack: 0.12,                // 이동 선에서 이만큼 뒤 (펭귄 몸이 굴 바로 앞에 옴)
   clearTrees: 4, clearBack: 1.8,   // 굴 둘레 나무 치움: 앞쪽 실루엣 나무는 굴 ±clearTrees 안, 뒤쪽 나무는 이동 선 뒤 clearBack 안 (굴·뿌리가 가려지지 않게. 더 뒤 숲은 그대로 보임)
   slotH: 0.6,                 // 구멍 높이 (월드). 서 있는 펭귄 ≈ 1.17 → 엎드려야(≈ 0.68) 겨우, 위 뿌리에 살짝 눌림
@@ -918,8 +919,10 @@ const BURROW = {
     startS: 0.7, startSpeed: 3.2, g: 7.5, fric: 0.6, maxSpeed: 7, waterDrag: 2.4, floatSink: 0.2,
     screenX: 0.46, screenY: 0.56, follow: 6, settle: 2.2, lead: 1.4,   // 화면에서 펭귄 자리 · 카메라 따라가기 (미끄럼 · 착지 후 부드럽게 멈춤)
     fadeIn: 0.6, quiet: 1.4, headUp: 5, petalAfter: 0.7,   // 어둠에서 밝아지는 시간 · 착지 후 고요 · 고개 드는 포즈 · 그 뒤 꽃잎
-    petal: { from: 4.5, speed: 0.6, size: 0.2, color: [246, 176, 196], glow: [255, 190, 210], reflect: 0.38 },
-    walkSpeed: 1.1, minS: 11.6, maxS: 34,   // 조작을 돌려준 뒤: 얕은 물에서 좌우 이동 범위
+    petal: { from: 4.5, speed: 0.6, stopAt: 0.35, size: 0.2,   /* stopAt: 물 끝(비탈 시작)에서 이만큼 안쪽에 멈춰 떠 있음 */ color: [246, 176, 196], glow: [255, 190, 210], reflect: 0.38 },
+    walkSpeed: 1.1, minS: 10.6, maxS: 34, slopeSlide: 5,   // slopeSlide: 물가 비탈에 올라서면 물 쪽으로 미끄러져 내려오는 힘   // 조작을 돌려준 뒤: 얕은 물에서 좌우 이동 범위
+    // 물: 바다와 같은 원리 (몸이 비침 · 잠긴 몸은 옅고 푸르게 · 몸 둘레 고리), 파도 없음
+    reflect: { alpha: 0.38, fade: 0.85 }, submerged: { alpha: 0.42, tint: [118, 136, 156], tintAmount: 0.45 }, ring: { alpha: 0.22, hz: 0.5 },
     soil: [24, 20, 17], soilLight: [44, 36, 29], air: [7, 8, 10], rim: [70, 56, 43], water: [10, 20, 26], waterLine: [120, 150, 165],
   },
 };
