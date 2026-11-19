@@ -7,7 +7,8 @@ S = 0.85   # 축소 배율 (원본 200px/월드 → 170px/월드: 아이패드 �
 OLD = ''.join(map(chr, [103, 114, 105, 115]))
 # 밤빛 · 끝 투명 (config_pengbok.js 의 FOREST_ART 값과 같게 맞춰 둘 것)
 G = dict(sat=0.74, bright=0.56, gamma=1.12, tint=(20, 28, 46), tintAmount=0.18)   # (채도 0.62 → 0.74 · 밝기 0.5 → 0.56) 조금 더 선명하게
-FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (5700, 6500), (1980, 2200), (0, 380)   # 오른쪽 끝은 해변 바위 가까이까지 · 아래는 펭귄 걷는 선(1975) 바로 밑에서 끝 (그 아래 땅은 게임 바닥)
+GROUND_FADE_START = 3900   # 걷는 선 아래 땅의 오른쪽 옅어지기 시작
+FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (4980, 5165), (2250, 2345), None   # 원화 그대로 + 오른쪽 모래 덩어리(5170~)만 해변과 이어지게 옅어짐 · 맨 아래 끝 한 줄만 부드럽게 (띠 계단 안 보이게)
 # 명암 (바위처럼): 덩어리 윗선을 따라 빛 받는 테두리(위·왼쪽 빛) + 윗선에서 아래로 깊어질수록 그늘
 SHADE = dict(rim=0.2, rimPx=30, leftBias=0.5, occ=0.28, occPx=320, color=(230, 236, 255))
 SHARP = dict(radius=2, percent=70, threshold=2)
@@ -37,12 +38,19 @@ def grade(img, key, ox, oy):
 def fades(img, key, ox, oy):   # 색은 그대로 두고 알파만: 오른쪽(해안)·왼쪽 끝, 걷는 선 아래
     a = np.asarray(img).copy(); al = a[..., 3].astype(np.float32) / 255
     h, w = al.shape; sx = (np.arange(w) + ox) / S; sy = (np.arange(h) + oy) / S
-    fx = sm_step(*FADE_LEFT, sx) * ((1 - sm_step(*FADE_RIGHT, sx)) if key == 'bg' else 1)
-    al = al * (1 - sm_step(*FADE_BOTTOM, sy))[:, None] * fx[None, :]
+    fl = sm_step(*FADE_LEFT, sx)[None, :] if FADE_LEFT else 1
+    if key == 'bg' and FADE_RIGHT:   # 오른쪽 끝: 걷는 선 아래 땅은 더 넓게 옅어짐 (땅이 세로로 뚝 끝나 보이지 않게)
+        r0 = FADE_RIGHT[0] + (GROUND_FADE_START - FADE_RIGHT[0]) * sm_step(1900, 2060, sy)[:, None]
+        fr = 1 - np.clip((sx[None, :] - r0) / (FADE_RIGHT[1] - r0), 0, 1) ** 1.0
+        fr = fr * fr * (3 - 2 * fr)
+    else: fr = 1
+    fy = ((1 - sm_step(*FADE_BOTTOM, sy)) if FADE_BOTTOM else np.ones(h))[:, None]
+    al = al * fy * fl * fr
     a[..., 3] = (al * 255 + 0.5).astype(np.uint8); return Image.fromarray(a, 'RGBA')
 out = {}
 for key, src in [('bg', 'assets/forest_bg.png'), ('front', 'assets/forest_front.png')]:
     im = Image.open(src).convert('RGBA'); W, H = im.size
+    if key == 'bg': SRC_W, SRC_H = W, H
     if key == 'front':
         bb = im.getchannel('A').getbbox(); im = im.crop(bb); ox, oy = bb[0], bb[1]
     else: ox = oy = 0
@@ -53,5 +61,5 @@ for key, src in [('bg', 'assets/forest_bg.png'), ('front', 'assets/forest_front.
         if OLD not in b64.lower(): break
     out[key] = dict(img='data:image/webp;base64,' + b64, w=sm.width, h=sm.height, ox=ox * S, oy=oy * S)
     print(key, sm.size, round(len(b64) / 1024), 'KB', 'q', q)
-meta = dict(scale=S, srcW=6614, srcH=2345, **out)
+meta = dict(scale=S, srcW=SRC_W, srcH=SRC_H, **out)
 open('forest_art.js', 'w').write('// 자동 생성: tools/forest_art/build.py (assets/forest_bg.png · forest_front.png). 해안~땅굴 배경 원화. 좌표는 원본 px × scale\nwindow.FOREST_ART = ' + json.dumps(meta) + ';\n')
