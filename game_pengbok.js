@@ -4640,7 +4640,7 @@
     faState.bg = faState.imgs[0]; faState.front = faState.imgs[1]; faState.ready = true; return faState;   // 밤빛·끝 투명은 tools/forest_art/build.py 에서 미리 입힘
   }
   // 원본 px → 월드: 굴 입구에서 안쪽 거리 a · 땅선 위 높이 h
-  const faA = (X) => (FA.holeX - X) / FA.ppu, faH = (Y) => (FA.pathY - Y) / FA.ppu;
+  const faA = (X) => (FA.holeX - X) / FA.ppu + (FA.shift || 0), faH = (Y) => (FA.pathY - Y) / FA.ppu - (FA.drop || 0);   // shift: 해안 쪽(−)으로 옮김 · drop: 아래로 내림 (월드)
   function forestSpan() { const D = window.FOREST_ART; return D ? [faA(0), faA(D.srcW)] : [0, 0]; }   // 안쪽 끝 a · 해안 쪽 끝 a
   // 그림 판 뒤에 이미 그려진 것(먼 숲·산·하늘): 줄였다 키워 흐리게 + 밤 안개 → 멀리 있는 것처럼. 그림 판 땅선 위, 그림이 있는 가로 범위에서만
   const faBl1 = document.createElement('canvas'), faBlG1 = faBl1.getContext('2d'), faBl2 = document.createElement('canvas'), faBlG2 = faBl2.getContext('2d');

@@ -9,8 +9,9 @@ OLD = ''.join(map(chr, [103, 114, 105, 115]))
 G = dict(sat=0.74, bright=0.56, gamma=1.12, tint=(20, 28, 46), tintAmount=0.18)   # (채도 0.62 → 0.74 · 밝기 0.5 → 0.56) 조금 더 선명하게
 PATH_Y, SAND_X, BOTTOM_BAND, BOTTOM_PAD = 1975, 5168, 160, 1600   # 걷는 선 · 모래 덩어리 시작 x · 아래 늘일 띠 · 늘일 길이 (원본 px)
 RIGHT_DARK = (4200, 5165, 0.5)   # 오른쪽 끝 풀: 그림은 그대로, 끝으로 갈수록 이만큼까지 어둡게 (밤 해안 쪽 명암)
+GROUND_SAT = (0.3, 0.55, 4500)   # 땅으로 볼 채도 범위 · 옅어지기 시작 x
 GROUND_FADE_START = 3500   # 걷는 선 아래 땅의 오른쪽 옅어지기 시작 (해안으로 넓게 페이드아웃)
-FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (4950, 5168), None, None   # 위(풀)는 끝까지 그대로 · 걷는 선 아래 땅만 GROUND_FADE_START 부터 옅어짐   # 원화 그대로 + 오른쪽 모래 덩어리(5170~)만 해변과 이어지게 옅어짐 · 맨 아래 끝 한 줄만 부드럽게 (띠 계단 안 보이게)
+FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (5166, 5168), None, None   # 위(풀)는 끝까지 그대로 · 걷는 선 아래 땅만 GROUND_FADE_START 부터 옅어짐   # 원화 그대로 + 오른쪽 모래 덩어리(5170~)만 해변과 이어지게 옅어짐 · 맨 아래 끝 한 줄만 부드럽게 (띠 계단 안 보이게)
 # 명암 (바위처럼): 덩어리 윗선을 따라 빛 받는 테두리(위·왼쪽 빛) + 윗선에서 아래로 깊어질수록 그늘
 SHADE = dict(rim=0.2, rimPx=30, leftBias=0.5, occ=0.28, occPx=320, color=(230, 236, 255))
 SHARP = dict(radius=2, percent=70, threshold=2)
@@ -47,6 +48,10 @@ def fades(img, key, ox, oy):   # 색은 그대로 두고 알파만: 오른쪽(�
         fr = fr * fr * (3 - 2 * fr)
     else: fr = 1
     fy = ((1 - sm_step(*FADE_BOTTOM, sy)) if FADE_BOTTOM else np.ones(h))[:, None]
+    if key == 'bg' and GROUND_SAT:   # 오른쪽 끝: 칙칙한 땅 색만 옅어짐 (알록달록한 풀은 그대로)
+        c = a[..., :3].astype(np.float32) / 255; mx = c.max(-1); mn = c.min(-1); sat = (mx - mn) / np.maximum(mx, 1e-3)
+        ground = 1 - sm_step(GROUND_SAT[0], GROUND_SAT[1], sat)
+        fr = fr * (1 - ground * sm_step(GROUND_SAT[2], FADE_RIGHT[1], sx)[None, :])
     al = al * fy * fl * fr
     if key == 'bg' and RIGHT_DARK:
         k = 1 - (1 - RIGHT_DARK[2]) * sm_step(RIGHT_DARK[0], RIGHT_DARK[1], sx)[None, :]
