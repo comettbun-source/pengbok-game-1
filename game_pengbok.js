@@ -633,6 +633,7 @@
       }
     }
     buildLandFireflies();
+    setupBurrow();
   }
   function surfaceAt(x, y) {
     if (islandAt(x, y)) return { mode: 'island', z: terrainHeightAt(x, y) };
@@ -731,7 +732,7 @@
     if (role === 'ring' && !C.ui.ring.hidden && Math.hypot(x - layout.ring.x, y - layout.ring.y) <= C.ui.ring.radius * 1.15) { ptr.ox = layout.ring.x; ptr.oy = layout.ring.y; }
     if (role === 'drag') { ptr.floe = S.p.floe; const f = ptr.floe; f.grab = f.grab || [f.x, f.y]; f.grabN = (f.grabN || 0) + 1; }
     pointers.set(id, ptr);
-    if (role === 'action') { S.tapPulse = 1; actionPress(ptr); }
+    if (role === 'action') { S.tapPulse = 1; actionPress(ptr); if (S.bur) burPress(); }
   }
   function release(id, cancelled) {
     const ptr = pointers.get(id);
@@ -1735,10 +1736,12 @@
     S.time += dt; S.stepN++;
     const now = performance.now();
     for (const ptr of pointers.values()) if (ptr.role === 'action' && !ptr.long && now - ptr.t0 >= C.input.longPressMs) { ptr.long = true; S.lastTapUp = 0; }
+    if (S.bur && S.bur.under) { stepUnder(dt); return; }   // 지하: 바깥 세계는 멈춤
     updateIntro(dt);
     stepFloes(dt);
-    stepPenguin(dt);
-    stepCamera(dt);
+    if (!burLocked()) stepPenguin(dt);
+    stepBurrow(dt);
+    if (!burCamLocked()) stepCamera(dt);
     stepSim(dt);
     stepFirefly(dt);
     if (IT) { stepLandFireflies(dt); stepSnow(dt); }
@@ -2957,6 +2960,7 @@
   }
   function lfBright(f) {                                       // 깜빡임 밝기 (부드러운 켜짐·꺼짐)
     const LF = C.LAND_FIREFLY, on = (f.state === 'pin' ? LF.pinBlink.on : LF.blink.on) / f.per, x = f.ph;
+    if (f.state === 'bur') return f.vis * (0.72 + 0.28 * Math.sin(S.time * 1.7 + f.seed));   // 땅굴 안내 반딧불이: 은은하게 계속
     if (f.state === 'pop') return (C.LAND_FIREFLY.pop.flash || 1) * Math.max(0.6, f.vis);
     if (f.state === 'arrive' || f.state === 'flee' || f.state === 'pre') return 0.75 * f.vis;
     if (f.state === 'fade') return 0.6 * f.vis;
@@ -3654,6 +3658,7 @@
     else if (proneW) target = PO.belly;   // 얕은 물: 배를 바닥에 대고 엎드린 채 미끄러져 옴
     else if (p.landAt != null && t - p.landAt < JP.landTime) target = JP.crouch;
     else if (idleNow && PO.idle != null) target = PO.idle;
+    if (S.bur && S.bur.under && S.bur.pose != null) target = S.bur.pose;   // 지하: 착지 뒤 엎드림 → 고개 듦
     // 큰 변화(서기 ↔ 헤엄·배)는 사이 포즈를 빠르게 지나가게
     if (p.artPose == null || Math.abs(target - p.artPose) <= 1.01 || p.air || target === PO.idle || Math.round(p.artPose) === PO.idle) p.artPose = target;   // 가만히 포즈는 사이 포즈 없이 바로
     else p.artPose += Math.sign(target - p.artPose) * Math.min(Math.abs(target - p.artPose), PO.blendRate * (t - (p.artT || t)));
@@ -3802,7 +3807,7 @@
       G.globalCompositeOperation = 'source-atop'; G.setTransform(kpx, 0, 0, kpx, -X0 * kpx, -Y0 * kpx);
     }
     // 반딧불이 빛: 가까울수록 그쪽 몸에 색이 비침
-    const FL = L.firefly; if (FL && FL.alpha > 0) {
+    const FL = L.firefly; if (FL && FL.alpha > 0 && !(S.bur && S.bur.under)) {
       const pc = project(p.x, p.y, p.z), py0 = pc[1] + penOffset(), sc = C.PENGUIN_ART.scale;
       const glow = (wx, wy, wz, col, b) => {
         const d = Math.hypot(wx - p.x, wy - p.y, (wz - p.z) * 0.6), k = Math.pow(clamp(1 - d / FL.range, 0, 1), 1.6) * b;
@@ -3952,7 +3957,7 @@
       } }
     const climbClip = false;   // 기어오르는 동안: 빙하 윗면 선 위로만 그림 (옆면을 뚫고 올라오는 것처럼 보이지 않게)
     ctx.save(); if (climbClip) { const ty = project(p.x, p.y, p.z)[1] + 1; ctx.beginPath(); ctx.rect(-W, -H, W * 3, ty + H); ctx.clip(); }
-    ctx.translate(sx, sy); drawPenguinFigure(ctx, u, v, 'above', cut); ctx.restore();
+    ctx.translate(sx, sy); { const bo = burShake(u); if (bo) { ctx.translate(bo[0], bo[1]); ctx.rotate(bo[2]); } } drawPenguinFigure(ctx, u, v, 'above', cut); ctx.restore();
     if (cut && p.depth === 'deep') waterlineArc(cut, sx, sy, true);
     ringHalf(true);
   }
@@ -4311,7 +4316,13 @@
       S.pawK = want > cur ? Math.min(want, cur + (want - cur) * Math.min(1, dt * 12)) : Math.max(want, cur - Math.max(rate, (A.alphaScale - ID.alpha) / ID.fade) * dt);
       want = S.pawK;
     }
-    drawPaw(a.x, a.y + sc * 0.04, sc, lum.action, want);
+    const bg = burPawGlow();
+    if (bg > 0.01) {   // 땅굴: 발바닥 버튼 강조 (따뜻한 빛 번짐 + 진하게)
+      const r = sc * 2.1, g = ctx.createRadialGradient(a.x, a.y, sc * 0.3, a.x, a.y, r); g.addColorStop(0, `rgba(255,214,140,${(0.42 * bg).toFixed(3)})`); g.addColorStop(1, 'rgba(255,214,140,0)');
+      ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = g; ctx.fillRect(a.x - r, a.y - r, r * 2, r * 2); ctx.restore();
+      want = Math.min(1.6, want * (1 + bg * 1.2));
+    }
+    drawPaw(a.x, a.y + sc * 0.04, sc * (1 + bg * 0.08), lum.action, want);
   }
 
   // 발바닥 모양 (버튼·발자국 공용): 베지어 구간, 그리고 다각형으로 샘플링한 것
@@ -4532,6 +4543,7 @@
   function draw(dt) {
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.imageSmoothingQuality = C.quality && C.quality.smoothHigh && !(S.qTier > 0) ? 'high' : 'low';   // 고품질 보간은 최고 단계에서만 (느린 기기에선 비쌈). 캔버스 크기가 바뀌면 초기화되므로 매 프레임
     ctx.globalAlpha = 1;
+    if (S.bur && S.bur.under) { drawUnder(); drawUI(dt); return; }
     updateRig();
     drawSky();
     drawStars();
@@ -4576,7 +4588,8 @@
     terrainItems(items);
     snowItems(items);
     dropItems(items);
-    items.push({ d: pd, draw: drawPenguin });
+    burrowItems(items, pd);
+    if (!(S.bur && S.bur.hidePen)) items.push({ d: pd, draw: drawPenguin });
     items.sort((a, b) => b.d - a.d);
     // 먼 것 → 안개 층 → 가까운 것 (펭귄·가까운 빙하는 선명하게)
     let fogged = false;
@@ -4590,7 +4603,332 @@
     ctx.globalAlpha = 1;
     drawDither();
     if (IT && C.debugTerrain) drawTerrainDebug();
+    burrowZoom();
     drawUI(dt);
+  }
+
+  // ── 땅굴 장면 (pengbok): 숲 초입 굴 → 노란 반딧불이 → 엎드려 들어가다 꽉 낌 → 발바닥 탭 → 뽁 → 카메라가 구멍으로 → 지하 ──────
+  // a = 굴 입구에서 섬 안쪽으로 거리 (+ = 굴 안), h = 땅 위 높이. 화면은 옆보기라 a 가 커질수록 화면 왼쪽
+  const BUR = C.BURROW;
+  const buzz = (ms) => { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (_) {} };   // 진동 (지원 기기만)
+  const BUR_LOCK = { enter: 1, stuck: 1, pop: 1, zoom: 1, dark: 1 }, BUR_CAM = { stuck: 1, pop: 1, zoom: 1, dark: 1 };
+  const burLocked = () => !!(S.bur && (BUR_LOCK[S.bur.phase] || S.bur.under));
+  const burCamLocked = () => !!(S.bur && BUR_CAM[S.bur.phase]);
+  function setupBurrow() {
+    S.bur = null; if (!BUR || !BUR.enabled || !IT) return;
+    const is = S.islands[0], laneY = C.lane ? C.lane.y : 0, hy = laneY - BUR.yBack, hx = is.shoreAt(hy) + is.side * BUR.d;
+    S.trees = S.trees.filter((t) => !(Math.abs((t.d ?? 0) - BUR.d) < BUR.clearTrees && (t.front || (t.y < hy && hy - t.y < BUR.clearBack))));   // 굴·뿌리를 가리는 나무만 치움
+    S.bur = { phase: 'open', t: 0, hx, hy, side: is.side, ff: null, rim: 0, pawT: -99, presses: 0, armed: false, push: 0, dirt: [], shake: 0, pressT: -99, under: false, hidePen: false };
+  }
+  const burX = (a) => S.bur.hx + S.bur.side * a;
+  const penA = () => S.bur.side * (S.p.x - S.bur.hx);
+  function burPt(a, h) { const x = burX(a); return project(x, S.bur.hy, terrainHeightAt(x, S.bur.hy) + h); }
+  function setPenA(a) { const p = S.p; p.x = burX(a); p.z = terrainHeightAt(p.x, p.y); }
+  function actionHeld() { for (const q of pointers.values()) if (q.role === 'action') return true; return false; }
+  function burDirt(n, big) {   // 입구 둘레로 흙 부스러기
+    const B = S.bur;
+    for (let i = 0; i < n; i++) B.dirt.push({ a: lerp(-0.12, 0.05, Math.random()), h: lerp(0.02, BUR.slotH * 0.9, Math.random()), va: -lerp(0.4, big ? 2.2 : 1.2, Math.random()), vz: lerp(0.3, big ? 2.4 : 1.4, Math.random()), t: 0, life: lerp(0.35, 0.7, Math.random()), s: lerp(0.015, 0.04, Math.random()) });
+  }
+  // 끼어 있을 때 발바닥 버튼을 새로 누름 → 바둥 (손을 뗐다가 새로 누른 것만 셈)
+  function burPress() {
+    const B = S.bur; if (!B || B.phase !== 'stuck' || !B.armed) return;
+    B.presses++; B.push = 1; B.shake = 1; B.pressT = S.time; S.p.tobKick = 1; buzz(BUR.buzz.tap); burDirt(5); log('burrowTap');
+    if (B.presses >= BUR.taps) { B.phase = 'pop'; B.t = 0; B.popA0 = penA(); buzz(BUR.buzz.pop); burDirt(14, true); log('burrowPop'); }
+  }
+  function stepBurGuide(dt) {
+    const B = S.bur, lf = S.lf, p = S.p, G = BUR.guide; if (!lf) return;
+    if (!B.ff) {
+      if (Math.max(0, inlandDist(p.x, p.y)) < G.from) return;
+      let best = null, bd = Infinity;   // 해안에서 만난 노란 반딧불이 (숲으로 안내하던 것) 중 가장 가까운 하나
+      for (const f of lf.flies) if (f.state === 'pin' || f.state === 'sit') { const d = Math.hypot(f.x - p.x, f.y - p.y); if (d < bd) { bd = d; best = f; } }
+      if (!best) { best = { x: p.x + B.side * 1.5, y: B.hy + 0.3, z: p.z + 1.4, trail: [], vis: 0, size: G.size, seed: 3.7, per: 3, ph: 0 }; lf.flies.push(best); }
+      best.state = 'bur'; best.size = G.size; best.fadeAt = null; B.ff = best;
+    }
+    const f = B.ff; f.vis = Math.min(1, (f.vis || 0) + dt * 1.5);
+    const inHole = B.phase !== 'open', stopA = inHole ? -0.42 : -0.12, a = penA(), ta = inHole ? stopA : Math.min(stopA, a + G.lead), at = ta >= stopA - 0.01;   // 펭귄이 끼면 입구 위로 비켜 맴돎
+    const tx = burX(ta + (at ? Math.sin(S.time * 0.9) * 0.08 : 0)), ty = B.hy + (at ? 0.18 : 0.25 + Math.sin(S.time * 0.5) * 0.2);
+    const tz = terrainHeightAt(tx, B.hy) + (at ? (inHole ? BUR.slotH + 0.45 : 0) + lerp(G.hover[0], G.hover[1], 0.5 + 0.5 * Math.sin(S.time * G.hoverHz * Math.PI * 2)) : G.height + Math.sin(S.time * 0.8) * 0.15);
+    const dx = tx - f.x, dy = ty - f.y, dz = tz - f.z, dd = Math.hypot(dx, dy, dz), v = Math.min(dd, Math.max(0.3, Math.min(G.speed, dd * 2.2)) * dt);
+    if (dd > 1e-4) { f.x += dx / dd * v; f.y += dy / dd * v; f.z += dz / dd * v; }
+    const rimD = Math.hypot(f.x - burX(0.05), (f.z - terrainHeightAt(f.x, B.hy)) - BUR.slotH * 0.5);   // 구멍 테두리까지 거리
+    B.rim = clamp(1 - rimD / BUR.rimGlow.range, 0, 1) * lfBright(f);
+  }
+  function stepBurrow(dt) {
+    const B = S.bur; if (!B || B.under) return; const p = S.p, E = BUR.enter;
+    B.t += dt; B.shake = Math.max(0, B.shake - dt * 4); B.push = Math.max(0, B.push - dt * 3);
+    for (const q of B.dirt) { q.t += dt; q.vz -= 7 * dt; q.a += q.va * dt; q.h = Math.max(0, q.h + q.vz * dt); }
+    B.dirt = B.dirt.filter((q) => q.t < q.life);
+    if (B.ff || B.phase === 'open') stepBurGuide(dt);
+    if (BUR_LOCK[B.phase]) { S.jumpReq = false; S.jumpAt = 0; S.lastTapUp = 0; p.tobKick = Math.max(0, (p.tobKick || 0) - dt / 0.25); S.tapPulse = Math.max(0, S.tapPulse - dt * 5); p.air = false; p.vz = 0; }
+    if (B.phase === 'open') {
+      if (p.mode !== 'island' || p.air) return;
+      const a = penA();
+      if (a > -BUR.arrive && B.pawT < 0) { B.pawT = S.time; log('burrowArrive'); }   // 입구 도착: 발바닥 버튼 한 번 은은하게
+      if (p.sliding && a > -E.reach && B.side * p.vx > E.minSpeed) {   // 엎드려 굴 쪽으로 밀어야 들어감
+        B.phase = 'enter'; B.t = 0; B.a0 = a; B.y0 = p.y; p.belly = false; p.bellyT = null; p.face = Math.atan2(0, B.side); log('burrowEnter');
+      } else if (a > -BUR.wall) { p.x = burX(-BUR.wall); if (B.side * p.vx > 0) p.vx = 0; }   // 서서는 못 들어감
+      return;
+    }
+    if (B.phase === 'enter') {   // 머리 → 날개 → 배 순서로 뿌리 뒤로 들어가다 통통한 배에서 딱
+      const k = clamp(B.t / E.time, 0, 1), e = 1 - Math.pow(1 - k, 2.4);
+      setPenA(lerp(B.a0, E.stuckA, e)); p.y = lerp(B.y0, B.hy + 0.04, e); p.vx = B.side * (1 - k) * 1.2; p.vy = 0; p.sliding = true;
+      if (k >= 1) { B.phase = 'stuck'; B.t = 0; B.armed = false; B.shake = 1.3; B.u = penScale(camSpace(p.x, p.y, p.z)[1]); buzz(BUR.buzz.stuck); burDirt(6); log('burrowStuck'); }
+      return;
+    }
+    if (B.phase === 'stuck') {
+      if (!B.armed && !actionHeld()) B.armed = true;   // 들어올 때 누르고 있던 입력은 안 셈: 손을 뗀 뒤부터
+      setPenA(E.stuckA + B.presses * BUR.tapPush + B.push * 0.05); p.vx = 0; p.vy = 0; p.sliding = true;
+      return;
+    }
+    if (B.phase === 'pop') {   // 뽁: 남은 엉덩이·발끝까지 쏙
+      const k = clamp(B.t / BUR.popTime, 0, 1); setPenA(lerp(B.popA0, BUR.popA, k * k)); p.vx = B.side * 2;
+      if (k >= 1) B.hidePen = true;
+      if (B.t > BUR.popTime + BUR.zoomDelay) { B.phase = 'zoom'; B.t = 0; const c = burPt(0.25, BUR.slotH * 0.45), c2 = burPt(0.25, 0); B.focus = [c[0], c[1]]; B.slotPx = Math.max(6, (c2[1] - c[1]) * 1.1); }
+      return;
+    }
+    if (B.phase === 'zoom' && B.t > BUR.zoomTime) { B.phase = 'dark'; B.t = 0; return; }
+    if (B.phase === 'dark' && B.t > BUR.darkTime) startUnder();
+  }
+  // 발바닥 버튼 강조 정도 (0~1): 입구 도착 때 한 번 · 끼어 있는 동안 번쩍번쩍 · 누를 때마다 반짝
+  function burPawGlow() {
+    const B = S.bur; if (!B) return 0;
+    let g = 0; const ta = S.time - B.pawT;
+    if (ta > 0 && ta < 1.8) g = Math.sin(Math.PI * ta / 1.8) * 0.7;
+    if (B.phase === 'stuck') g = Math.max(g, (B.presses ? 0.45 : 0.6) + (B.presses ? 0.3 : 0.4) * Math.sin(S.time * Math.PI * 2 * 2.2));
+    const tp = S.time - B.pressT; if (tp >= 0 && tp < 0.5) g = Math.max(g, 1 - tp / 0.5);
+    return clamp(g, 0, 1);
+  }
+  function burShake(u) {   // 끼어 몸부림: 펭귄 그림 흔들림 (x, y, 각도)
+    const B = S.bur; if (!B || B.under || B.shake <= 0) return null;
+    const k = Math.min(1, B.shake);
+    return [Math.sin(S.time * 57) * k * u * 0.035, -Math.abs(Math.sin(S.time * 31)) * k * u * 0.025, Math.sin(S.time * 43) * k * 0.07];
+  }
+  // 그림: 뒤(줄기 · 구멍 안 어둠) — 펭귄보다 먼저, 앞(뿌리 둔덕 · 뿌리 · 테두리 빛 · 흙 부스러기) — 끼어 있으면 펭귄 뒤에 그려 몸을 가림
+  function burrowItems(items, pd) {
+    const B = S.bur; if (!B || B.under) return;
+    const c = camSpace(B.hx, B.hy, 0); if (c[1] < rig.near + 0.3 || c[1] > IT.ground.view) return;
+    const sp = project(B.hx, B.hy, 0), reach = 6 * pxPerUnit(c[1]); if (sp[0] < -reach || sp[0] > W + reach) return;
+    const front = !!BUR_LOCK[B.phase];
+    items.push({ d: Math.max(c[1], pd + 0.06), draw: () => drawBurrowBack(c[1]) });
+    items.push({ d: front ? pd - 0.06 : Math.max(c[1], pd + 0.04), draw: () => drawBurrowFront(c[1]) });
+  }
+  function burPoly(pts) { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); }
+  function drawBurrowBack(depth) {
+    const B = S.bur, M = BUR.mound, K = BUR.color, fog = fogAt(depth), ppu = pxPerUnit(depth), sh = BUR.slotH;
+    // 큰 나무 줄기 (뿌리 둔덕 위로 화면 밖까지)
+    const tb = burPt(BUR.trunk.a, M.h * 0.7), tt = burPt(BUR.trunk.a + 0.25, 14), tw = BUR.trunk.w * ppu;
+    ctx.fillStyle = mixFog(K.trunk, fog);
+    ctx.beginPath(); ctx.moveTo(tb[0] - tw * 0.75, tb[1]); ctx.bezierCurveTo(tb[0] - tw * 0.5, tb[1] - tw * 0.6, tt[0] - tw * 0.45, tb[1] - tw * 1.4, tt[0] - tw * 0.42, tt[1]);
+    ctx.lineTo(tt[0] + tw * 0.42, tt[1]); ctx.bezierCurveTo(tt[0] + tw * 0.45, tb[1] - tw * 1.4, tb[0] + tw * 0.5, tb[1] - tw * 0.6, tb[0] + tw * 0.75, tb[1]); ctx.closePath(); ctx.fill();
+    // 구멍 안 어둠 (입구 홈)
+    const n = BUR.notch, hole = [burPt(-0.04, 0), burPt(-0.04, sh), burPt(n, sh * 0.93), burPt(n + 0.12, 0)];
+    ctx.fillStyle = `rgb(${K.hole.join(',')})`; burPoly(hole); ctx.fill();
+  }
+  function drawBurrowFront(depth) {
+    const B = S.bur, M = BUR.mound, K = BUR.color, fog = fogAt(depth), ppu = pxPerUnit(depth), sh = BUR.slotH, n = BUR.notch, L = M.len, mh = M.h, lip = M.lip;
+    const jig = B.shake > 0 ? Math.sin(S.time * 60) * B.shake * 0.012 : 0;   // 몸부림에 뿌리도 살짝 흔들림
+    // 뿌리 둔덕: 구멍 홈은 비우고 (그 안의 펭귄은 보임), 더 안쪽은 흙이 덮음
+    const out = [[-0.05, sh + jig], [n, sh * 0.93], [n + 0.12, 0], [L, 0], [L - 0.7, mh * 0.42], [L - 1.4, mh * 0.82], [BUR.trunk.a, mh], [0.75, mh * 0.92], [0.18, sh + lip + 0.08], [-0.18, sh + lip * 0.7 + jig], [-0.24, sh + 0.08 + jig]];
+    const pts = out.map(([a, h]) => burPt(a, h));
+    ctx.fillStyle = mixFog(K.soil, fog); burPoly(pts); ctx.fill();
+    // 아래쪽 그늘 · 위쪽 옅은 빛 (둔덕 덩어리감)
+    const top = burPt(0.8, mh), bot = burPt(0.8, 0), gr = ctx.createLinearGradient(0, top[1], 0, bot[1]);
+    gr.addColorStop(0, `rgba(${K.rootLit.join(',')},${(0.16 * (1 - fog)).toFixed(3)})`); gr.addColorStop(0.6, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.35)');
+    ctx.fillStyle = gr; burPoly(pts); ctx.fill();
+    // 뿌리: 줄기 밑동에서 둔덕을 타고 땅으로 (하나는 구멍 위를 아치로 덮음)
+    const roots = [[[BUR.trunk.a - 0.3, mh * 0.95], [0.7, sh + lip + 0.35], [0.0, sh + lip * 1.1], [-0.2, sh + 0.12], 0.13],   // 구멍 위를 덮는 아치 (엉덩이·발은 가리지 않게 입구 위에서 끝남)
+      [[BUR.trunk.a + 0.1, mh * 0.9], [2.4, mh * 0.75], [2.9, mh * 0.3], [L + 0.35, 0.0], 0.15],
+      [[BUR.trunk.a - 0.1, mh], [1.0, mh * 1.05], [0.45, sh + lip + 0.2], [0.02, sh + lip * 0.75], 0.1],
+      [[BUR.trunk.a + 0.35, mh * 0.85], [2.0, mh * 0.5], [1.6, 0.25], [1.3, 0.0], 0.09],
+      [[BUR.trunk.a - 0.2, mh * 0.6], [0.9, mh * 0.55], [0.4, 0.35], [0.5, 0.0], 0.07]];
+    ctx.lineCap = 'round';
+    for (const [p0, p1, p2, p3, wdt] of roots) {
+      const q = [p0, p1, p2, p3].map(([a, h]) => burPt(a, h + (a < 0.3 ? jig : 0)));
+      for (const [col, wm, oy] of [[K.root, 1, 0], [K.rootLit, 0.35, -wdt * ppu * 0.3]]) {
+        ctx.strokeStyle = mixFog(col, fog); ctx.lineWidth = Math.max(1, wdt * ppu * wm); ctx.globalAlpha = wm < 1 ? 0.35 * (1 - fog) : 1;
+        ctx.beginPath(); ctx.moveTo(q[0][0], q[0][1] + oy); ctx.bezierCurveTo(q[1][0], q[1][1] + oy, q[2][0], q[2][1] + oy, q[3][0], q[3][1] + oy); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+    // 테두리 빛: 노란 반딧불이가 가까이 오르내리면 구멍 위 뿌리 밑면과 바닥 가장자리가 은은하게
+    if (B.rim > 0.01) {
+      const spr = lfSprites(), R = BUR.rimGlow.alpha * B.rim * (1 - fog);
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const edge = [[-0.22, sh + 0.06], [-0.1, sh + 0.02], [0.05, sh * 0.99], [0.2, sh * 0.96], [n, sh * 0.93], [-0.06, 0.02], [0.12, 0.02], [-0.25, 0.01]];
+      for (const [a, h] of edge) { const q = burPt(a, h), r = BUR.rimGlow.size * ppu; ctx.globalAlpha = R * 0.5; ctx.drawImage(spr.mid, q[0] - r, q[1] - r, r * 2, r * 2); ctx.globalAlpha = R * 0.35; ctx.drawImage(spr.outer, q[0] - r * 2.2, q[1] - r * 2.2, r * 4.4, r * 4.4); }
+      ctx.restore();
+    }
+    // 흙 부스러기
+    if (B.dirt.length) { ctx.fillStyle = mixFog(K.rootLit, fog);
+      for (const q of B.dirt) { const s = burPt(q.a, q.h); ctx.globalAlpha = 0.85 * (1 - q.t / q.life); ctx.beginPath(); ctx.arc(s[0], s[1], Math.max(0.8, q.s * ppu), 0, Math.PI * 2); ctx.fill(); }
+      ctx.globalAlpha = 1; }
+  }
+  // 카메라가 구멍으로 수욱: 장면을 구멍 쪽으로 키우며, 구멍(어둠)이 둘레 흙·뿌리와 함께 화면 가장자리까지 커짐 → 잠시 어둠
+  const zoomCv = document.createElement('canvas'), zoomG = zoomCv.getContext('2d');
+  function burrowZoom() {
+    const B = S.bur; if (!B || (B.phase !== 'zoom' && B.phase !== 'dark')) return;
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (B.phase === 'dark') { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.restore(); return; }
+    const k = clamp(B.t / BUR.zoomTime, 0, 1), e = k * k * (3 - 2 * k), ez = Math.pow(k, 1.6), f = B.focus;
+    fitCv(zoomCv, canvas.width, canvas.height); zoomG.setTransform(1, 0, 0, 1, 0, 0); zoomG.clearRect(0, 0, zoomCv.width, zoomCv.height); zoomG.drawImage(canvas, 0, 0);
+    const Z = 1 + (BUR.zoomMax - 1) * ez, cx = lerp(f[0], W / 2, e), cy = lerp(f[1], H / 2, e);
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(DPR * Z, 0, 0, DPR * Z, DPR * (cx - f[0] * Z), DPR * (cy - f[1] * Z)); ctx.imageSmoothingEnabled = true; ctx.drawImage(zoomCv, 0, 0, W, H);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // 커지는 구멍: 납작한 어둠 + 둘레 흙 띠 + 뿌리 가닥
+    const grow = Math.exp(k * 4.2) - 1, ry = B.slotPx * 0.5 * Z * (1 + grow * 0.9), rx = ry * lerp(1.7, 1.15, e), K = BUR.color;
+    const ring = ctx.createRadialGradient(cx, cy, 0, cx, cy, 1); ring.addColorStop(0, 'rgba(0,0,0,1)'); ring.addColorStop(0.72, 'rgba(0,0,0,1)'); ring.addColorStop(0.86, `rgba(${K.soil.join(',')},0.95)`); ring.addColorStop(1, `rgba(${K.soil.join(',')},0)`);
+    ctx.save(); ctx.translate(cx, cy); ctx.scale(rx * 1.35, ry * 1.35); ctx.fillStyle = ring; ctx.beginPath(); ctx.arc(0, 0, 1, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    ctx.strokeStyle = `rgb(${K.root.join(',')})`; ctx.lineCap = 'round';
+    for (let i = 0; i < 11; i++) {
+      const th = i / 11 * Math.PI * 2 + 0.3, r1 = 0.95 + 0.15 * Math.sin(i * 2.7), x0 = cx + Math.cos(th) * rx * r1, y0 = cy + Math.sin(th) * ry * r1;
+      ctx.lineWidth = Math.max(1, ry * 0.09 * (0.6 + 0.4 * Math.sin(i * 1.9))); ctx.globalAlpha = 0.9;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.quadraticCurveTo(x0 - Math.cos(th + 0.6) * ry * 0.3, y0 - Math.sin(th + 0.6) * ry * 0.3, x0 - Math.cos(th) * ry * 0.35, y0 - Math.sin(th) * ry * 0.35); ctx.stroke();
+    }
+    ctx.globalAlpha = smooth(0.45, 1, k); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+    ctx.restore(); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  // ── 지하: 가파른 흙굴을 배로 주우욱 → 완만하게 휘어 얕은 물에 찰박 → 고요 → 분홍 꽃잎 → 조작 돌려줌 ──────
+  // s = 굴 입구에서 안쪽(화면 왼쪽)으로 거리, y = 높이 (위 +). 같은 옆보기 · 같은 캐릭터 크기 (끼었을 때의 화면 크기)
+  const caveY0 = () => { const V = BUR.cave; return -V.slope * V.steepLen - V.slope * V.curveLen / 2; };   // 굴이 평평해지는 높이
+  function caveFloor(s) {
+    const V = BUR.cave, S1 = V.steepLen, L = V.curveLen, S2 = S1 + L, y2 = caveY0();
+    if (s <= 0) return 0;
+    if (s <= S1) return -V.slope * s;
+    if (s <= S2) { const u = s - S1; return -V.slope * S1 - V.slope * (u - u * u / (2 * L)); }
+    return y2 - V.poolDepth * smooth(S2 - 0.2, S2 + 0.9, s) + 0.6 * smooth(V.poolEnd - 2, V.poolEnd + 2, s);
+  }
+  const caveSlope = (s) => (caveFloor(s - 0.02) - caveFloor(s + 0.02)) / 0.04;   // 왼쪽으로 갈 때 내려가는 기울기 (+ = 내리막)
+  const caveWater = () => caveY0() + BUR.cave.waterUp;
+  const caveWaterS = () => { const V = BUR.cave; return V.steepLen + V.curveLen + 0.05; };   // 물이 시작되는 곳
+  function caveCeil(s) { const V = BUR.cave, k = smooth(V.steepLen + V.curveLen - 1.5, V.steepLen + V.curveLen + 3, s); return caveFloor(s) + lerp(V.tunnelH, V.caveH, k) + Math.sin(s * 1.7) * 0.08 + (s < 0 ? 0 : 0); }
+  function buildCaveDeco() {   // 흙 얼룩 · 잔뿌리 · 앞쪽 뿌리 가닥 (한 번만)
+    const r = rng(9091), V = BUR.cave, B = S.bur, deco = { blobs: [], roots: [], fg: [] };
+    for (let s = -3; s < V.poolEnd + 6; s += 0.35) {
+      for (let k = 0; k < 3; k++) deco.blobs.push({ s: s + r() * 0.35, y: caveFloor(s) + lerp(-3, V.caveH + 3, r()), rx: lerp(0.15, 0.6, r()), ry: lerp(0.06, 0.22, r()), lit: r() < 0.45 });
+      if (r() < 0.75) deco.roots.push({ s: s + r() * 0.3, top: true, len: lerp(0.15, s > V.steepLen + V.curveLen ? 1.6 : 0.55, Math.pow(r(), 1.4)), w: lerp(0.012, 0.04, r()), bend: (r() - 0.5) * 0.5, ph: r() * 6 });
+      if (r() < 0.3 && s < V.steepLen + V.curveLen) deco.roots.push({ s: s + r() * 0.3, top: false, len: lerp(0.08, 0.25, r()), w: lerp(0.01, 0.025, r()), bend: (r() - 0.5) * 0.6, ph: r() * 6 });
+    }
+    for (let s = 0; s < V.steepLen + V.curveLen + 4; s += lerp(0.9, 1.8, r())) deco.fg.push({ s, top: r() < 0.6, len: lerp(0.5, 1.4, r()), w: lerp(0.05, 0.12, r()), bend: (r() - 0.5) * 0.8 });   // 화면 앞을 빠르게 지나가는 굵은 뿌리·흙
+    B.deco = deco;
+  }
+  function startUnder() {
+    const B = S.bur, p = S.p, V = BUR.cave;
+    B.under = true; B.phase = 'slide'; B.t = 0; B.hidePen = false; B.fade = 1;
+    B.us = V.startS; B.uv = V.startSpeed; B.uy = caveFloor(B.us); B.cs = B.us + V.lead; B.cy = B.uy; B.drops = []; B.rips = []; B.petal = null; B.pose = null; B.uvx = 0;
+    if (!B.u) B.u = penScale(4);
+    Object.assign(p, { mode: 'island', air: false, sliding: true, belly: false, depth: null, wclass: null, waterDepth: 0, sink: 0, vx: -B.uv, vy: 0, vz: 0, sit: false, tobKick: 0 });
+    p.face = Math.PI - cam.yaw; p.artPose = 7; buildCaveDeco(); log('burrowUnder');
+  }
+  function caveSplash(s, y, sp) {   // 찰박: 작은 물방울 + 둥근 파문
+    const B = S.bur;
+    for (let i = 0; i < 16; i++) B.drops.push({ s: s + lerp(-0.3, 0.35, Math.random()), y, vs: lerp(-0.6, 1.4, Math.random()) * Math.min(1.4, sp / 3), vy: lerp(0.8, 2.6, Math.random()) * Math.min(1.3, sp / 3), t: 0, r: lerp(0.008, 0.02, Math.random()) });
+    B.rips.push({ s, t: 0, life: 1.6, r: 1.1 }, { s: s + 0.2, t: -0.15, life: 1.4, r: 0.7 });
+  }
+  function stepUnder(dt) {
+    const B = S.bur, p = S.p, V = BUR.cave; B.t += dt; B.fade = Math.max(0, B.fade - dt / V.fadeIn);
+    S.jumpReq = false; S.jumpAt = 0; S.tapPulse = Math.max(0, S.tapPulse - dt * 5); p.tobKick = Math.max(0, (p.tobKick || 0) - dt / 0.25);
+    const wS = caveWaterS(), wy = caveWater();
+    for (const d of B.drops) { d.t += dt; d.vy -= 9 * dt; d.s += d.vs * dt; d.y += d.vy * dt; }
+    B.drops = B.drops.filter((d) => d.y > wy - 0.02 || d.vy > 0);
+    for (const r of B.rips) r.t += dt; B.rips = B.rips.filter((r) => r.t < r.life);
+    let followRate = V.follow;
+    if (B.phase === 'slide') {   // 배를 깔고 주우욱: 기울기만큼 빨라지고, 휘는 곳에서 천천히
+      const sl = caveSlope(B.us), th = Math.atan(sl);
+      B.uv = clamp(B.uv + (V.g * Math.sin(th) - V.fric) * dt, 0.6, V.maxSpeed);
+      B.us += B.uv * Math.cos(th) * dt; B.uy = caveFloor(B.us);
+      if (B.us >= wS) { B.phase = 'glide'; B.t = 0; caveSplash(B.us + 0.2, wy, B.uv); buzz(15); log('burrowSplash'); }
+    } else if (B.phase === 'glide') {   // 물 위로 미끄러지다 멈춤
+      B.uv *= Math.exp(-V.waterDrag * dt); B.us += B.uv * dt; B.uy = Math.max(caveFloor(B.us), wy - V.floatSink);
+      followRate = V.settle;
+      if (B.uv < 0.06) { B.phase = 'rest'; B.t = 0; p.sliding = false; B.pose = 7; }
+    } else if (B.phase === 'rest' || B.phase === 'petal') {
+      followRate = V.settle; B.uy = Math.max(caveFloor(B.us), wy - V.floatSink);
+      if (B.phase === 'rest' && B.t > V.quiet) B.pose = V.headUp;   // 고개를 듦
+      if (B.phase === 'rest' && B.t > V.quiet + V.petalAfter) { B.phase = 'petal'; B.t = 0; B.petal = { s: B.us + V.petal.from, rot: 0.4, t: 0 }; log('burrowPetal'); }
+    } else if (B.phase === 'free') {   // 조작 돌려줌: 얕은 물에서 좌우로
+      const [mx] = readMove(), tv = -mx * V.walkSpeed;
+      B.uvx += (tv - B.uvx) * ease(6, dt); B.us = clamp(B.us + B.uvx * dt, V.minS, V.maxS);
+      if (Math.abs(mx) > 0.05) { p.inputAt = S.time; B.pose = null; p.face = (mx < 0 ? Math.PI : 0) - cam.yaw; }
+      const stand = B.pose == null; B.uy = stand ? caveFloor(B.us) : Math.max(caveFloor(B.us), wy - V.floatSink);
+      p.vx = -B.uvx; p.vy = 0;
+      if (Math.abs(B.uvx) > 0.2 && Math.random() < dt * 3) B.rips.push({ s: B.us, t: 0, life: 1.1, r: 0.45 });
+      followRate = V.settle;
+    }
+    if (B.phase === 'slide' || B.phase === 'glide') p.vx = -B.uv;
+    else if (B.phase !== 'free') p.vx = 0;
+    if (B.petal) {   // 물살을 타고 천천히 → 부리 앞을 스쳐 지나감
+      const P = B.petal; P.t += dt; P.s -= V.petal.speed * dt * (1 + 0.15 * Math.sin(P.t * 1.3)); P.rot = 0.12 * Math.sin(P.t * 0.7);   // 물 위에 누운 채 살짝만 흔들림
+      if (B.phase === 'petal' && P.s < B.us - 0.25) { B.phase = 'free'; B.t = 0; log('burrowFree'); }
+      if (P.s < B.us - 9) B.petal = null;
+    }
+    // 카메라: 미끄럼 중엔 앞(아래)을 조금 더 보여 주며 바짝, 착지 뒤 부드럽게 멈춤
+    const lead = B.phase === 'slide' ? V.lead : 0;
+    B.cs += (B.us + lead - B.cs) * ease(followRate, dt); B.cy += (B.uy - B.cy) * ease(followRate, dt);
+  }
+  function drawUnder() {
+    const B = S.bur, V = BUR.cave, k = B.u / penH(), ax = W * V.screenX, ay = H * V.screenY;
+    const X = (s) => ax - (s - B.cs) * k, Y = (y) => ay - (y - B.cy) * k;
+    const s0 = B.cs - (W - ax) / k - 1, s1 = B.cs + ax / k + 1;   // 화면에 보이는 s 범위 (오른쪽 = 작은 s)
+    const rgb = (c, a = 1) => `rgba(${c.join(',')},${a})`;
+    ctx.fillStyle = rgb(V.soil); ctx.fillRect(0, 0, W, H);
+    for (const q of B.deco.blobs) { if (q.s < s0 - 1 || q.s > s1 + 1) continue; ctx.fillStyle = q.lit ? rgb(V.soilLight, 0.35) : 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(X(q.s), Y(q.y), q.rx * k, q.ry * k, 0, 0, Math.PI * 2); ctx.fill(); }
+    // 굴 · 동굴 안 공간 (흙을 파낸 어둠)
+    const fl = [], ce = [];
+    for (let s = s0; s <= s1 + 0.15; s += 0.15) { fl.push([X(s), Y(caveFloor(s))]); ce.push([X(s), Y(caveCeil(s))]); }
+    ctx.fillStyle = rgb(V.air); ctx.beginPath(); fl.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); for (let i = ce.length - 1; i >= 0; i--) ctx.lineTo(ce[i][0], ce[i][1]); ctx.closePath(); ctx.fill();
+    // 입구 쪽 희미한 바깥 빛 (굴 위쪽 끝)
+    if (s0 < 1.5) { const q = [X(-0.3), Y(0.6)], r = 1.6 * k, g = ctx.createRadialGradient(q[0], q[1], 0, q[0], q[1], r); g.addColorStop(0, 'rgba(70,80,96,0.35)'); g.addColorStop(1, 'rgba(70,80,96,0)'); ctx.fillStyle = g; ctx.fillRect(q[0] - r, q[1] - r, r * 2, r * 2); }
+    // 굴 가장자리 흙 테두리 (윤곽이 읽히게)
+    ctx.lineWidth = Math.max(1, 0.035 * k); ctx.strokeStyle = rgb(V.rim, 0.5);
+    for (const L of [fl, ce]) { ctx.beginPath(); L.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); }
+    // 잔뿌리: 천장에 매달리고 바닥에서 삐죽
+    ctx.lineCap = 'round'; ctx.strokeStyle = rgb(V.rim, 0.75);
+    for (const q of B.deco.roots) {
+      if (q.s < s0 - 1 || q.s > s1 + 1) continue;
+      const y0 = q.top ? caveCeil(q.s) : caveFloor(q.s), dir = q.top ? -1 : 1, sw = Math.sin(S.time * 0.8 + q.ph) * 0.03;
+      ctx.lineWidth = Math.max(0.8, q.w * k); ctx.beginPath(); ctx.moveTo(X(q.s), Y(y0)); ctx.quadraticCurveTo(X(q.s + q.bend * 0.5 + sw), Y(y0 + dir * q.len * 0.5), X(q.s + q.bend + sw * 2), Y(y0 + dir * q.len)); ctx.stroke();
+    }
+    // 물: 수면 아래 어둠 (뒤쪽)
+    const wy = caveWater(), wS = caveWaterS(), xw = X(wS - 0.6);
+    const wpoly = () => { ctx.beginPath(); ctx.moveTo(Math.min(xw, W + 10), Y(wy)); ctx.lineTo(-10, Y(wy)); for (let s = s1; s >= Math.max(s0, wS - 0.6); s -= 0.2) ctx.lineTo(X(s), Y(Math.min(caveFloor(s), wy))); ctx.closePath(); };
+    if (xw > -10) { ctx.fillStyle = rgb(V.water, 0.85); wpoly(); ctx.fill(); }
+    // 꽃잎 수면 반사 (꽃잎 바로 아래만 연분홍)
+    const PT = B.petal, PV = V.petal;
+    const petalPos = () => [X(PT.s), Y(wy) - PV.size * k * (0.35 + 0.08 * Math.sin(PT.t * 2))];
+    if (PT) { const [px] = petalPos(), r = ctx.createRadialGradient(px, Y(wy) + PV.size * k * 0.5, 0, px, Y(wy) + PV.size * k * 0.5, PV.size * k * 1.6);
+      r.addColorStop(0, rgb(PV.glow, PV.reflect)); r.addColorStop(1, rgb(PV.glow, 0)); ctx.save(); ctx.translate(0, 0); ctx.fillStyle = r; ctx.beginPath(); ctx.ellipse(px, Y(wy) + PV.size * k * 0.5, PV.size * k * 1.6, PV.size * k * 0.55, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+    // 펭귄 (미끄럼 중엔 기울기만큼 머리를 아래로)
+    { const p = S.p, v = penguinView(), px = X(B.us), py = Y(B.uy), rot = B.phase === 'slide' ? -Math.atan(caveSlope(B.us)) : 0;
+      ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.ellipse(px, Y(caveFloor(B.us)) + 1, B.u * 0.35, B.u * 0.05, rot, 0, Math.PI * 2); ctx.fill();
+      ctx.save(); ctx.translate(px, py); ctx.rotate(rot); drawPenguinFigure(ctx, B.u, v, 'above', null); ctx.restore(); }
+    // 물: 앞쪽 (잠긴 몸을 어둡게) + 수면선 + 파문
+    if (xw > -10) {
+      ctx.fillStyle = rgb(V.water, 0.55); wpoly(); ctx.fill();
+      ctx.strokeStyle = rgb(V.waterLine, 0.22); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(Math.min(xw, W + 10), Y(wy)); ctx.lineTo(-10, Y(wy)); ctx.stroke();
+      for (const r of B.rips) { if (r.t < 0) continue; const u = r.t / r.life, rr = r.r * (1 - Math.pow(1 - u, 2.5)) * k;
+        ctx.globalAlpha = 0.5 * (1 - u); ctx.strokeStyle = rgb(V.waterLine, 1); ctx.lineWidth = Math.max(0.7, 0.012 * k); ctx.beginPath(); ctx.ellipse(X(r.s), Y(wy), rr, rr * 0.16, 0, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = rgb(V.waterLine, 0.85);
+    for (const d of B.drops) { ctx.beginPath(); ctx.arc(X(d.s), Y(d.y), Math.max(0.8, d.r * k), 0, Math.PI * 2); ctx.fill(); }
+    // 꽃잎: 둥근 분홍 한 장 (끝이 살짝 패임) + 은은한 빛
+    if (PT) { const [px, py] = petalPos(), L = PV.size * k;
+      ctx.save(); ctx.translate(px, py); ctx.rotate(PT.rot);
+      ctx.globalCompositeOperation = 'lighter'; const gl = ctx.createRadialGradient(0, 0, 0, 0, 0, L * 2.2); gl.addColorStop(0, rgb(PV.glow, 0.18)); gl.addColorStop(1, rgb(PV.glow, 0)); ctx.fillStyle = gl; ctx.fillRect(-L * 2.2, -L * 2.2, L * 4.4, L * 4.4);
+      ctx.globalCompositeOperation = 'source-over'; const pg = ctx.createLinearGradient(-L, 0, L, 0); pg.addColorStop(0, rgb(PV.color)); pg.addColorStop(1, rgb(PV.color.map((c) => Math.min(255, c + 22))));
+      ctx.fillStyle = pg; ctx.beginPath(); ctx.moveTo(-L, 0); ctx.bezierCurveTo(-L * 0.6, -L * 0.62, L * 0.55, -L * 0.6, L * 0.95, -L * 0.12); ctx.lineTo(L * 0.78, 0); ctx.lineTo(L * 0.95, L * 0.12); ctx.bezierCurveTo(L * 0.55, L * 0.6, -L * 0.6, L * 0.62, -L, 0); ctx.fill();
+      ctx.restore(); }
+    // 앞쪽 굵은 뿌리·흙 가닥: 빠르게 지나감 (미끄럼 속도감)
+    const par = 1.35;
+    ctx.strokeStyle = rgb([14, 11, 9], 0.92);
+    for (const q of B.deco.fg) {
+      const x = ax - (q.s - B.cs) * k * par; if (x < -200 || x > W + 200) continue;
+      const yb = q.top ? 0 : H, dir = q.top ? 1 : -1; ctx.lineWidth = q.w * k; ctx.beginPath(); ctx.moveTo(x, yb - dir * 10); ctx.quadraticCurveTo(x + q.bend * k * 0.5, yb + dir * q.len * k * 0.5, x + q.bend * k, yb + dir * q.len * k); ctx.stroke();
+    }
+    // 가장자리 어둠 + 처음 어둠에서 밝아짐
+    const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.hypot(W, H) * 0.6); vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.6)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+    if (B.fade > 0) { ctx.fillStyle = `rgba(0,0,0,${B.fade})`; ctx.fillRect(0, 0, W, H); }
   }
 
   // ── 루프: 60Hz 고정 단계 + 프레임 저하 시 입자 수 줄이기 ──────

@@ -888,9 +888,45 @@ const WATER_SIM = {
 
 FIREFLY.guide.shoreMinDepth = ISLAND_TERRAIN.sea.fireflyMinDepth;   // 반딧불이 최소 수심도 섬 지형 블록에서
 
+// ── 땅굴 장면 (pengbok): 숲 초입 굴 → 노란 반딧불이 안내 → 엎드려 들어가다 꽉 낌 → 발바닥 탭으로 뽁 → 흙굴 미끄럼 → 지하 물가 → 분홍 꽃잎 ─────
+const BURROW = {
+  enabled: true,
+  d: 18,                      // 굴 위치: 해안선에서 안쪽 거리 (숲 시작 d 6 → 평소 걸음 약 1.8/초로 숲 진입 후 약 6.5초, 해안이 화면에서 사라지고 가까운 나무 두세 그루를 지난 곳)
+  yBack: 0.12,                // 이동 선에서 이만큼 뒤 (펭귄 몸이 굴 바로 앞에 옴)
+  clearTrees: 4, clearBack: 1.8,   // 굴 둘레 나무 치움: 앞쪽 실루엣 나무는 굴 ±clearTrees 안, 뒤쪽 나무는 이동 선 뒤 clearBack 안 (굴·뿌리가 가려지지 않게. 더 뒤 숲은 그대로 보임)
+  slotH: 0.6,                 // 구멍 높이 (월드). 서 있는 펭귄 ≈ 1.17 → 엎드려야(≈ 0.68) 겨우, 위 뿌리에 살짝 눌림
+  notch: 0.12,                // 구멍 입구 홈 깊이: 이보다 안쪽으로 들어간 몸은 흙에 가려짐
+  mound: { len: 3.3, h: 1.7, lip: 0.34 },   // 뿌리 둔덕: 길이 · 높이 · 구멍 위 뿌리 두께
+  trunk: { a: 1.45, w: 1.5 },             // 큰 나무 줄기: 입구에서 안쪽 거리 · 굵기
+  color: { soil: [38, 31, 25], root: [52, 42, 33], rootLit: [104, 84, 62], trunk: [40, 37, 32], hole: [5, 5, 6] },
+  wall: 0.34,                 // 서 있거나 굴 쪽으로 밀지 않으면 입구 앞 이 거리에서 막힘
+  arrive: 2.4,                // 입구에서 이 거리 안으로 오면 발바닥 버튼을 한 번 은은하게 강조
+  // 노란 반딧불이: 숲 안 이 거리(from)부터 펭귄보다 lead 만큼 앞서 가다가 입구에서 멈춰 낮게 오르내리며 테두리를 밝힘
+  guide: { from: 7, lead: 2.2, height: 0.95, hover: [0.12, 0.5], hoverHz: 0.4, speed: 2.6, size: 0.024 },
+  rimGlow: { alpha: 0.32, range: 1.4, size: 0.14 },
+  // 진입: 입구에서 reach 안 + 슬라이딩(엎드림) + 굴 쪽으로 minSpeed 이상 → 들어감 (가까이 가기만 해선 안 들어감)
+  enter: { reach: 1.1, minSpeed: 0.25, time: 0.85, stuckA: 0.2 },   // stuckA: 끼었을 때 펭귄 발 기준점 위치 (입구에서 안쪽으로)
+  taps: 5,                    // 끼인 뒤 발바닥 버튼을 새로 누른 횟수 → 이 수가 되면 뽁 (시간 제한 없음, 끼일 때 누르고 있던 입력은 안 셈)
+  tapPush: 0.02,              // 누를 때마다 조금씩 더 들어감
+  buzz: { stuck: 25, tap: 18, pop: [30, 40, 110] },   // 진동 (ms, 지원 기기만: 안드로이드 크롬 등. 아이패드 사파리는 웹 진동 미지원)
+  popTime: 0.3, popA: 1.7,    // 뽁: 남은 몸이 쏙 들어가는 시간 · 들어가는 위치
+  zoomDelay: 0.45, zoomTime: 1.3, zoomMax: 3.2, darkTime: 0.5,   // 펭귄이 사라진 뒤 → 카메라가 구멍으로 빨려 들어감 → 잠시 어둠
+  // 지하: 같은 옆보기, 같은 캐릭터 크기. s = 굴 입구에서 안쪽(화면 왼쪽)으로 거리
+  cave: {
+    slope: 0.8, steepLen: 7.5, curveLen: 4.5,   // 가파른 흙굴 (기울기 · 길이) → 완만하게 휘어 평평해짐
+    tunnelH: 1.3, caveH: 5.5, poolDepth: 0.32, waterUp: 0.06, poolEnd: 40,   // 굴 높이 → 동굴 높이 · 물 깊이 · 물이 굴 바닥보다 높은 정도 · 물 끝
+    startS: 0.7, startSpeed: 3.2, g: 7.5, fric: 0.6, maxSpeed: 7, waterDrag: 2.4, floatSink: 0.2,
+    screenX: 0.46, screenY: 0.56, follow: 6, settle: 2.2, lead: 1.4,   // 화면에서 펭귄 자리 · 카메라 따라가기 (미끄럼 · 착지 후 부드럽게 멈춤)
+    fadeIn: 0.6, quiet: 1.4, headUp: 5, petalAfter: 0.7,   // 어둠에서 밝아지는 시간 · 착지 후 고요 · 고개 드는 포즈 · 그 뒤 꽃잎
+    petal: { from: 4.5, speed: 0.6, size: 0.2, color: [246, 176, 196], glow: [255, 190, 210], reflect: 0.38 },
+    walkSpeed: 1.1, minS: 11.6, maxS: 34,   // 조작을 돌려준 뒤: 얕은 물에서 좌우 이동 범위
+    soil: [24, 20, 17], soilLight: [44, 36, 29], air: [7, 8, 10], rim: [70, 56, 43], water: [10, 20, 26], waterLine: [120, 150, 165],
+  },
+};
+
 window.CONFIG = {
   ISLAND_TERRAIN,
-  LAND_FIREFLY,
+  LAND_FIREFLY, BURROW,
   SNOW_PUFF, MOON, WATER_MIST, FLOE_ART, SAND_TEX, INTRO_HINT, SWIM_SPRAY, SWIM_FEET, PENGUIN_RIG, PENGUIN_ART,
   SPLASH_DROPS,
   STARS,
