@@ -56,7 +56,7 @@ for key, src in [('bg', 'assets/forest_bg.png'), ('front', 'assets/forest_front.
     else: ox = oy = 0
     sm = im.resize((round(im.width * S), round(im.height * S)), Image.LANCZOS)
     sm = fades(sm, key, ox * S, oy * S)   # 색은 원화 그대로, 끝만 투명하게 (밤빛·명암 grade() 는 지금 안 씀)
-    for q in [86, 85, 84, 83, 82, 81, 80]:   # base64 안에 옛 이름 글자가 우연히 생기지 않는 품질을 고름
+    for q in [86, 85, 84, 83, 82, 81, 80, 79, 78, 87, 88, 77, 76, 75]:   # base64 안에 옛 이름 글자가 우연히 생기지 않는 품질을 고름
         buf = io.BytesIO(); sm.save(buf, 'WEBP', quality=q, method=6); b64 = base64.b64encode(buf.getvalue()).decode()
         if OLD not in b64.lower(): break
     out[key] = dict(img='data:image/webp;base64,' + b64, w=sm.width, h=sm.height, ox=ox * S, oy=oy * S)
