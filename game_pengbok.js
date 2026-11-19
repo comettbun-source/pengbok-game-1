@@ -4651,6 +4651,22 @@
   // 원본 px → 월드: 굴 입구에서 안쪽 거리 a · 땅선 위 높이 h
   const faA = (X) => (FA.holeX - X) / FA.ppu, faH = (Y) => (FA.pathY - Y) / FA.ppu;
   function forestSpan() { const D = window.FOREST_ART; return D ? [faA(0), faA(D.srcW)] : [0, 0]; }   // 안쪽 끝 a · 해안 쪽 끝 a
+  // 그림 판 뒤에 이미 그려진 것(먼 숲·산·하늘): 줄였다 키워 흐리게 + 밤 안개 → 멀리 있는 것처럼. 그림 판 땅선 위, 그림이 있는 가로 범위에서만
+  const faBl1 = document.createElement('canvas'), faBlG1 = faBl1.getContext('2d'), faBl2 = document.createElement('canvas'), faBlG2 = faBl2.getContext('2d');
+  function blurBehindForest(depth) {
+    const BH = FA.behind, D = window.FOREST_ART; if (!BH || !D) return;
+    const B = S.bur, sx = (X) => project(burX(faA(X)), B.hy, 0)[0], xL0 = sx(0), xL1 = sx(FA.fadeLeft ? FA.fadeLeft[1] : 0), xR0 = sx(FA.fadeRight[0]), xR1 = sx(FA.fadeRight[1]);
+    const yb = Math.min(H, project(B.hx, B.hy, terrainHeightAt(B.hx, B.hy))[1] + 0.25 * pxPerUnit(depth)); if (yb < 4 || xR1 < 0 || xL0 > W) return;
+    const w1 = Math.max(2, Math.ceil(W * 0.3)), h1 = Math.max(2, Math.ceil(yb * 0.3)), w2 = Math.max(2, Math.ceil(W * BH.blur)), h2 = Math.max(2, Math.ceil(yb * BH.blur));
+    fitCv(faBl1, w1, h1); fitCv(faBl2, w2, h2); faBlG1.imageSmoothingEnabled = faBlG2.imageSmoothingEnabled = true;
+    faBlG1.globalCompositeOperation = 'source-over'; faBlG1.drawImage(canvas, 0, 0, W * DPR, yb * DPR, 0, 0, w1, h1);   // 두 번에 나눠 줄임 (부드러운 흐림)
+    const G = faBlG2; G.globalCompositeOperation = 'source-over'; G.globalAlpha = 1; G.clearRect(0, 0, w2, h2); G.drawImage(faBl1, 0, 0, w2, h2);
+    G.fillStyle = `rgba(${BH.hazeColor.join(',')},${BH.haze})`; G.fillRect(0, 0, w2, h2);
+    const k = w2 / W, gr = G.createLinearGradient(xL0 * k, 0, xR1 * k, 0), span = Math.max(1, xR1 - xL0), st = (x) => clamp((x - xL0) / span, 0, 1);
+    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(st(xL1), 'rgba(0,0,0,1)'); gr.addColorStop(Math.max(st(xL1), st(xR0)), 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    G.globalCompositeOperation = 'destination-in'; G.fillStyle = gr; G.fillRect(0, 0, w2, h2); G.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = true; ctx.drawImage(faBl2, 0, 0, w2, h2, 0, 0, W, yb);
+  }
   function drawForestLayer(key, depth) {   // 세로 띠마다 그 자리 땅 높이에 맞춰 그림
     const A = forestArt(); if (!A) return false;
     const B = S.bur, D = window.FOREST_ART, L = D[key], cv = A[key], sc = D.scale, ppu = pxPerUnit(depth), hpx = cv.height / sc / FA.ppu * ppu;
@@ -4766,7 +4782,7 @@
   }
   function burPoly(pts) { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); }
   function drawBurrowBack(depth) {
-    if (drawForestLayer('bg', depth)) return;   // 배경 원화가 있으면 그것으로 (언덕·굴 포함)
+    if (forestArt()) { blurBehindForest(depth); drawForestLayer('bg', depth); return; }   // 배경 원화가 있으면 그것으로 (언덕·굴 포함), 그 뒤 것은 흐리게
     const B = S.bur, M = BUR.mound, K = BUR.color, fog = fogAt(depth), ppu = pxPerUnit(depth), sh = BUR.slotH;
     // 큰 나무 줄기 (뿌리 둔덕 위로 화면 밖까지)
     const tb = burPt(BUR.trunk.a, M.h * 0.7), tt = burPt(BUR.trunk.a + 0.25, 14), tw = BUR.trunk.w * ppu;

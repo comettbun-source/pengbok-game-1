@@ -2,7 +2,7 @@
 # 원본 6614×2345, 펭귄 비율 기준 원본 370px = 월드 1. 줄여서 WebP(투명) data URI 로. 색(밤빛)은 게임에서 FOREST_ART.grade 로 한 번 입힘
 import json, base64, io
 from PIL import Image
-S = 0.33   # 축소 배율 (원본 370px/월드 → 약 122px/월드)
+S = 0.5    # 축소 배율 (원본 200px/월드 → 약 100px/월드: 아이패드에서도 또렷하게)
 OLD = ''.join(map(chr, [103, 114, 105, 115]))
 out = {}
 for key, src in [('bg', 'assets/forest_bg.png'), ('front', 'assets/forest_front.png')]:
