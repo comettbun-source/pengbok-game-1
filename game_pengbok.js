@@ -4627,7 +4627,8 @@
     S.trees = S.trees.filter((t) => !(Math.abs((t.d ?? 0) - BUR.d) < BUR.clearTrees && (t.front || (t.y < hy && hy - t.y < BUR.clearBack))));   // 굴·뿌리를 가리는 나무만 치움
     if (FA && FA.enabled && window.FOREST_ART) { const D = window.FOREST_ART, a0 = (FA.holeX - D.srcW) / FA.ppu - 1, a1 = FA.holeX / FA.ppu + 0.5;   // 그림 판 둘레 3D 나무·덤불 치움 (그림 속 숲이 대신함)
       S.trees = FA.removeAllTrees ? [] : S.trees.filter((t) => { const a = (t.d ?? 0) - BUR.d; return !(a > a0 && a < a1 && Math.abs(t.y - hy) < FA.clearTrees); }); }
-    S.bur = { phase: 'open', t: 0, hx, hy, side: is.side, ff: null, rim: 0, pawT: -99, presses: 0, armed: false, push: 0, dirt: [], shake: 0, pressT: -99, under: false, hidePen: false };
+    const artOn = FA && FA.enabled && window.FOREST_ART, hx2 = hx + is.side * (artOn ? (FA.shift || 0) : 0);   // 그림을 옮긴 만큼 굴(그림 속 구덩이)도 같이
+    S.bur = { phase: 'open', t: 0, hx: hx2, hy, side: is.side, pitZ: artOn ? -(FA.drop || 0) * (FA.pitK ?? 1) : 0, ff: null, rim: 0, pawT: -99, presses: 0, armed: false, push: 0, dirt: [], shake: 0, pressT: -99, under: false, hidePen: false };
   }
   const burX = (a) => S.bur.hx + S.bur.side * a;
   // ── 해안~땅굴 배경 원화: 굴 입구에 맞춰 이동 선 바로 뒤에 세운 그림 판 (밤빛은 처음 한 번 입힘) ──────
@@ -4640,7 +4641,7 @@
     faState.bg = faState.imgs[0]; faState.front = faState.imgs[1]; faState.ready = true; return faState;   // 밤빛·끝 투명은 tools/forest_art/build.py 에서 미리 입힘
   }
   // 원본 px → 월드: 굴 입구에서 안쪽 거리 a · 땅선 위 높이 h
-  const faA = (X) => (FA.holeX - X) / FA.ppu + (FA.shift || 0), faH = (Y) => (FA.pathY - Y) / FA.ppu - (FA.drop || 0);   // shift: 해안 쪽(−)으로 옮김 · drop: 아래로 내림 (월드)
+  const faA = (X) => (FA.holeX - X) / FA.ppu, faH = (Y) => (FA.pathY - Y) / FA.ppu - (FA.drop || 0);   // 그림 판 기준 = 그림 속 굴 입구 (S.bur.hx). drop: 아래로 내림 (월드)   // shift: 해안 쪽(−)으로 옮김 · drop: 아래로 내림 (월드)
   function forestSpan() { const D = window.FOREST_ART; return D ? [faA(0), faA(D.srcW)] : [0, 0]; }   // 안쪽 끝 a · 해안 쪽 끝 a
   // 그림 판 뒤에 이미 그려진 것(먼 숲·산·하늘): 줄였다 키워 흐리게 + 밤 안개 → 멀리 있는 것처럼. 그림 판 땅선 위, 그림이 있는 가로 범위에서만
   const faBl1 = document.createElement('canvas'), faBlG1 = faBl1.getContext('2d'), faBl2 = document.createElement('canvas'), faBlG2 = faBl2.getContext('2d');
@@ -4692,8 +4693,8 @@
     return true;
   }
   const penA = () => S.bur.side * (S.p.x - S.bur.hx);
-  function burPt(a, h) { const x = burX(a); return project(x, S.bur.hy, terrainHeightAt(x, S.bur.hy) + h); }
-  function setPenA(a) { const p = S.p; p.x = burX(a); p.z = terrainHeightAt(p.x, p.y); }
+  function burPt(a, h) { const x = burX(a); return project(x, S.bur.hy, terrainHeightAt(x, S.bur.hy) + S.bur.pitZ + h); }
+  function setPenA(a, sink = 1) { const p = S.p; p.x = burX(a); p.z = terrainHeightAt(p.x, p.y) + S.bur.pitZ * sink; }
   function actionHeld() { for (const q of pointers.values()) if (q.role === 'action') return true; return false; }
   function burDirt(n, big) {   // 입구 둘레로 흙 부스러기 (BURROW.dirt 가 false 면 없음)
     const B = S.bur; if (!BUR.dirt) return;
@@ -4717,10 +4718,10 @@
     const f = B.ff; f.vis = Math.min(1, (f.vis || 0) + dt * 1.5);
     const inHole = B.phase !== 'open', stopA = inHole ? -0.55 : -0.35, a = penA(), ta = inHole ? stopA : Math.min(stopA, a + G.lead), at = ta >= stopA - 0.01;   // 펭귄이 끼면 입구 위로 비켜 맴돎
     const tx = burX(ta + (at ? Math.sin(S.time * 0.9) * 0.08 : 0)), ty = B.hy + (at ? 0.18 : 0.25 + Math.sin(S.time * 0.5) * 0.2);
-    const tz = terrainHeightAt(tx, B.hy) + (at ? (inHole ? BUR.slotH + 0.45 : 0) + lerp(G.hover[0], G.hover[1], 0.5 + 0.5 * Math.sin(S.time * G.hoverHz * Math.PI * 2)) : G.height + Math.sin(S.time * 0.8) * 0.15);
+    const tz = terrainHeightAt(tx, B.hy) + B.pitZ * 0.6 + (at ? (inHole ? BUR.slotH + 0.45 : 0) + lerp(G.hover[0], G.hover[1], 0.5 + 0.5 * Math.sin(S.time * G.hoverHz * Math.PI * 2)) : G.height + Math.sin(S.time * 0.8) * 0.15);
     const dx = tx - f.x, dy = ty - f.y, dz = tz - f.z, dd = Math.hypot(dx, dy, dz), v = Math.min(dd, Math.max(0.3, Math.min(G.speed, dd * 2.2)) * dt);
     if (dd > 1e-4) { f.x += dx / dd * v; f.y += dy / dd * v; f.z += dz / dd * v; }
-    const rimD = Math.hypot(f.x - burX(0.05), (f.z - terrainHeightAt(f.x, B.hy)) - BUR.slotH * 0.5);   // 구멍 테두리까지 거리
+    const rimD = Math.hypot(f.x - burX(0.05), (f.z - terrainHeightAt(f.x, B.hy) - B.pitZ) - BUR.slotH * 0.5);   // 구멍 테두리까지 거리
     B.rim = clamp(1 - rimD / BUR.rimGlow.range, 0, 1) * lfBright(f);
   }
   function stepBurrow(dt) {
@@ -4735,18 +4736,19 @@
       if (p.mode !== 'island' || p.air) return;
       const a = penA();
       if (a > -BUR.arrive && B.pawT < 0) { B.pawT = S.time; log('burrowArrive'); }   // 입구 도착: 발바닥 버튼 한 번 은은하게
-      if (p.sliding && a > -E.reach && B.side * p.vx > E.minSpeed) {   // 엎드려 굴 쪽으로 밀어야 들어감
-        B.phase = 'enter'; B.t = 0; B.a0 = a; B.y0 = p.y; p.belly = false; p.bellyT = null; p.face = Math.atan2(0, B.side); log('burrowEnter');
-      } else if (a > -BUR.wall) {   // 서서는 못 들어감: 굴 위 언덕을 조금 오르다 미끄러져 내려옴 (그 너머는 못 감)
-        const Hl = BUR.hill, pen = Math.min(a + BUR.wall, Hl.max); p.x = burX(-BUR.wall + pen);
-        p.vx -= B.side * Hl.back * (0.4 + pen) * dt; if (B.side * p.vx > 0 && pen >= Hl.max) p.vx = 0;
-        p.z = terrainHeightAt(p.x, p.y) + pen * Hl.rise; p.hillUp = pen;
+      const SL = BUR.slip;
+      if (SL && a > -SL.r) {   // 구덩이 둘레는 미끄러움: 가까울수록 구덩이 쪽으로 끌려가고 비탈을 따라 내려감 (엎드릴 필요 없음)
+        const k = smooth(-SL.r, 0, a); p.vx += B.side * SL.pull * (0.25 + k) * dt; p.vy *= 1 - Math.min(1, dt * 4);
+        p.z = terrainHeightAt(p.x, p.y) + B.pitZ * k * SL.slopeSink; p.slipK = k;
+      } else p.slipK = 0;
+      if (a > -E.reach) {   // 구덩이에 빠짐
+        B.phase = 'enter'; B.t = 0; B.a0 = a; B.y0 = p.y; B.z0 = p.slipK * SL.slopeSink; p.belly = false; p.bellyT = null; p.sliding = true; p.face = Math.atan2(0, B.side); log('burrowEnter');
       }
       return;
     }
     if (B.phase === 'enter') {   // 머리 → 날개 → 배 순서로 뿌리 뒤로 들어가다 통통한 배에서 딱
       const k = clamp(B.t / E.time, 0, 1), e = 1 - Math.pow(1 - k, 2.4);
-      setPenA(lerp(B.a0, E.stuckA, e)); p.y = lerp(B.y0, B.hy + 0.04, e); p.vx = B.side * (1 - k) * 1.2; p.vy = 0; p.sliding = true;
+      setPenA(lerp(B.a0, E.stuckA, e), lerp(B.z0 || 0, 1, Math.min(1, e * 1.6))); p.y = lerp(B.y0, B.hy + 0.04, e); p.vx = B.side * (1 - k) * 1.2; p.vy = 0; p.sliding = true;
       if (k >= 1) { B.phase = 'stuck'; B.t = 0; B.armed = false; B.shake = 1.3; B.u = penScale(camSpace(p.x, p.y, p.z)[1]); buzz(BUR.buzz.stuck); burDirt(6); log('burrowStuck'); }
       return;
     }

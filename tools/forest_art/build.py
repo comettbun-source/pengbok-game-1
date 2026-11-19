@@ -8,6 +8,7 @@ OLD = ''.join(map(chr, [103, 114, 105, 115]))
 # 밤빛 · 끝 투명 (config_pengbok.js 의 FOREST_ART 값과 같게 맞춰 둘 것)
 G = dict(sat=0.74, bright=0.56, gamma=1.12, tint=(20, 28, 46), tintAmount=0.18)   # (채도 0.62 → 0.74 · 밝기 0.5 → 0.56) 조금 더 선명하게
 PATH_Y, SAND_X, BOTTOM_BAND, BOTTOM_PAD = 1975, 5168, 160, 1600   # 걷는 선 · 모래 덩어리 시작 x · 아래 늘일 띠 · 늘일 길이 (원본 px)
+DARK = dict(level=0.5, edge=0.35, edgePx=22, seam=0.45, seamPx=28, inland=(150, 1250, 0.92))   # 어둡기 · 테두리 · 땅/풀 사이 그늘 · 굴 너머 어둠 (x 구간, 세기)
 RIGHT_DARK = (4200, 5165, 0.5)   # 오른쪽 끝 풀: 그림은 그대로, 끝으로 갈수록 이만큼까지 어둡게 (밤 해안 쪽 명암)
 GROUND_SAT = (0.3, 0.55, 4500)   # 땅으로 볼 채도 범위 · 옅어지기 시작 x
 GROUND_FADE_START = 3500   # 걷는 선 아래 땅의 오른쪽 옅어지기 시작 (해안으로 넓게 페이드아웃)
@@ -53,6 +54,20 @@ def fades(img, key, ox, oy):   # 색은 그대로 두고 알파만: 오른쪽(�
         ground = 1 - sm_step(GROUND_SAT[0], GROUND_SAT[1], sat)
         fr = fr * (1 - ground * sm_step(GROUND_SAT[2], FADE_RIGHT[1], sx)[None, :])
     al = al * fy * fl * fr
+    if DARK:   # 밤 장면: 검은 바탕에 투명도 50% 로 얹은 정도로 어둡게 + 테두리 살짝 더 어둡게 + 바닥과 풀 사이 그늘 + 굴 너머(섬 안쪽)는 어둠으로
+        from scipy import ndimage
+        rgb = a[..., :3].astype(np.float32) * DARK['level']
+        if key == 'bg':
+            op = a[..., 3] > 128; dist = ndimage.distance_transform_edt(op)
+            rgb *= (1 - DARK['edge'] * np.exp(-dist / DARK['edgePx']))[..., None]
+            c = a[..., :3].astype(np.float32) / 255; mx = c.max(-1); mn = c.min(-1); sat = (mx - mn) / np.maximum(mx, 1e-3)
+            gm = ndimage.gaussian_filter((1 - sm_step(0.3, 0.55, sat)) * op, DARK['seamPx'])   # 땅(칙칙한 색) 정도
+            seam = np.clip(gm * (1 - gm) * 4, 0, 1)                                        # 땅과 풀이 만나는 곳
+            seam *= (1 - sm_step(PATH_Y + 40, PATH_Y + 200, sy))[:, None]                     # 늘여 붙인 아래쪽 땅엔 없음
+            rgb *= (1 - DARK['seam'] * seam)[..., None]
+        inner = 1 - DARK['inland'][2] * (1 - sm_step(DARK['inland'][0], DARK['inland'][1], sx))[None, :]   # 굴 너머 안쪽은 어둠으로
+        rgb *= inner[..., None]
+        a[..., :3] = np.clip(rgb, 0, 255).astype(np.uint8)
     if key == 'bg' and RIGHT_DARK:
         k = 1 - (1 - RIGHT_DARK[2]) * sm_step(RIGHT_DARK[0], RIGHT_DARK[1], sx)[None, :]
         a[..., :3] = (a[..., :3].astype(np.float32) * k[..., None]).astype(np.uint8)
