@@ -2986,7 +2986,7 @@
     for (const f of lf.flies) {
       if (f.state === 'wait' || f.vis <= 0.01 && f.state !== 'sit' && f.state !== 'pin') continue;
       const c = camSpace(f.x, f.y, f.z); if (c[1] < rig.near + 0.2) continue;
-      items.push({ d: c[1] - 0.02, draw: () => drawLandFirefly(f, c) });
+      const pdd = camSpace(S.p.x, S.p.y, S.p.z)[1]; items.push({ d: Math.min(c[1] - 0.02, pdd + 0.015), draw: () => drawLandFirefly(f, c) });   // 숲 어둠보다 위에 (빛이니까 묻히지 않게)
     }
   }
   function drawLandFirefly(f, c) {
@@ -4689,12 +4689,15 @@
   const fdCv = document.createElement('canvas'), fdG = fdCv.getContext('2d');
   function drawForestDark(depth) {
     const G = BUR.guide, B = S.bur; if (!G.dark) return;
-    const k = G.dark * smooth(G.darkFrom[0], G.darkFrom[1], Math.max(0, inlandDist(S.p.x, S.p.y))); S.fdK = k; if (k < 0.01) return;
+    const kt = G.dark * smooth(G.darkFrom[0], G.darkFrom[1], Math.max(0, inlandDist(S.p.x, S.p.y))), dtD = clamp(S.time - (S.fdT ?? S.time), 0, 0.1); S.fdT = S.time;
+    S.fdKs = (S.fdKs ?? 0) + (kt - (S.fdKs ?? 0)) * (1 - Math.exp(-(G.darkRate || 0.5) * dtD));   // 스으윽: 시간에 따라 천천히 따라감 (정전처럼 뚝 아님)
+    const k = S.fdKs; S.fdK = k; if (k < 0.01) return;
     const r = 0.5, w = Math.max(8, Math.ceil(W * r)), h = Math.max(8, Math.ceil(H * r)); fitCv(fdCv, w, h);
     const g = fdG; g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.clearRect(0, 0, w, h);
     g.fillStyle = `rgba(0,0,0,${k})`; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'destination-out';
-    for (const f of B.ffs || (B.ff ? [B.ff] : [])) {
-      const c = camSpace(f.x, f.y, f.z); if (c[1] < rig.near) continue; const q = toScreen(c), R = G.lightR * pxPerUnit(c[1]) * r, b = (f.vis || 0) * (0.75 + 0.25 * lfBright(f));
+    const lights = new Set(B.ffs || (B.ff ? [B.ff] : [])); if (S.lf) for (const f of S.lf.flies) if (f.state !== 'wait' && lfBright(f) > 0.05) lights.add(f);
+    for (const f of lights) {
+      const isG = f.state === 'bur', c = camSpace(f.x, f.y, f.z); if (c[1] < rig.near) continue; const q = toScreen(c), R = (isG ? G.lightR : G.lightR * 0.55) * pxPerUnit(c[1]) * r, b = isG ? (f.vis || 0) * (0.75 + 0.25 * lfBright(f)) : 0.7 * lfBright(f);
       const gr = g.createRadialGradient(q[0] * r, q[1] * r, 0, q[0] * r, q[1] * r, R); gr.addColorStop(0, `rgba(0,0,0,${b})`); gr.addColorStop(0.5, `rgba(0,0,0,${b * 0.45})`); gr.addColorStop(1, 'rgba(0,0,0,0)');
       g.fillStyle = gr; g.fillRect(q[0] * r - R, q[1] * r - R, R * 2, R * 2);
     }

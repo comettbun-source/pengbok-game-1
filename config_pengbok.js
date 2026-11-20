@@ -260,7 +260,7 @@ const LAND_FIREFLY = {
   perRock: [6, 9], max: 22,            // (3~5·12 → 6~9·22) 바위당 수 · 전체 상한
   arriveGap: [0.6, 1.5], arriveDelay: 1.2, arriveSpeed: 3.2,   // 하나둘씩 날아와 앉음 (간격 · 첫 도착 지연 · 날아오는 속도)
   blink: { on: 0.25, off: [2, 4], syncShare: 0.5, nudge: 0.07, periodPull: 0.03 },   // 0.25초 켜짐 → 2~4초 꺼짐. 일부는 이웃이 켜질 때 박자를 조금씩 당겨 서서히 맞춤
-  trigger: 1.3, delay: [0, 0.3],       // (3.0 → 1.3) 펭귄이 만질 수 있을 만큼 다가오면, 가까운 것부터 0~0.3초 지연 뒤 날아오름
+  trigger: 1.9, delay: [0, 0.3],   /* (1.3 → 1.9) 펭귄이 오면 포로로 */       // (3.0 → 1.3) 펭귄이 만질 수 있을 만큼 다가오면, 가까운 것부터 0~0.3초 지연 뒤 날아오름
   drift: { lift: 0.35, ahead: [1.2, 2.6], speedMul: 1.1, minSpeed: 0.5, maxSpeed: 3.2, fadeAfter: [4, 7] },   // 확 가버리지 않고 펭귄 속도에 맞춰 옆(안쪽)으로 앞서감 · 남는 수를 넘으면 몇 초 뒤 사라짐
   facing: 55,                          // 그리고 펭귄이 바위 쪽을 바라볼 때만 (바라보는 방향 ± 이 각도 안에 바위)
   burst: { time: 0.15, rise: 0.6 },    // 처음 0.15초 급상승
@@ -929,7 +929,7 @@ const BURROW = {
   slip: { r: 1.8, pull: 6, slopeSink: 0.35 },   // 구덩이 둘레 미끄러움: 반경 · 끌려가는 힘 · 다가갈수록 비탈로 내려가는 비율 (구덩이 깊이 = FOREST_ART.drop)   // 굴 위 언덕: 올라가면(최대 max) 높이 rise 배로 오르다 back 세기로 미끄러져 내려옴 → 그 너머는 못 감
   arrive: 2.4,                // 입구에서 이 거리 안으로 오면 발바닥 버튼을 한 번 은은하게 강조
   // 노란 반딧불이: 숲 안 이 거리(from)부터 펭귄보다 lead 만큼 앞서 가다가 입구에서 멈춰 낮게 오르내리며 테두리를 밝힘
-  guide: { count: 6, dark: 0.8, darkFrom: [0, 2.5], waitFrom: 9, /* darkFrom: 육지 도착부터 어두워짐 · waitFrom: 구덩이 이 거리 안이면 반딧불이가 먼저 가서 기다림 */ lightR: 0.95,   /* count 안내 반딧불이 수 · dark 숲 어둠 진하기(숲 안쪽으로 갈수록) · lightR 반딧불이 둘레 밝은 반경 */ from: 4, lead: 2.2, height: 0.95, hover: [0.12, 0.5], hoverHz: 0.4, speed: 3.4, size: 0.024 },
+  guide: { count: 6, dark: 0.8, darkFrom: [0, 7], darkRate: 0.45, waitFrom: 9,   /* darkRate: 어둠이 따라오는 빠르기 (작을수록 천천히) */ /* darkFrom: 육지 도착부터 어두워짐 · waitFrom: 구덩이 이 거리 안이면 반딧불이가 먼저 가서 기다림 */ lightR: 0.95,   /* count 안내 반딧불이 수 · dark 숲 어둠 진하기(숲 안쪽으로 갈수록) · lightR 반딧불이 둘레 밝은 반경 */ from: 4, lead: 2.2, height: 0.95, hover: [0.12, 0.5], hoverHz: 0.4, speed: 3.4, size: 0.024 },
   rimGlow: { alpha: 0.35, range: 1.1 },   // 반딧불이 둘레로 번지는 빛 (진하기 · 반지름)
   // 진입: 입구에서 reach 안 + 슬라이딩(엎드림) + 굴 쪽으로 minSpeed 이상 → 들어감 (가까이 가기만 해선 안 들어감)
   enter: { reach: 1.3, minSpeed: 0.25, time: 1.15, stuckA: 0.42 },   // stuckA: 끼었을 때 펭귄 발 기준점 위치 (입구에서 안쪽으로)
