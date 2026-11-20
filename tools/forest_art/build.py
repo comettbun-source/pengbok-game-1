@@ -13,7 +13,8 @@ FRONT_FADE_BOTTOM = (2080, 2300)   # 앞 레이어 아래쪽 옅어지는 구간
 CORNER_DARK = (4300, 5500, 700, 1750, 0.6)   # 오른쪽 위 어둡게: x 시작·끝, y 시작·끝(아래로 갈수록 덜), 세기
 RIGHT_DARK = None   # (끔) 예: (4620, 5585, 0.5)
 GROUND_SAT = (0.3, 0.55, 4920)   # 땅으로 볼 채도 범위 · 옅어지기 시작 x
-GROUND_FADE_START = 3920   # 걷는 선 아래 땅의 오른쪽 옅어지기 시작 (해안으로 넓게 페이드아웃)
+GROUND_FADE_END = 4700   # 걷는 선 아래 땅은 여기서 다 투명 (해안 모래 위 얼룩 없게)
+GROUND_FADE_START = 3700   # 걷는 선 아래 땅의 오른쪽 옅어지기 시작 (해안으로 넓게 페이드아웃)
 FADE_RIGHT, FADE_BOTTOM, FADE_LEFT = (5586, 5588), None, None   # 위(풀)는 끝까지 그대로 · 걷는 선 아래 땅만 GROUND_FADE_START 부터 옅어짐   # 원화 그대로 + 오른쪽 모래 덩어리(5170~)만 해변과 이어지게 옅어짐 · 맨 아래 끝 한 줄만 부드럽게 (띠 계단 안 보이게)
 # 명암 (바위처럼): 덩어리 윗선을 따라 빛 받는 테두리(위·왼쪽 빛) + 윗선에서 아래로 깊어질수록 그늘
 SHADE = dict(rim=0.2, rimPx=30, leftBias=0.5, occ=0.28, occPx=320, color=(230, 236, 255))
@@ -47,7 +48,8 @@ def fades(img, key, ox, oy):   # 색은 그대로 두고 알파만: 오른쪽(�
     fl = sm_step(*FADE_LEFT, sx)[None, :] if FADE_LEFT else 1
     if key == 'bg' and FADE_RIGHT:   # 오른쪽 끝: 걷는 선 아래 땅은 더 넓게 옅어짐 (땅이 세로로 뚝 끝나 보이지 않게)
         r0 = FADE_RIGHT[0] + (GROUND_FADE_START - FADE_RIGHT[0]) * sm_step(1900, 2060, sy)[:, None]
-        fr = 1 - np.clip((sx[None, :] - r0) / (FADE_RIGHT[1] - r0), 0, 1) ** 1.0
+        r1 = FADE_RIGHT[1] + (GROUND_FADE_END - FADE_RIGHT[1]) * sm_step(1900, 2060, sy)[:, None]
+        fr = 1 - np.clip((sx[None, :] - r0) / (r1 - r0), 0, 1) ** 1.0
         fr = fr * fr * (3 - 2 * fr)
     else: fr = 1
     fy = ((1 - sm_step(*FADE_BOTTOM, sy)) if FADE_BOTTOM else np.ones(h))[:, None]
@@ -106,6 +108,15 @@ for key, src in [('bg', 'assets/forest_bg.png'), ('front', 'assets/forest_front.
     buf = io.BytesIO(); sm.save(buf, 'WEBP', quality=q, method=6); b64 = base64.b64encode(buf.getvalue()).decode()
     out[key] = dict(img='data:image/webp;base64,' + b64, w=sm.width, h=sm.height, ox=ox * S, oy=oy * S)
     print(key, sm.size, round(len(b64) / 1024), 'KB', 'q', q)
+# 굴에 끼인 펭귄 그림 (사용자 그림 IMG_6241·6242 = 바둥 프레임 2장): 그림 영역만 잘라 높이 STUCK_H px 로
+STUCK_H = 260
+stuck = []
+for src in ('assets/penguin/stuck_a.png', 'assets/penguin/stuck_b.png'):
+    im = Image.open(src).convert('RGBA'); bb = Image.fromarray((np.asarray(im)[..., 3] > 100).astype(np.uint8) * 255).getbbox(); im = im.crop(bb)
+    im = im.resize((round(im.width * STUCK_H / im.height), STUCK_H), Image.LANCZOS)
+    buf = io.BytesIO(); im.save(buf, 'WEBP', quality=90, method=6)
+    stuck.append(dict(img='data:image/webp;base64,' + base64.b64encode(buf.getvalue()).decode(), w=im.width, h=im.height))
+out['stuck'] = stuck
 meta = dict(scale=S, srcW=SRC_W, srcH=SRC_H, **out)
 # 그림 글자(base64)를 조각 배열로 저장: 옛 프로젝트 이름 글자가 우연히 생기는 자리는 두 조각으로 나눠 파일에 그 글자가 없게 (게임에서 다시 이어 붙임)
 import re
@@ -115,6 +126,8 @@ def chunks(b64):
     parts.append(b64[p0:]); return parts
 for key in ('bg', 'front'):
     pre, b = out[key]['img'].split(',', 1); out[key]['imgParts'] = [pre + ','] + chunks(b); del out[key]['img']
-js = '// 자동 생성: tools/forest_art/build.py (assets/forest_bg.png · forest_front.png). 해안~땅굴 배경 원화. 좌표는 원본 px × scale. imgParts 를 이어 붙이면 그림 data URI\nwindow.FOREST_ART = ' + json.dumps(meta) + ';\nfor (const k of ["bg", "front"]) { const L = window.FOREST_ART[k]; L.img = L.imgParts.join(""); delete L.imgParts; }\n'
+for L in out['stuck']:
+    pre, b = L['img'].split(',', 1); L['imgParts'] = [pre + ','] + chunks(b); del L['img']
+js = '// 자동 생성: tools/forest_art/build.py (assets/forest_bg.png · forest_front.png). 해안~땅굴 배경 원화. 좌표는 원본 px × scale. imgParts 를 이어 붙이면 그림 data URI\nwindow.FOREST_ART = ' + json.dumps(meta) + ';\nfor (const L of [window.FOREST_ART.bg, window.FOREST_ART.front, ...(window.FOREST_ART.stuck || [])]) { L.img = L.imgParts.join(""); delete L.imgParts; }\n'
 assert OLD not in js.lower()
 open('forest_art.js', 'w').write(js)

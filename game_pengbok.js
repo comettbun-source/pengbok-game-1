@@ -4606,7 +4606,8 @@
     snowItems(items);
     dropItems(items);
     burrowItems(items, pd);
-    if (!(S.bur && S.bur.hidePen)) items.push({ d: pd, draw: drawPenguin });
+    if (S.bur && (S.bur.phase === 'stuck' || S.bur.phase === 'pop') && stuckReady()) items.push({ d: pd, draw: drawStuckSprite });   // 끼인 펭귄 그림
+    else if (!(S.bur && S.bur.hidePen)) items.push({ d: pd, draw: drawPenguin });
     items.sort((a, b) => b.d - a.d);
     // 먼 것 → 안개 층 → 가까운 것 (펭귄·가까운 빙하는 선명하게)
     let fogged = false;
@@ -4711,17 +4712,39 @@
     if ((S.fdK || 0) > 0.01) { frG.setTransform(1, 0, 0, 1, 0, 0); frG.globalCompositeOperation = 'source-atop'; frG.imageSmoothingEnabled = true; frG.drawImage(fdCv, 0, 0, fdCv.width, fdCv.height, 0, 0, frCv.width, frCv.height); frG.globalCompositeOperation = 'source-over'; }
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.drawImage(frCv, 0, 0); ctx.restore();
   }
+  // 굴에 끼인 펭귄 그림 (사용자 그림): 끼어 있는 동안 펭귄 대신 굴 자리에. 탭마다 바둥 프레임 번갈아 · 뽁 하면 쏙 줄어들며 안으로
+  let stuckImgs = null;
+  function stuckReady() {
+    const D = window.FOREST_ART; if (!FA || !FA.stuck || !D || !D.stuck) return false;
+    if (!stuckImgs) stuckImgs = D.stuck.map((L) => { const im = new Image(); im.src = L.img; return im; });
+    return stuckImgs.every((im) => im.complete && im.naturalWidth);
+  }
+  function drawStuckSprite() {
+    const B = S.bur, SS = FA.stuck, D = window.FOREST_ART, fi = B.presses % 2, L = D.stuck[fi], im = stuckImgs[fi];
+    const Xr = SS.right - B.presses * SS.pushPx, pb = faScreen(Xr, SS.bottom), pt = faScreen(Xr, SS.bottom - SS.height); if (pb[2] < rig.near) return;
+    const hp = pb[1] - pt[1], wp = hp * L.w / L.h;
+    let k = 1, al = 1, dx = 0; if (B.phase === 'pop') { const u = clamp(B.t / BUR.popTime, 0, 1); k = 1 - 0.8 * u * u; al = 1 - smooth(0.4, 1, u); dx = -wp * 0.6 * u; }
+    const sh = burShake(hp * 1.6);
+    ctx.save(); ctx.globalAlpha = al; ctx.translate(pb[0] + dx + (sh ? sh[0] : 0), pb[1] + (sh ? sh[1] : 0)); if (sh) ctx.rotate(sh[2] * 0.5);
+    ctx.scale(k, k); ctx.imageSmoothingEnabled = true; ctx.drawImage(im, -wp, -hp, wp, hp); ctx.restore(); ctx.globalAlpha = 1;
+  }
+  // 그림 판의 원본 좌표 (X, Y) → 화면: 그 자리 땅을 투영하고 땅에서의 세로 배율로 올림 (그림 판은 평평한 그림이라 위아래로 원근 왜곡 없이. 굴·끼인 그림도 같은 식)
+  function faScreen(X, Y) {
+    const B = S.bur, x = burX(faA(X)), SD = FA.shoreDrop, y = SD && FA.shoreY != null ? lerp(B.hy, FA.shoreY, smooth(SD[0], SD[1], X)) : B.hy;   // 해안 쪽 끝은 바위와 같은 깊이 (카메라가 움직여도 바위 뒤에 그대로)
+    const z = terrainBaseAt(x, y), g = project(x, y, z), u = project(x, y, z + 1);
+    return [g[0], g[1] + (u[1] - g[1]) * faH(Y, X), g[2]];
+  }
   function drawForestLayer(key, depth) {   // 세로 띠마다 그 자리 땅 높이에 맞춰 그림
     const A = forestArt(); if (!A) return false;
     const B = S.bur, D = window.FOREST_ART, L = D[key], cv = A[key], sc = D.scale, ppu = pxPerUnit(depth), CW = L.w, CH = L.h;
     ctx.imageSmoothingEnabled = true;
     if (key === 'bg') { const e0 = project(burX(faA(0)), B.hy, 0)[0], e1 = project(burX(faA(D.srcW)), B.hy, 0)[0]; S.faRect = [Math.min(e0, e1), Math.max(e0, e1), S.time]; }
-    const xs = (X) => Math.round(project(burX(faA(X)), B.hy, 0)[0] * DPR) / DPR;   // 띠 경계: 이웃 띠와 같은 기기 픽셀 (겹침·틈 없음 → 세로 줄 없음)
+    const xs = (X) => Math.round(faScreen(X, FA.pathY)[0] * DPR) / DPR;   // 띠 경계: 이웃 띠와 같은 기기 픽셀 (겹침·틈 없음 → 세로 줄 없음)
     let xa = xs(L.ox / sc);
     for (let tx0 = 0, tw; tx0 < CW; tx0 += tw) {
       const Xs = (L.ox + tx0) / sc, SD = FA.shoreDrop; tw = Math.min(SD && Xs > SD[0] - 60 && Xs < SD[1] + 60 ? 3 : FA.strip, CW - tx0);   // 높이가 바뀌는 구간은 잘게 (계단 없게)
       const X0 = (L.ox + tx0) / sc, X1 = (L.ox + tx0 + tw) / sc, xb = xs(X1);
-      const wm = burX(faA((X0 + X1) / 2)), z = terrainBaseAt(wm, B.hy), Xm = (X0 + X1) / 2, p0 = project(wm, B.hy, z + faH(L.oy / sc, Xm)), p1 = project(wm, B.hy, z + faH((L.oy + CH) / sc, Xm));   // 위·아래 끝 모두 실제 투영으로 (세로 배율 어긋남 없음)
+      const wm = burX(faA((X0 + X1) / 2)), Xm = (X0 + X1) / 2, p0 = faScreen(Xm, L.oy / sc), p1 = faScreen(Xm, (L.oy + CH) / sc);   // 위·아래 끝 모두 실제 투영으로 (세로 배율 어긋남 없음)
       const x0 = Math.min(xa, xb), x1 = Math.max(xa, xb); xa = xb;
       if (x1 < -20 || x0 > W + 20 || p0[2] < rig.near || x1 - x0 < 0.01) continue;
       const sx0 = xb > x0 + 1e-6 ? tx0 : tx0;   // (좌우 뒤집힘 없음: 섬은 화면 왼쪽)
@@ -4785,16 +4808,20 @@
     if (B.ff || B.phase === 'open') stepBurGuide(dt);
     if (BUR_LOCK[B.phase]) { S.jumpReq = false; S.jumpAt = 0; S.lastTapUp = 0; p.tobKick = Math.max(0, (p.tobKick || 0) - dt / 0.25); S.tapPulse = Math.max(0, S.tapPulse - dt * 5); p.air = false; p.vz = 0; }
     if (B.phase === 'open') {
-      if (p.mode !== 'island' || p.air) return;
-      const a = penA();
+      if (p.mode !== 'island') return;
+      const a = penA(), J = BUR.jumpIn, toward = B.side * p.vx;
       if (a > -BUR.arrive && B.pawT < 0) { B.pawT = S.time; log('burrowArrive'); }   // 입구 도착: 발바닥 버튼 한 번 은은하게
-      const SL = BUR.slip;
-      if (SL && a > -SL.r) {   // 구덩이 둘레는 미끄러움: 가까울수록 구덩이 쪽으로 끌려가고 비탈을 따라 내려감 (엎드릴 필요 없음)
-        const k = smooth(-SL.r, 0, a); p.vx += B.side * SL.pull * (0.25 + k) * dt; p.vy *= 1 - Math.min(1, dt * 4);
-        p.z = terrainBaseAt(p.x, p.y) + B.pitZ * k * SL.slopeSink; p.slipK = k;
-      } else p.slipK = 0;
-      if (a > -E.reach) {   // 구덩이에 빠짐
-        B.phase = 'enter'; B.t = 0; B.a0 = a; B.y0 = p.y; B.z0 = p.slipK * SL.slopeSink; p.vx = 0; p.vy = 0; S.keysLockT = S.time;   // 굴 가까이: 저절로 꽈당 넘어져 굴로 미끄러져 박힘 p.belly = false; p.bellyT = null; p.sliding = true; p.face = Math.atan2(0, B.side); log('burrowEnter');
+      // 굴은 땅보다 높은 곳: 앞으로 뛰며 점프하거나 슬라이딩으로 날아오면 → 저절로 슬라이딩 자세로 굴에 뽁 박힘
+      if (a > -J.reach && a < 0.3 && ((p.air && toward > J.airSpeed) || (p.sliding && !p.air && toward > J.slideSpeed))) {
+        B.phase = 'enter'; B.t = 0; B.a0 = a; B.y0 = p.y; B.z0 = clamp((p.z - terrainBaseAt(p.x, p.y)) / (B.pitZ || 1), 0, 1);
+        p.air = false; p.vz = 0; p.vx = 0; p.vy = 0; p.belly = false; p.bellyT = null; p.sliding = true; p.face = Math.atan2(0, B.side); log('burrowEnter');
+        return;
+      }
+      if (p.air) return;
+      if (a > -J.wall) {   // 걸어서 들이밀면: 굴 밑 흙 비탈을 조금 오르다 미끄러져 내려옴
+        const Hl = BUR.hill, pen = Math.min(a + J.wall, Hl.max); p.x = burX(-J.wall + pen);
+        p.vx -= B.side * Hl.back * (0.4 + pen) * dt; if (B.side * p.vx > 0 && pen >= Hl.max) p.vx = 0;
+        p.z = terrainBaseAt(p.x, p.y) + pen * Hl.rise;
       }
       return;
     }
@@ -4860,7 +4887,7 @@
   function drawBurrowFront(depth) {
     const B = S.bur, M = BUR.mound, K = BUR.color, fog = fogAt(depth), ppu = pxPerUnit(depth), sh = BUR.slotH, n = BUR.notch, L = M.len, mh = M.h, lip = M.lip;
     const jig = B.shake > 0 ? Math.sin(S.time * 60) * B.shake * 0.012 : 0;   // 몸부림에 뿌리도 살짝 흔들림
-    if (forestArt()) { if (BUR_LOCK[B.phase]) drawFrontDark(depth, jig * ppu * 0.5); }   // 굴 앞 레이어: 끼어 있을 때 몸 위로 (홈 안쪽만 보임)
+    if (forestArt()) { if (BUR_LOCK[B.phase] && (B.phase === 'enter' || !stuckReady())) drawFrontDark(depth, jig * ppu * 0.5); /* 끼인 그림이 있으면 앞 레이어는 들어가는 순간만 */ }   // 굴 앞 레이어: 끼어 있을 때 몸 위로 (홈 안쪽만 보임)
     else {
     // 뿌리 둔덕: 구멍 홈은 비우고 (그 안의 펭귄은 보임), 더 안쪽은 흙이 덮음
     const out = [[-0.05, sh + jig], [n, sh * 0.93], [n + 0.12, 0], [L, 0], [L - 0.7, mh * 0.42], [L - 1.4, mh * 0.82], [BUR.trunk.a, mh], [0.75, mh * 0.92], [0.18, sh + lip + 0.08], [-0.18, sh + lip * 0.7 + jig], [-0.24, sh + 0.08 + jig]];
