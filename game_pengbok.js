@@ -4651,7 +4651,7 @@
     faState.bg = faState.imgs[0]; faState.front = faState.imgs[1]; faState.ready = true; return faState;   // 밤빛·끝 투명은 tools/forest_art/build.py 에서 미리 입힘
   }
   // 원본 px → 월드: 굴 입구에서 안쪽 거리 a · 땅선 위 높이 h
-  const faA = (X) => (FA.holeX - X) / FA.ppu, faH = (Y) => (FA.pathY - Y) / FA.ppu - (FA.drop || 0);   // 그림 판 기준 = 그림 속 굴 입구 (S.bur.hx). drop: 아래로 내림 (월드)   // shift: 해안 쪽(−)으로 옮김 · drop: 아래로 내림 (월드)
+  const faA = (X) => (FA.holeX - X) / FA.ppu, faH = (Y, X) => (FA.pathY - Y) / FA.ppu - (X != null && FA.shoreDrop ? lerp(FA.drop || 0, FA.shoreDrop[2], smooth(FA.shoreDrop[0], FA.shoreDrop[1], X)) : (FA.drop || 0));   // 해안 쪽 끝(X 큰 쪽)은 더 내려 바위 뒤에 앉힘   // 그림 판 기준 = 그림 속 굴 입구 (S.bur.hx). drop: 아래로 내림 (월드)   // shift: 해안 쪽(−)으로 옮김 · drop: 아래로 내림 (월드)
   function forestSpan() { const D = window.FOREST_ART; return D ? [faA(0), faA(D.srcW)] : [0, 0]; }   // 안쪽 끝 a · 해안 쪽 끝 a
   // 그림 판 뒤에 이미 그려진 것(먼 숲·산·하늘): 줄였다 키워 흐리게 + 밤 안개 → 멀리 있는 것처럼. 그림 판 땅선 위, 그림이 있는 가로 범위에서만
   const faBl1 = document.createElement('canvas'), faBlG1 = faBl1.getContext('2d'), faBl2 = document.createElement('canvas'), faBlG2 = faBl2.getContext('2d');
@@ -4690,7 +4690,7 @@
   function drawForestDark(depth) {
     const G = BUR.guide, B = S.bur; if (!G.dark) return;
     const k = G.dark * smooth(G.darkFrom[0], G.darkFrom[1], Math.max(0, inlandDist(S.p.x, S.p.y))); S.fdK = k; if (k < 0.01) return;
-    const r = 0.25, w = Math.max(8, Math.ceil(W * r)), h = Math.max(8, Math.ceil(H * r)); fitCv(fdCv, w, h);
+    const r = 0.5, w = Math.max(8, Math.ceil(W * r)), h = Math.max(8, Math.ceil(H * r)); fitCv(fdCv, w, h);
     const g = fdG; g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.clearRect(0, 0, w, h);
     g.fillStyle = `rgba(0,0,0,${k})`; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'destination-out';
     for (const f of B.ffs || (B.ff ? [B.ff] : [])) {
@@ -4715,9 +4715,10 @@
     if (key === 'bg') { const e0 = project(burX(faA(0)), B.hy, 0)[0], e1 = project(burX(faA(D.srcW)), B.hy, 0)[0]; S.faRect = [Math.min(e0, e1), Math.max(e0, e1), S.time]; }
     const xs = (X) => Math.round(project(burX(faA(X)), B.hy, 0)[0] * DPR) / DPR;   // 띠 경계: 이웃 띠와 같은 기기 픽셀 (겹침·틈 없음 → 세로 줄 없음)
     let xa = xs(L.ox / sc);
-    for (let tx0 = 0; tx0 < CW; tx0 += FA.strip) {
-      const tw = Math.min(FA.strip, CW - tx0), X0 = (L.ox + tx0) / sc, X1 = (L.ox + tx0 + tw) / sc, xb = xs(X1);
-      const wm = burX(faA((X0 + X1) / 2)), z = terrainBaseAt(wm, B.hy), p0 = project(wm, B.hy, z + faH(L.oy / sc)), p1 = project(wm, B.hy, z + faH((L.oy + CH) / sc));   // 위·아래 끝 모두 실제 투영으로 (세로 배율 어긋남 없음)
+    for (let tx0 = 0, tw; tx0 < CW; tx0 += tw) {
+      const Xs = (L.ox + tx0) / sc, SD = FA.shoreDrop; tw = Math.min(SD && Xs > SD[0] - 60 && Xs < SD[1] + 60 ? 3 : FA.strip, CW - tx0);   // 높이가 바뀌는 구간은 잘게 (계단 없게)
+      const X0 = (L.ox + tx0) / sc, X1 = (L.ox + tx0 + tw) / sc, xb = xs(X1);
+      const wm = burX(faA((X0 + X1) / 2)), z = terrainBaseAt(wm, B.hy), Xm = (X0 + X1) / 2, p0 = project(wm, B.hy, z + faH(L.oy / sc, Xm)), p1 = project(wm, B.hy, z + faH((L.oy + CH) / sc, Xm));   // 위·아래 끝 모두 실제 투영으로 (세로 배율 어긋남 없음)
       const x0 = Math.min(xa, xb), x1 = Math.max(xa, xb); xa = xb;
       if (x1 < -20 || x0 > W + 20 || p0[2] < rig.near || x1 - x0 < 0.01) continue;
       const sx0 = xb > x0 + 1e-6 ? tx0 : tx0;   // (좌우 뒤집힘 없음: 섬은 화면 왼쪽)
@@ -4764,7 +4765,7 @@
       if (dd > 1e-4) { f.x += dx / dd * v; f.y += dy / dd * v; f.z += dz / dd * v; }
     }
     const f = B.ff; f.vis = Math.min(1, (f.vis || 0) + dt * 1.5);
-    const inHole = B.phase !== 'open', stopA = inHole ? -0.55 : -0.35, a = penA(), ta = inHole ? stopA : Math.min(stopA, a + G.lead), at = ta >= stopA - 0.01;   // 펭귄이 끼면 입구 위로 비켜 맴돎
+    const inHole = B.phase !== 'open', stopA = inHole ? -0.55 : -0.35, a = penA(), ta = inHole || a > -(G.waitFrom || 0) ? stopA : Math.min(stopA, a + G.lead),   /* 구덩이 가까워지면 먼저 가서 기다림 */ at = ta >= stopA - 0.01;   // 펭귄이 끼면 입구 위로 비켜 맴돎
     const tx = burX(ta + (at ? Math.sin(S.time * 0.9) * 0.08 : 0)), ty = B.hy + (at ? 0.18 : 0.25 + Math.sin(S.time * 0.5) * 0.2);
     const tz = terrainBaseAt(tx, B.hy) + B.pitZ * 0.6 + (at ? (inHole ? BUR.slotH + 0.45 : 0) + lerp(G.hover[0], G.hover[1], 0.5 + 0.5 * Math.sin(S.time * G.hoverHz * Math.PI * 2)) : G.height + Math.sin(S.time * 0.8) * 0.15);
     const dx = tx - f.x, dy = ty - f.y, dz = tz - f.z, dd = Math.hypot(dx, dy, dz), v = Math.min(dd, Math.max(0.3, Math.min(G.speed, dd * 2.2)) * dt);
@@ -4835,12 +4836,14 @@
     const [sa0, sa1] = forestArt() ? forestSpan() : [BUR.mound.len + 2, -2], e0 = project(burX(sa0), B.hy, 0)[0], e1 = project(burX(sa1), B.hy, 0)[0];
     if (Math.max(e0, e1) < -40 || Math.min(e0, e1) > W + 40) return;
     const front = !!BUR_LOCK[B.phase];
-    items.push({ d: Math.max(c[1], pd + 0.06), clearFog: !!forestArt(), draw: () => drawBurrowBack(c[1]) });   // 그림 판은 먼 안개 층 위에 (흐려지지 않게)
+    let bd = Math.max(c[1], pd + 0.06); if (forestArt()) for (const r of S.rocks || []) bd = Math.max(bd, camSpace(r.x, r.y, 0)[1] + 0.05);   // 그림 판은 해안 바위 뒤에
+    items.push({ d: bd, clearFog: !!forestArt(), draw: () => drawBurrowBack(c[1]) });
+    if (forestArt()) items.push({ d: pd + 0.02, draw: () => drawForestDark(c[1]) });   // 숲 어둠: 그림·바위·땅까지 덮고 펭귄 바로 앞에서 (펭귄은 밝게)   // 그림 판은 먼 안개 층 위에 (흐려지지 않게)
     items.push({ d: front ? pd - 0.06 : Math.max(c[1], pd + 0.04), draw: () => drawBurrowFront(c[1]) });
   }
   function burPoly(pts) { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); }
   function drawBurrowBack(depth) {
-    if (forestArt()) { blurBehindForest(depth); drawForestLayer('bg', depth); drawForestMist(depth); drawForestDark(depth); return; }   // 배경 원화가 있으면 그것으로 (언덕·굴 포함), 그 뒤 것은 흐리게
+    if (forestArt()) { blurBehindForest(depth); drawForestLayer('bg', depth); drawForestMist(depth); return; }   // 배경 원화가 있으면 그것으로 (언덕·굴 포함), 그 뒤 것은 흐리게
     const B = S.bur, M = BUR.mound, K = BUR.color, fog = fogAt(depth), ppu = pxPerUnit(depth), sh = BUR.slotH;
     // 큰 나무 줄기 (뿌리 둔덕 위로 화면 밖까지)
     const tb = burPt(BUR.trunk.a, M.h * 0.7), tt = burPt(BUR.trunk.a + 0.25, 14), tw = BUR.trunk.w * ppu;
