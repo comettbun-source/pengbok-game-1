@@ -990,6 +990,7 @@
     } else { p.maxSpS = maxSp; p.forceS = force; }
 
     if (S.jumpAt && performance.now() >= S.jumpAt) { S.jumpAt = 0; S.jumpReq = 'jump'; }
+    if (S.jumpReq && !p.air) p.slideJump = p.sliding || S.time - (p.slideEndAt ?? -9) < (C.BURROW ? C.BURROW.jumpIn.slideGrace : 0.6);   // 슬라이딩 점프인지 (슬라이딩 중이거나 막 끝낸 뒤 점프)
     if (S.jumpReq) {                                        // 점프: 중력 + 초기 속도의 포물선
       const kind = S.jumpReq; S.jumpReq = false;
       const SJ = P.superJump, h0 = P.jumpVelocity * P.jumpVelocity / (2 * P.gravity);
@@ -1063,7 +1064,7 @@
       if (PP && PP.enabled && p.mode === 'water' && deep && S.time - (p.slideAt ?? S.time) >= PP.minHold) {
         p.porpoiseAt = S.time; p.porpoiseDir = Math.hypot(p.vx, p.vy) > 0.05 ? Math.atan2(p.vy, p.vx) : p.face; p.dive.v -= PP.dipKick; log('porpoiseDip');
       }
-      p.sliding = false; log('slideEnd');
+      p.sliding = false; p.slideEndAt = S.time; log('slideEnd');
     }
     if (p.porpoiseAt != null && !p.air && S.time - p.porpoiseAt >= PP.dip) {
       p.porpoiseAt = null;
@@ -1317,7 +1318,7 @@
 
   function startAir(p) {
     if (p.mode === 'floe' && !p.air) snowPuff(p.x, p.y, p.z, false);   // 빙하에서 뛰어오름: 눈가루
-    if (p.sliding) { p.sliding = false; log('slideEnd'); }
+    if (p.sliding) { p.sliding = false; p.slideEndAt = S.time; log('slideEnd'); }
     p.air = true; p.sit = false; p.jumpBase = p.z; p.jumpHS = 0; p.airT = 0;
     const f = p.mode === 'floe' ? p.floe : null;
     p.cvx = f ? f.vx : 0; p.cvy = f ? f.vy : 0;
@@ -4732,6 +4733,9 @@
     const eg = G.createRadialGradient(0, 0, rr * 0.75, 0, 0, rr); eg.addColorStop(0, 'rgba(0,0,0,1)'); eg.addColorStop(1, 'rgba(0,0,0,0)'); G.fillStyle = eg; G.fillRect(-rr, -rr, rr * 2, rr * 2); G.restore();
     // 머리 쪽(구멍 안쪽)은 어둠 속으로
     G.globalCompositeOperation = 'destination-out'; const lg = G.createLinearGradient(-A / 2, 0, -A / 2 + A * SS.fade, 0); lg.addColorStop(0, 'rgba(0,0,0,1)'); lg.addColorStop(1, 'rgba(0,0,0,0)'); G.fillStyle = lg; G.fillRect(-R, -R, A * SS.fade + R - A / 2, R * 2);
+    // 검은 명암: 전체를 어둡게 + 구멍 쪽(머리·위)으로 더 어둡게 (밤 굴 속)
+    G.globalCompositeOperation = 'source-atop'; G.fillStyle = `rgba(6,7,14,${SS.shade})`; G.fillRect(-R, -R, R * 2, R * 2);
+    const dg = G.createLinearGradient(-A / 2, -Bm / 2, A / 2, Bm / 2); dg.addColorStop(0, `rgba(3,3,8,${SS.shadeHole})`); dg.addColorStop(0.65, 'rgba(3,3,8,0)'); G.fillStyle = dg; G.fillRect(-R, -R, R * 2, R * 2);
     G.globalCompositeOperation = 'source-over';
     let k = 1, al = 1; if (B.phase === 'pop') { const u = clamp(B.t / BUR.popTime, 0, 1); k = 1 - 0.7 * u * u; al = 1 - smooth(0.3, 1, u); }
     const sh = burShake(hp * 1.6);
@@ -4823,12 +4827,13 @@
       const a = penA(), J = BUR.jumpIn, toward = B.side * p.vx;
       if (a > -BUR.arrive && B.pawT < 0) { B.pawT = S.time; log('burrowArrive'); }   // 입구 도착: 발바닥 버튼 한 번 은은하게
       // 굴은 땅보다 높은 곳: 앞으로 뛰며 점프하거나 슬라이딩으로 날아오면 → 저절로 슬라이딩 자세로 굴에 뽁 박힘
-      if (a > -J.reach && a < 0.3 && ((p.air && toward > J.airSpeed) || (p.sliding && !p.air && toward > J.slideSpeed))) {
+      if (a > -J.reach && a < 0.3 && p.air && p.slideJump && toward > J.airSpeed) {   // 슬라이딩 점프로 날아올 때만
         B.phase = 'enter'; B.t = 0; B.a0 = a; B.y0 = p.y; B.z0 = clamp((p.z - terrainBaseAt(p.x, p.y)) / (B.pitZ || 1), 0, 1);
         p.air = false; p.vz = 0; p.vx = 0; p.vy = 0; p.belly = false; p.bellyT = null; p.sliding = true; p.face = Math.atan2(0, B.side); log('burrowEnter');
         return;
       }
       if (p.air) return;
+      p.slideJump = false;
       if (a > -J.wall) {   // 걸어서 들이밀면: 굴 밑 흙 비탈을 조금 오르다 미끄러져 내려옴
         const Hl = BUR.hill, pen = Math.min(a + J.wall, Hl.max); p.x = burX(-J.wall + pen);
         p.vx -= B.side * Hl.back * (0.4 + pen) * dt; if (B.side * p.vx > 0 && pen >= Hl.max) p.vx = 0;
