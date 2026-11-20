@@ -4722,12 +4722,19 @@
   function drawStuckSprite() {
     const B = S.bur, SS = FA.stuck, D = window.FOREST_ART, fi = B.presses % 2, L = D.stuck[fi], im = stuckImgs[fi];
     const Xr = SS.right - B.presses * SS.pushPx, pb = faScreen(Xr, SS.bottom), pt = faScreen(Xr, SS.bottom - SS.height); if (pb[2] < rig.near) return;
-    const hp = pb[1] - pt[1], wp = hp * L.w / L.h;
+    const hp = pb[1] - pt[1], asp = Math.min(L.w / L.h, (SS.aspect || 9) * (1 + (SS.holeFade || 0))), wp = hp * asp, sw = L.h * asp;   // 엉덩이 쪽 + 구멍 안으로 사라질 만큼
     let k = 1, al = 1, dx = 0; if (B.phase === 'pop') { const u = clamp(B.t / BUR.popTime, 0, 1); k = 1 - 0.8 * u * u; al = 1 - smooth(0.4, 1, u); dx = -wp * 0.6 * u; }
+    // 따로 그려서 왼쪽(머리 쪽)을 투명하게 → 구멍 어둠 속으로 녹아듦
+    const cw = Math.max(2, Math.ceil(wp * DPR)), ch = Math.max(2, Math.ceil(hp * DPR)); fitCv(stuckCv, cw, ch); const G = stuckG;
+    G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.clearRect(0, 0, cw, ch); G.imageSmoothingEnabled = true; G.drawImage(im, L.w - sw, 0, sw, L.h, 0, 0, cw, ch);
+    const fz = (SS.holeFade || 0) / (1 + (SS.holeFade || 0)), gr = G.createLinearGradient(0, 0, cw * (fz + 0.12), 0); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(fz * 0.6 / (fz + 0.12), 'rgba(0,0,0,0.85)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+    G.globalCompositeOperation = 'destination-out'; G.fillStyle = gr; G.fillRect(0, 0, cw, ch); G.globalCompositeOperation = 'source-over';
     const sh = burShake(hp * 1.6);
     ctx.save(); ctx.globalAlpha = al; ctx.translate(pb[0] + dx + (sh ? sh[0] : 0), pb[1] + (sh ? sh[1] : 0)); if (sh) ctx.rotate(sh[2] * 0.5);
-    ctx.scale(k, k); ctx.imageSmoothingEnabled = true; ctx.drawImage(im, -wp, -hp, wp, hp); ctx.restore(); ctx.globalAlpha = 1;
+    ctx.scale(k, k); ctx.imageSmoothingEnabled = true; ctx.drawImage(stuckCv, 0, 0, cw, ch, -wp, -hp, wp, hp);
+    ctx.restore(); ctx.globalAlpha = 1;
   }
+  const stuckCv = document.createElement('canvas'), stuckG = stuckCv.getContext('2d');
   // 그림 판의 원본 좌표 (X, Y) → 화면: 그 자리 땅을 투영하고 땅에서의 세로 배율로 올림 (그림 판은 평평한 그림이라 위아래로 원근 왜곡 없이. 굴·끼인 그림도 같은 식)
   function faScreen(X, Y) {
     const B = S.bur, x = burX(faA(X)), SD = FA.shoreDrop, y = SD && FA.shoreY != null ? lerp(B.hy, FA.shoreY, smooth(SD[0], SD[1], X)) : B.hy;   // 해안 쪽 끝은 바위와 같은 깊이 (카메라가 움직여도 바위 뒤에 그대로)
