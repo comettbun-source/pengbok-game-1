@@ -4723,16 +4723,19 @@
   function drawStuckSprite() {   // 구멍 타원 안에: 구멍 기울기로 돌리고, 구멍 크기에 맞추고, 타원 모양으로 부드럽게 오림 (엉덩이·발만 또렷, 머리 쪽은 구멍 어둠 속)
     const B = S.bur, SS = FA.stuck, Ho = SS.hole, D = window.FOREST_ART, fi = B.presses % 2, L = D.stuck[fi], im = stuckImgs[fi];
     const c = faScreen(Ho.cx, Ho.cy), c2 = faScreen(Ho.cx, Ho.cy + 100); if (c[2] < rig.near) return;
-    const sc = (c2[1] - c[1]) / 100, A = Ho.a * sc, Bm = Ho.b * sc, hp = Bm * SS.fill, wp = hp * L.w / L.h, push = B.presses * SS.pushPx * sc;
-    const R = Math.ceil(Math.max(A, wp) * 1.5), size = Math.max(4, Math.ceil(R * 2 * DPR)); fitCv(stuckCv, size, size);
+    const sc = (c2[1] - c[1]) / 100, A = Ho.a * sc, Bm = Ho.b * sc, push = B.presses * SS.pushPx * sc;
+    const PA = C.PENGUIN_ART, bq = window.PENGUIN_ART && window.PENGUIN_ART.frames[PA.pose.belly].parts.find((q) => q.kind === 'body'), u = B.u || penScale(camSpace(S.p.x, S.p.y, S.p.z)[1]);
+    const hp = bq ? bq.h * PA.scale * u * (SS.bodyK || 1) : Bm * SS.fill, wp = hp * L.w / L.h;   // 진입 직전 펭귄(엎드린 몸) 크기 그대로 → 끼는 순간 작아지지 않게
+    const R = Math.ceil(Math.max(A, wp) * 1.6), size = Math.max(4, Math.ceil(R * 2 * DPR)); fitCv(stuckCv, size, size);
     const G = stuckG; G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.globalAlpha = 1; G.clearRect(0, 0, size, size);
     G.setTransform(DPR, 0, 0, DPR, R * DPR, R * DPR); G.rotate(Ho.deg * Math.PI / 180); G.imageSmoothingEnabled = true;
     const rearX = A / 2 * SS.out - push; G.drawImage(im, rearX - wp, -hp / 2 + Bm * SS.drop, wp, hp);   // 엉덩이 끝 = 구멍 오른쪽(아래) 끝 근처
     // 구멍 모양으로 오림 (가장자리 부드럽게, 엉덩이가 살짝 튀어나올 만큼 넉넉히)
-    G.globalCompositeOperation = 'destination-in'; G.save(); G.scale(1, (Bm * SS.maskB) / (A * SS.maskA)); const rr = A / 2 * SS.maskA;
+    const mA = Math.max(A * SS.maskA, wp * 1.05), mB = Math.max(Bm * SS.maskB, hp * 1.1), mx = rearX - wp / 2;   // 오리는 타원: 구멍보다 작지 않게, 펭귄 몸을 다 담게
+    G.globalCompositeOperation = 'destination-in'; G.save(); G.translate(mx, Bm * SS.drop); G.scale(1, mB / mA); const rr = mA / 2;
     const eg = G.createRadialGradient(0, 0, rr * 0.75, 0, 0, rr); eg.addColorStop(0, 'rgba(0,0,0,1)'); eg.addColorStop(1, 'rgba(0,0,0,0)'); G.fillStyle = eg; G.fillRect(-rr, -rr, rr * 2, rr * 2); G.restore();
     // 머리 쪽(구멍 안쪽)은 어둠 속으로
-    G.globalCompositeOperation = 'destination-out'; const lg = G.createLinearGradient(-A / 2, 0, -A / 2 + A * SS.fade, 0); lg.addColorStop(0, 'rgba(0,0,0,1)'); lg.addColorStop(1, 'rgba(0,0,0,0)'); G.fillStyle = lg; G.fillRect(-R, -R, A * SS.fade + R - A / 2, R * 2);
+    G.globalCompositeOperation = 'destination-out'; const hx0 = rearX - wp, lg = G.createLinearGradient(hx0, 0, hx0 + wp * SS.fade, 0); lg.addColorStop(0, 'rgba(0,0,0,1)'); lg.addColorStop(1, 'rgba(0,0,0,0)'); G.fillStyle = lg; G.fillRect(-R, -R, hx0 + wp * SS.fade + R, R * 2);   // 머리 쪽 → 구멍 어둠
     // 검은 명암: 전체를 어둡게 + 구멍 쪽(머리·위)으로 더 어둡게 (밤 굴 속)
     G.globalCompositeOperation = 'source-atop'; G.fillStyle = `rgba(6,7,14,${SS.shade})`; G.fillRect(-R, -R, R * 2, R * 2);
     const dg = G.createLinearGradient(-A / 2, -Bm / 2, A / 2, Bm / 2); dg.addColorStop(0, `rgba(3,3,8,${SS.shadeHole})`); dg.addColorStop(0.65, 'rgba(3,3,8,0)'); G.fillStyle = dg; G.fillRect(-R, -R, R * 2, R * 2);
@@ -4920,7 +4923,7 @@
   function drawBurrowFront(depth) {
     const B = S.bur, M = BUR.mound, K = BUR.color, fog = fogAt(depth), ppu = pxPerUnit(depth), sh = BUR.slotH, n = BUR.notch, L = M.len, mh = M.h, lip = M.lip;
     const jig = B.shake > 0 ? Math.sin(S.time * 60) * B.shake * 0.012 : 0;   // 몸부림에 뿌리도 살짝 흔들림
-    if (forestArt()) { if (BUR_LOCK[B.phase] && (B.phase === 'enter' || !stuckReady())) drawFrontDark(depth, jig * ppu * 0.5); /* 끼인 그림이 있으면 앞 레이어는 들어가는 순간만 */ }   // 굴 앞 레이어: 끼어 있을 때 몸 위로 (홈 안쪽만 보임)
+    if (forestArt()) { if (BUR_LOCK[B.phase] && !stuckReady()) drawFrontDark(depth, jig * ppu * 0.5); /* 끼인 그림이 있으면 앞 레이어는 안 씀 (진입 순간 검은 덩어리처럼 튀어나와서) */ }   // 굴 앞 레이어: 끼어 있을 때 몸 위로 (홈 안쪽만 보임)
     else {
     // 뿌리 둔덕: 구멍 홈은 비우고 (그 안의 펭귄은 보임), 더 안쪽은 흙이 덮음
     const out = [[-0.05, sh + jig], [n, sh * 0.93], [n + 0.12, 0], [L, 0], [L - 0.7, mh * 0.42], [L - 1.4, mh * 0.82], [BUR.trunk.a, mh], [0.75, mh * 0.92], [0.18, sh + lip + 0.08], [-0.18, sh + lip * 0.7 + jig], [-0.24, sh + 0.08 + jig]];
