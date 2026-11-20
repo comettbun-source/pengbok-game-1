@@ -9,6 +9,8 @@ OLD = ''.join(map(chr, [103, 114, 105, 115]))
 G = dict(sat=0.74, bright=0.56, gamma=1.12, tint=(20, 28, 46), tintAmount=0.18)   # (채도 0.62 → 0.74 · 밝기 0.5 → 0.56) 조금 더 선명하게
 PATH_Y, SAND_X, BOTTOM_BAND, BOTTOM_PAD = 1975, 5588, 120, 1700   # 걷는 선 · 모래 덩어리 시작 x · 아래 늘일 띠 · 늘일 길이 (원본 px)
 DARK = None   # 사용자 그림(IMG_6231)에 명암이 이미 들어가 있어서 끔. 예: dict(level=0.5, edge=0.35, edgePx=22, seam=0.45, seamPx=28, inland=(150, 1250, 0.92))
+FRONT_FADE_BOTTOM = (2080, 2300)   # 앞 레이어 아래쪽 옅어지는 구간 (원본 y)
+CORNER_DARK = (4300, 5500, 700, 1750, 0.6)   # 오른쪽 위 어둡게: x 시작·끝, y 시작·끝(아래로 갈수록 덜), 세기
 RIGHT_DARK = None   # (끔) 예: (4620, 5585, 0.5)
 GROUND_SAT = (0.3, 0.55, 4920)   # 땅으로 볼 채도 범위 · 옅어지기 시작 x
 GROUND_FADE_START = 3920   # 걷는 선 아래 땅의 오른쪽 옅어지기 시작 (해안으로 넓게 페이드아웃)
@@ -49,6 +51,7 @@ def fades(img, key, ox, oy):   # 색은 그대로 두고 알파만: 오른쪽(�
         fr = fr * fr * (3 - 2 * fr)
     else: fr = 1
     fy = ((1 - sm_step(*FADE_BOTTOM, sy)) if FADE_BOTTOM else np.ones(h))[:, None]
+    if key == 'front': fy = fy * (1 - sm_step(*FRONT_FADE_BOTTOM, sy))[:, None]   # 앞 레이어 아래끝이 선으로 보이지 않게
     if key == 'bg' and GROUND_SAT:   # 오른쪽 끝: 칙칙한 땅 색만 옅어짐 (알록달록한 풀은 그대로)
         c = a[..., :3].astype(np.float32) / 255; mx = c.max(-1); mn = c.min(-1); sat = (mx - mn) / np.maximum(mx, 1e-3)
         ground = 1 - sm_step(GROUND_SAT[0], GROUND_SAT[1], sat)
@@ -68,6 +71,10 @@ def fades(img, key, ox, oy):   # 색은 그대로 두고 알파만: 오른쪽(�
         inner = 1 - DARK['inland'][2] * (1 - sm_step(DARK['inland'][0], DARK['inland'][1], sx))[None, :]   # 굴 너머 안쪽은 어둠으로
         rgb *= inner[..., None]
         a[..., :3] = np.clip(rgb, 0, 255).astype(np.uint8)
+    if key == 'bg' and CORNER_DARK:   # 시작(해안 쪽) 나무들 오른쪽 위를 어둡게
+        x0, x1, y0, y1, amt = CORNER_DARK
+        k = 1 - amt * sm_step(x0, x1, sx)[None, :] * (1 - sm_step(y0, y1, sy))[:, None]
+        a[..., :3] = (a[..., :3].astype(np.float32) * k[..., None]).astype(np.uint8)
     if key == 'bg' and RIGHT_DARK:
         k = 1 - (1 - RIGHT_DARK[2]) * sm_step(RIGHT_DARK[0], RIGHT_DARK[1], sx)[None, :]
         a[..., :3] = (a[..., :3].astype(np.float32) * k[..., None]).astype(np.uint8)

@@ -4638,7 +4638,7 @@
     if (FA && FA.enabled && window.FOREST_ART) { const D = window.FOREST_ART, a0 = (FA.holeX - D.srcW) / FA.ppu - 1, a1 = FA.holeX / FA.ppu + 0.5;   // 그림 판 둘레 3D 나무·덤불 치움 (그림 속 숲이 대신함)
       S.trees = FA.removeAllTrees ? [] : S.trees.filter((t) => { const a = (t.d ?? 0) - BUR.d; return !(a > a0 && a < a1 && Math.abs(t.y - hy) < FA.clearTrees); }); }
     const artOn = FA && FA.enabled && window.FOREST_ART, hx2 = hx + is.side * (artOn ? (FA.shift || 0) : 0);   // 그림을 옮긴 만큼 굴(그림 속 구덩이)도 같이
-    S.bur = { phase: 'open', t: 0, hx: hx2, hy, side: is.side, pitZ: artOn ? -(FA.drop || 0) * (FA.pitK ?? 1) : 0, ff: null, rim: 0, pawT: -99, presses: 0, armed: false, push: 0, dirt: [], shake: 0, pressT: -99, under: false, hidePen: false };
+    S.bur = { phase: 'open', t: 0, hx: hx2, hy, side: is.side, pitZ: artOn ? (FA.pitY != null ? (FA.pathY - FA.pitY) / FA.ppu - (FA.drop || 0) : -(FA.drop || 0)) : 0, /* 그림 속 굴 바닥 높이 (걷는 땅 기준) */ ff: null, rim: 0, pawT: -99, presses: 0, armed: false, push: 0, dirt: [], shake: 0, pressT: -99, under: false, hidePen: false };
   }
   const burX = (a) => S.bur.hx + S.bur.side * a;
   // ── 해안~땅굴 배경 원화: 굴 입구에 맞춰 이동 선 바로 뒤에 세운 그림 판 (밤빛은 처음 한 번 입힘) ──────
@@ -4689,7 +4689,7 @@
   const fdCv = document.createElement('canvas'), fdG = fdCv.getContext('2d');
   function drawForestDark(depth) {
     const G = BUR.guide, B = S.bur; if (!G.dark) return;
-    const k = G.dark * smooth(G.darkFrom[0], G.darkFrom[1], Math.max(0, inlandDist(S.p.x, S.p.y))); if (k < 0.01) return;
+    const k = G.dark * smooth(G.darkFrom[0], G.darkFrom[1], Math.max(0, inlandDist(S.p.x, S.p.y))); S.fdK = k; if (k < 0.01) return;
     const r = 0.25, w = Math.max(8, Math.ceil(W * r)), h = Math.max(8, Math.ceil(H * r)); fitCv(fdCv, w, h);
     const g = fdG; g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.clearRect(0, 0, w, h);
     g.fillStyle = `rgba(0,0,0,${k})`; g.fillRect(0, 0, w, h); g.globalCompositeOperation = 'destination-out';
@@ -4699,6 +4699,14 @@
       g.fillStyle = gr; g.fillRect(q[0] * r - R, q[1] * r - R, R * 2, R * 2);
     }
     g.globalCompositeOperation = 'source-over'; ctx.imageSmoothingEnabled = true; ctx.drawImage(fdCv, 0, 0, w, h, 0, 0, W, H);
+  }
+  // 굴 앞 레이어도 배경과 같은 어둠으로 (오프스크린에 그려 어둠 마스크를 덮은 뒤 올림)
+  const frCv = document.createElement('canvas'), frG = frCv.getContext('2d');
+  function drawFrontDark(depth, oy) {
+    fitCv(frCv, canvas.width, canvas.height); frG.setTransform(1, 0, 0, 1, 0, 0); frG.globalCompositeOperation = 'source-over'; frG.globalAlpha = 1; frG.clearRect(0, 0, frCv.width, frCv.height);
+    frG.setTransform(DPR, 0, 0, DPR, 0, DPR * oy); const keep = ctx; ctx = frG; try { drawForestLayer('front', depth); } finally { ctx = keep; }
+    if ((S.fdK || 0) > 0.01) { frG.setTransform(1, 0, 0, 1, 0, 0); frG.globalCompositeOperation = 'source-atop'; frG.imageSmoothingEnabled = true; frG.drawImage(fdCv, 0, 0, fdCv.width, fdCv.height, 0, 0, frCv.width, frCv.height); frG.globalCompositeOperation = 'source-over'; }
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.drawImage(frCv, 0, 0); ctx.restore();
   }
   function drawForestLayer(key, depth) {   // 세로 띠마다 그 자리 땅 높이에 맞춰 그림
     const A = forestArt(); if (!A) return false;
@@ -4782,7 +4790,7 @@
         p.z = terrainBaseAt(p.x, p.y) + B.pitZ * k * SL.slopeSink; p.slipK = k;
       } else p.slipK = 0;
       if (a > -E.reach) {   // 구덩이에 빠짐
-        B.phase = 'enter'; B.t = 0; B.a0 = a; B.y0 = p.y; B.z0 = p.slipK * SL.slopeSink; p.belly = false; p.bellyT = null; p.sliding = true; p.face = Math.atan2(0, B.side); log('burrowEnter');
+        B.phase = 'enter'; B.t = 0; B.a0 = a; B.y0 = p.y; B.z0 = p.slipK * SL.slopeSink; p.vx = 0; p.vy = 0; S.keysLockT = S.time;   // 굴 가까이: 저절로 꽈당 넘어져 굴로 미끄러져 박힘 p.belly = false; p.bellyT = null; p.sliding = true; p.face = Math.atan2(0, B.side); log('burrowEnter');
       }
       return;
     }
@@ -4846,7 +4854,7 @@
   function drawBurrowFront(depth) {
     const B = S.bur, M = BUR.mound, K = BUR.color, fog = fogAt(depth), ppu = pxPerUnit(depth), sh = BUR.slotH, n = BUR.notch, L = M.len, mh = M.h, lip = M.lip;
     const jig = B.shake > 0 ? Math.sin(S.time * 60) * B.shake * 0.012 : 0;   // 몸부림에 뿌리도 살짝 흔들림
-    if (forestArt()) { if (BUR_LOCK[B.phase]) { ctx.save(); ctx.translate(0, jig * ppu * 0.5); drawForestLayer('front', depth); ctx.restore(); } }   // 굴 앞 레이어: 끼어 있을 때 몸 위로 (홈 안쪽만 보임)
+    if (forestArt()) { if (BUR_LOCK[B.phase]) drawFrontDark(depth, jig * ppu * 0.5); }   // 굴 앞 레이어: 끼어 있을 때 몸 위로 (홈 안쪽만 보임)
     else {
     // 뿌리 둔덕: 구멍 홈은 비우고 (그 안의 펭귄은 보임), 더 안쪽은 흙이 덮음
     const out = [[-0.05, sh + jig], [n, sh * 0.93], [n + 0.12, 0], [L, 0], [L - 0.7, mh * 0.42], [L - 1.4, mh * 0.82], [BUR.trunk.a, mh], [0.75, mh * 0.92], [0.18, sh + lip + 0.08], [-0.18, sh + lip * 0.7 + jig], [-0.24, sh + 0.08 + jig]];
