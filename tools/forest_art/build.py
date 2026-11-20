@@ -57,6 +57,7 @@ def fades(img, key, ox, oy):   # 색은 그대로 두고 알파만: 오른쪽(�
     if key == 'bg' and GROUND_SAT:   # 오른쪽 끝: 칙칙한 땅 색만 옅어짐 (알록달록한 풀은 그대로)
         c = a[..., :3].astype(np.float32) / 255; mx = c.max(-1); mn = c.min(-1); sat = (mx - mn) / np.maximum(mx, 1e-3)
         ground = 1 - sm_step(GROUND_SAT[0], GROUND_SAT[1], sat)
+        ground = ground * sm_step(PATH_Y - 60, PATH_Y + 40, sy)[:, None]   # 풀이 있는 높이는 건드리지 않음 (풀 속 어두운 색이 지워져 찢겨 보이던 문제)
         fr = fr * (1 - ground * sm_step(GROUND_SAT[2], FADE_RIGHT[1], sx)[None, :])
     al = al * fy * fl * fr
     if DARK:   # 밤 장면: 검은 바탕에 투명도 50% 로 얹은 정도로 어둡게 + 테두리 살짝 더 어둡게 + 바닥과 풀 사이 그늘 + 굴 너머(섬 안쪽)는 어둠으로

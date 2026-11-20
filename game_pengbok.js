@@ -4744,10 +4744,27 @@
   }
   const stuckCv = document.createElement('canvas'), stuckG = stuckCv.getContext('2d');
   // 그림 판의 원본 좌표 (X, Y) → 화면: 그 자리 땅을 투영하고 땅에서의 세로 배율로 올림 (그림 판은 평평한 그림이라 위아래로 원근 왜곡 없이. 굴·끼인 그림도 같은 식)
-  function faScreen(X, Y) {
+  function faRaw(X) {   // 그림 판 X 의 땅 투영 · 땅에서 1 위 투영
     const B = S.bur, x = burX(faA(X)), SD = FA.shoreDrop, y = SD && FA.shoreY != null ? lerp(B.hy, FA.shoreY, smooth(SD[0], SD[1], X)) : B.hy;   // 해안 쪽 끝은 바위와 같은 깊이 (카메라가 움직여도 바위 뒤에 그대로)
-    const z = terrainBaseAt(x, y), g = project(x, y, z), u = project(x, y, z + 1);
-    return [g[0], g[1] + (u[1] - g[1]) * faH(Y, X), g[2]];
+    const z = IT ? C.world.shoreHeight + profileAt(inlandDist(x, y)) : terrainBaseAt(x, y); return [project(x, y, z), project(x, y, z + 1)];   // 바위 높이는 빼고 (바위 위를 지나는 띠가 들쭉날쭉 밀려 풀이 찢겨 보이지 않게)
+  }
+  // 깊이가 바뀌는 구간: 양 끝 위치는 그대로, 사이 가로 간격은 세로 배율에 비례해 나눔 (원근 때문에 가로로 늘어나 찌그러져 보이지 않게)
+  let faXCache = null;
+  function faX(X, gx) {
+    const SD = FA.shoreDrop; if (!SD || FA.shoreY == null || X <= SD[0] || X >= SD[1]) return gx;
+    const key = S.time + ':' + cam.x + ':' + W;
+    if (!faXCache || faXCache.key !== key) {
+      const N = 32, xs = [], cum = [0]; let tot = 0;
+      for (let i = 0; i <= N; i++) { const Xi = lerp(SD[0], SD[1], i / N), r = faRaw(Xi); xs.push(r[0][0]); if (i) { const v = (Math.abs(faXCache_v(r)) + Math.abs(faXCache_v(faRaw(lerp(SD[0], SD[1], (i - 1) / N))))) / 2; tot += v; cum.push(tot); } }
+      faXCache = { key, x0: xs[0], x1: xs[N], cum, tot, N };
+    }
+    const C2 = faXCache, f = (X - SD[0]) / (SD[1] - SD[0]) * C2.N, i = Math.min(C2.N - 1, Math.floor(f)), c = lerp(C2.cum[i], C2.cum[i + 1], f - i) / (C2.tot || 1);
+    return lerp(C2.x0, C2.x1, c);
+  }
+  const faXCache_v = (r) => r[1][1] - r[0][1];
+  function faScreen(X, Y) {
+    const r = faRaw(X), g = r[0], u = r[1];
+    return [faX(X, g[0]), g[1] + (u[1] - g[1]) * faH(Y, X), g[2]];
   }
   function drawForestLayer(key, depth) {   // 세로 띠마다 그 자리 땅 높이에 맞춰 그림
     const A = forestArt(); if (!A) return false;
@@ -4827,7 +4844,7 @@
       const a = penA(), J = BUR.jumpIn, toward = B.side * p.vx;
       if (a > -BUR.arrive && B.pawT < 0) { B.pawT = S.time; log('burrowArrive'); }   // 입구 도착: 발바닥 버튼 한 번 은은하게
       // 굴은 땅보다 높은 곳: 앞으로 뛰며 점프하거나 슬라이딩으로 날아오면 → 저절로 슬라이딩 자세로 굴에 뽁 박힘
-      if (a > -J.reach && a < 0.3 && p.air && p.slideJump && toward > J.airSpeed) {   // 슬라이딩 점프로 날아올 때만
+      if (a > -J.reach && a < 0.3 && (p.sliding || (p.air && p.slideJump))) {   // 굴 근처에서 슬라이딩(또는 슬라이딩 점프)하면 저절로 쓱 미끄러져 들어감
         B.phase = 'enter'; B.t = 0; B.a0 = a; B.y0 = p.y; B.z0 = clamp((p.z - terrainBaseAt(p.x, p.y)) / (B.pitZ || 1), 0, 1);
         p.air = false; p.vz = 0; p.vx = 0; p.vy = 0; p.belly = false; p.bellyT = null; p.sliding = true; p.face = Math.atan2(0, B.side); log('burrowEnter');
         return;
@@ -4842,7 +4859,7 @@
       return;
     }
     if (B.phase === 'enter') {   // 머리 → 날개 → 배 순서로 뿌리 뒤로 들어가다 통통한 배에서 딱
-      const k = clamp(B.t / E.time, 0, 1), e = 1 - Math.pow(1 - k, 2.4);
+      const k = clamp(B.t / E.time, 0, 1), e = k * k * (3 - 2 * k);   // 구멍 중심으로 부드럽게 (충돌·비탈 밀림 없이)
       setPenA(lerp(B.a0, E.stuckA, e), lerp(B.z0 || 0, 1, Math.min(1, e * 1.6))); p.y = lerp(B.y0, B.hy + 0.04, e); p.vx = B.side * (1 - k) * 1.2; p.vy = 0; p.sliding = true;
       if (k >= 1) { B.phase = 'stuck'; B.t = 0; B.armed = false; B.shake = 1.3; B.u = penScale(camSpace(p.x, p.y, p.z)[1]); buzz(BUR.buzz.stuck); burDirt(6); log('burrowStuck'); }
       return;
@@ -5162,5 +5179,5 @@
   reset();
   requestAnimationFrame(frame);
 
-  window.__game = { reliefOff: 1, drawPenguinFigure, penguinView, surfaceAt, get sim() { return sim; }, drawFrame: () => draw(1 / 60), step, keys, STEP, penScale, floeTopAt, terrainHeightAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
+  window.__game = { faScreen: (X, Y) => faScreen(X, Y), reliefOff: 1, drawPenguinFigure, penguinView, surfaceAt, get sim() { return sim; }, drawFrame: () => draw(1 / 60), step, keys, STEP, penScale, floeTopAt, terrainHeightAt, depthAt, S, C, cam, layout, pointers, project, reset, screenDirToWorld, lum, activeFloes, jumpMaxDist };
 })();

@@ -591,7 +591,7 @@ const ISLAND_TERRAIN = {
   slope: { uphillSlow: 0.25, slideSlope: 0.08, slideAccel: 1.6 },   // 오르막 최대 −25%, 이보다 가파른 내리막은 살짝 미끄러짐
   // 구역: 이동 속도 배율 · 나무 밀도(단위 넓이당 그루) · 지면 색
   zones: [
-    { name: 'sand', to: 6, speed: 0.95, /* (0.62 → 0.95) 숲(1.45)보다는 느리게 */   // (0.5 → 0.62) 살짝 빠르게
+    { name: 'sand', to: 6, speed: 1.2, /* (0.95 → 1.2, 약 26% 빠르게) 숲(1.45)보다는 느리게 */   // (0.5 → 0.62) 살짝 빠르게
       trees: 0, color: [70, 65, 58] },   // (58,60,64 → 70,65,58) 밤의 모래: 살짝 따뜻한 베이지 회색 (참고 사진)
     { name: 'forestEdge', to: 14, speed: 1.45, trees: [0.12, 0.2], color: [36, 40, 40] },   // 속도 0.8 → 1.15 (모래만 그대로)
     { name: 'forestDeep', to: 34, speed: 1.65, trees: [0.14, 0.24], color: [24, 28, 29] },   // 0.85 → 1.25
@@ -927,14 +927,14 @@ const BURROW = {
   color: { soil: [38, 31, 25], root: [52, 42, 33], rootLit: [104, 84, 62], trunk: [40, 37, 32], hole: [5, 5, 6] },
   wall: 0.34,                 // 서 있거나 굴 쪽으로 밀지 않으면 입구 앞 이 거리부터 언덕
   hill: { max: 0.35, rise: 0.9, back: 9 },   // 굴 밑 흙 비탈: 걸어서 오를 수 있는 만큼 · 높이 배율 · 미끄러져 내려오는 세기
-  jumpIn: { reach: 2.2, wall: 0.9, airSpeed: 0.3, slideSpeed: 0.8, slideGrace: 0.6 },   /* 슬라이딩 점프만: 슬라이딩 중이거나 슬라이딩을 끝낸 뒤 slideGrace 초 안에 점프 */   // 굴 진입: 입구에서 reach 안에서 앞으로 점프(공중) 또는 슬라이딩(속도 이상)으로 오면 박힘 · 걸어서는 wall 앞 비탈에서 미끄러져 내려옴
+  jumpIn: { reach: 2.2, /* 이 거리 안에서 슬라이딩 → 자동 진입 */ wall: 0.9, airSpeed: 0.3, slideSpeed: 0.8, slideGrace: 0.6 },   /* 슬라이딩 점프만: 슬라이딩 중이거나 슬라이딩을 끝낸 뒤 slideGrace 초 안에 점프 */   // 굴 진입: 입구에서 reach 안에서 앞으로 점프(공중) 또는 슬라이딩(속도 이상)으로 오면 박힘 · 걸어서는 wall 앞 비탈에서 미끄러져 내려옴
   slip: { r: 1.8, pull: 6, slopeSink: 0.35 },   // 구덩이 둘레 미끄러움: 반경 · 끌려가는 힘 · 다가갈수록 비탈로 내려가는 비율 (구덩이 깊이 = FOREST_ART.drop)   // 굴 위 언덕: 올라가면(최대 max) 높이 rise 배로 오르다 back 세기로 미끄러져 내려옴 → 그 너머는 못 감
   arrive: 2.4,                // 입구에서 이 거리 안으로 오면 발바닥 버튼을 한 번 은은하게 강조
   // 노란 반딧불이: 숲 안 이 거리(from)부터 펭귄보다 lead 만큼 앞서 가다가 입구에서 멈춰 낮게 오르내리며 테두리를 밝힘
   guide: { count: 6, dark: 0.8, darkFrom: [0, 7], darkRate: 0.45, waitFrom: 9,   /* darkRate: 어둠이 따라오는 빠르기 (작을수록 천천히) */ /* darkFrom: 육지 도착부터 어두워짐 · waitFrom: 구덩이 이 거리 안이면 반딧불이가 먼저 가서 기다림 */ lightR: 0.95,   /* count 안내 반딧불이 수 · dark 숲 어둠 진하기(숲 안쪽으로 갈수록) · lightR 반딧불이 둘레 밝은 반경 */ from: 4, lead: 2.2, height: 0.95, hover: [0.12, 0.5], hoverHz: 0.4, speed: 3.4, size: 0.024 },
   rimGlow: { alpha: 0.35, range: 1.1 },   // 반딧불이 둘레로 번지는 빛 (진하기 · 반지름)
   // 진입: 입구에서 reach 안 + 슬라이딩(엎드림) + 굴 쪽으로 minSpeed 이상 → 들어감 (가까이 가기만 해선 안 들어감)
-  enter: { reach: 1.3, minSpeed: 0.25, time: 0.45, stuckA: 0.42 },   // stuckA: 끼었을 때 펭귄 발 기준점 위치 (입구에서 안쪽으로)
+  enter: { reach: 1.3, minSpeed: 0.25, time: 0.75, stuckA: 0.42 },   // stuckA: 끼었을 때 펭귄 발 기준점 위치 (입구에서 안쪽으로)
   dirt: false,                // 입구 흙 부스러기 (끔)
   taps: 5,                    // 끼인 뒤 발바닥 버튼을 새로 누른 횟수 → 이 수가 되면 뽁 (시간 제한 없음, 끼일 때 누르고 있던 입력은 안 셈)
   tapPush: 0.02,              // 누를 때마다 조금씩 더 들어감
