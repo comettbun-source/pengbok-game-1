@@ -4719,20 +4719,24 @@
     if (!stuckImgs) stuckImgs = D.stuck.map((L) => { const im = new Image(); im.src = L.img; return im; });
     return stuckImgs.every((im) => im.complete && im.naturalWidth);
   }
-  function drawStuckSprite() {
-    const B = S.bur, SS = FA.stuck, D = window.FOREST_ART, fi = B.presses % 2, L = D.stuck[fi], im = stuckImgs[fi];
-    const Xr = SS.right - B.presses * SS.pushPx, pb = faScreen(Xr, SS.bottom), pt = faScreen(Xr, SS.bottom - SS.height); if (pb[2] < rig.near) return;
-    const hp = pb[1] - pt[1], asp = Math.min(L.w / L.h, (SS.aspect || 9) * (1 + (SS.holeFade || 0))), wp = hp * asp, sw = L.h * asp;   // 엉덩이 쪽 + 구멍 안으로 사라질 만큼
-    let k = 1, al = 1, dx = 0; if (B.phase === 'pop') { const u = clamp(B.t / BUR.popTime, 0, 1); k = 1 - 0.8 * u * u; al = 1 - smooth(0.4, 1, u); dx = -wp * 0.6 * u; }
-    // 따로 그려서 왼쪽(머리 쪽)을 투명하게 → 구멍 어둠 속으로 녹아듦
-    const cw = Math.max(2, Math.ceil(wp * DPR)), ch = Math.max(2, Math.ceil(hp * DPR)); fitCv(stuckCv, cw, ch); const G = stuckG;
-    G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.clearRect(0, 0, cw, ch); G.imageSmoothingEnabled = true; G.drawImage(im, L.w - sw, 0, sw, L.h, 0, 0, cw, ch);
-    const fz = (SS.holeFade || 0) / (1 + (SS.holeFade || 0)), gr = G.createLinearGradient(0, 0, cw * (fz + 0.12), 0); gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(fz * 0.6 / (fz + 0.12), 'rgba(0,0,0,0.85)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-    G.globalCompositeOperation = 'destination-out'; G.fillStyle = gr; G.fillRect(0, 0, cw, ch); G.globalCompositeOperation = 'source-over';
+  function drawStuckSprite() {   // 구멍 타원 안에: 구멍 기울기로 돌리고, 구멍 크기에 맞추고, 타원 모양으로 부드럽게 오림 (엉덩이·발만 또렷, 머리 쪽은 구멍 어둠 속)
+    const B = S.bur, SS = FA.stuck, Ho = SS.hole, D = window.FOREST_ART, fi = B.presses % 2, L = D.stuck[fi], im = stuckImgs[fi];
+    const c = faScreen(Ho.cx, Ho.cy), c2 = faScreen(Ho.cx, Ho.cy + 100); if (c[2] < rig.near) return;
+    const sc = (c2[1] - c[1]) / 100, A = Ho.a * sc, Bm = Ho.b * sc, hp = Bm * SS.fill, wp = hp * L.w / L.h, push = B.presses * SS.pushPx * sc;
+    const R = Math.ceil(Math.max(A, wp) * 1.5), size = Math.max(4, Math.ceil(R * 2 * DPR)); fitCv(stuckCv, size, size);
+    const G = stuckG; G.setTransform(1, 0, 0, 1, 0, 0); G.globalCompositeOperation = 'source-over'; G.globalAlpha = 1; G.clearRect(0, 0, size, size);
+    G.setTransform(DPR, 0, 0, DPR, R * DPR, R * DPR); G.rotate(Ho.deg * Math.PI / 180); G.imageSmoothingEnabled = true;
+    const rearX = A / 2 * SS.out - push; G.drawImage(im, rearX - wp, -hp / 2 + Bm * SS.drop, wp, hp);   // 엉덩이 끝 = 구멍 오른쪽(아래) 끝 근처
+    // 구멍 모양으로 오림 (가장자리 부드럽게, 엉덩이가 살짝 튀어나올 만큼 넉넉히)
+    G.globalCompositeOperation = 'destination-in'; G.save(); G.scale(1, (Bm * SS.maskB) / (A * SS.maskA)); const rr = A / 2 * SS.maskA;
+    const eg = G.createRadialGradient(0, 0, rr * 0.75, 0, 0, rr); eg.addColorStop(0, 'rgba(0,0,0,1)'); eg.addColorStop(1, 'rgba(0,0,0,0)'); G.fillStyle = eg; G.fillRect(-rr, -rr, rr * 2, rr * 2); G.restore();
+    // 머리 쪽(구멍 안쪽)은 어둠 속으로
+    G.globalCompositeOperation = 'destination-out'; const lg = G.createLinearGradient(-A / 2, 0, -A / 2 + A * SS.fade, 0); lg.addColorStop(0, 'rgba(0,0,0,1)'); lg.addColorStop(1, 'rgba(0,0,0,0)'); G.fillStyle = lg; G.fillRect(-R, -R, A * SS.fade + R - A / 2, R * 2);
+    G.globalCompositeOperation = 'source-over';
+    let k = 1, al = 1; if (B.phase === 'pop') { const u = clamp(B.t / BUR.popTime, 0, 1); k = 1 - 0.7 * u * u; al = 1 - smooth(0.3, 1, u); }
     const sh = burShake(hp * 1.6);
-    ctx.save(); ctx.globalAlpha = al; ctx.translate(pb[0] + dx + (sh ? sh[0] : 0), pb[1] + (sh ? sh[1] : 0)); if (sh) ctx.rotate(sh[2] * 0.5);
-    ctx.scale(k, k); ctx.imageSmoothingEnabled = true; ctx.drawImage(stuckCv, 0, 0, cw, ch, -wp, -hp, wp, hp);
-    ctx.restore(); ctx.globalAlpha = 1;
+    ctx.save(); ctx.globalAlpha = al; ctx.translate(c[0] + (sh ? sh[0] : 0), c[1] + (sh ? sh[1] : 0)); if (sh) ctx.rotate(sh[2] * 0.4); ctx.scale(k, k);
+    ctx.drawImage(stuckCv, 0, 0, size, size, -R, -R, R * 2, R * 2); ctx.restore(); ctx.globalAlpha = 1;
   }
   const stuckCv = document.createElement('canvas'), stuckG = stuckCv.getContext('2d');
   // 그림 판의 원본 좌표 (X, Y) → 화면: 그 자리 땅을 투영하고 땅에서의 세로 배율로 올림 (그림 판은 평평한 그림이라 위아래로 원근 왜곡 없이. 굴·끼인 그림도 같은 식)
